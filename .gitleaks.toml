@@ -1,0 +1,9 @@
+title = "Agentic Orchestration secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "The exact literal placeholder used in API examples, not an installed credential."
+regexTarget = "secret"
+regexes = ['''^YOUR_API_KEY$''']

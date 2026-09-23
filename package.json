@@ -1,0 +1,60 @@
+{
+  "name": "agentic-orchestration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite --config apps/studio/vite.config.ts",
+    "dev:api": "tsx watch apps/api/src/server.ts",
+    "dev:runner": "tsx watch apps/runner/src/worker.ts",
+    "build": "npm run typecheck && tsc -p tsconfig.server.json && vite build --config apps/studio/vite.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p apps/studio/tsconfig.json",
+    "start": "node dist/apps/api/src/server.js",
+    "runner": "node dist/apps/runner/src/worker.js",
+    "test": "node --import tsx --test tests/unit/*.test.ts",
+    "test:integration": "node --import tsx --test --test-concurrency=1 tests/integration/*.test.ts",
+    "test:browser": "playwright test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "@xyflow/react": "12.11.6",
+    "amqplib": "^0.10.9",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "lucide-react": "^0.468.0",
+    "mammoth": "^1.11.0",
+    "mongodb": "^6.20.0",
+    "multer": "^2.0.2",
+    "pdf-parse": "1.1.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "undici": "^7.29.1",
+    "yaml": "^2.8.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/amqplib": "^0.10.8",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.5",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.19.0",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "prettier": "^3.9.9",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.3"
+  }
+}
