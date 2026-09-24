@@ -18,7 +18,6 @@ Open **http://localhost:8088**. Create your local administrator account using th
 
 `start.sh` generates unique credentials, builds the application, starts Compose, and waits for healthy services. After configuration exists, you can also use:
 
-
 ```sh
 docker compose up --build -d --wait
 ```
@@ -103,20 +102,49 @@ See [the API reference](docs/api.md) for request shapes and permissions.
 
 ## Architecture
 
+### Components
+
 ```mermaid
 flowchart LR
-  UI[React agent studio] --> API[Express frontend API]
-  Client[API / chat / webhook / iframe] --> API
-  API --> Mongo[(MongoDB metadata + outbox)]
-  API --> MQ[(RabbitMQ)]
-  MQ --> Runner[Agent and indexing runner]
+  subgraph Clients
+    Browser[Browser: React agent studio]
+    External[API key / chat / webhook / iframe caller]
+  end
+
+  subgraph "apps/api"
+    API[Express API<br/>auth · resources · scheduler · queue dispatcher · static UI hosting]
+  end
+
+  subgraph "Shared state"
+    Mongo[(MongoDB<br/>metadata + outbox)]
+    MQ[(RabbitMQ)]
+    Files[(Shared filesystem)]
+  end
+
+  subgraph "apps/runner"
+    Runner[Queue consumer<br/>run execution · document ingestion/deletion]
+  end
+
+  subgraph "External services"
+    Vector[(Weaviate)]
+    LLM[Configured model providers]
+    MCP[MCP servers]
+  end
+
+  Browser --> API
+  External --> API
+  API --> Mongo
+  API --> MQ
+  API --> Files
+  MQ --> Runner
   Runner --> Mongo
-  API --> Files[(Shared filesystem)]
   Runner --> Files
-  Runner --> Vector[(Weaviate)]
-  API --> Vector
-  Runner --> LLM[Configured model providers]
-  Runner --> MCP[MCP servers]
+  Runner --> Vector
+  Runner --> LLM
+  Runner --> MCP
+  API -. provider test .-> LLM
+  API -. tool discovery .-> MCP
+  API -. retrieval test .-> Vector
 ```
 
 | Path            | Purpose                                                                                           |
@@ -127,7 +155,91 @@ flowchart LR
 | `packages/core` | Shared schemas, agent runtime, provider adapters, MCP/OAuth, storage, retrieval, queue            |
 | `tests`         | Unit, real-stack integration, fault-injection, and browser tests with test-only provider fixtures |
 
+The dotted edges are administrative, not execution: the API calls a model provider directly only to verify credentials (`POST /providers/:id/test`), calls an MCP server directly only to list its tools (`POST /connections/:id/discover`), and calls Weaviate directly only for the Knowledge Base's inline retrieval test (`POST /knowledge/:id/search`). Every agent turn, workflow tool call, and document ingestion/deletion runs in the runner, reached only through RabbitMQ.
+
 MongoDB, RabbitMQ, and Weaviate use their community distributions, run locally, and have independent persistent volumes. Only the studio HTTP port is published by the default Compose stack. No AWS, Google account login, S3, Redis, or managed database service is needed.
+
+### Run lifecycle
+
+Submitting a run and getting its result crosses the outbox, the broker, and a leased execution in the runner:
+
+```mermaid
+sequenceDiagram
+  participant C as Client (UI / API key / webhook)
+  participant A as API
+  participant M as MongoDB
+  participant Q as RabbitMQ
+  participant R as Runner
+  participant X as Model providers / MCP / Weaviate
+
+  C->>A: POST /runs (or /chat)
+  A->>M: insert run, status = queued (the outbox row)
+  A->>Q: publish (kind: run, id) - best effort
+  alt broker reachable
+    A->>M: set publishedAt
+  else broker unreachable
+    Note over A,M: run stays queued with no publishedAt, the periodic dispatcher republishes it later
+  end
+  A-->>C: 202 Accepted (id)
+  Q->>R: deliver job
+  R->>M: claim atomically: queued to running, leaseId, leaseUntil = now + 30s
+  loop every 5s while running
+    R->>M: refresh leaseUntil
+  end
+  R->>X: agent turns, tool calls, retrieval
+  X-->>R: results
+  R->>M: append trace events, checkpoint each node's output
+  R->>M: set terminal status: succeeded / failed / cancelled / interrupted
+  R->>Q: ack
+  C->>A: GET /runs/:id (poll)
+  A->>M: read run
+  A-->>C: status + output + trace
+```
+
+If the runner process dies mid-run, its message is never acked and its lease is never renewed. A periodic sweep (`recoverStaleJobs`) finds runs whose `leaseUntil` has passed and marks them `interrupted` once it does — no other replica resumes the run from its last checkpoint. See [Run states](#run-states) and [design notes](docs/design.md) for why.
+
+### Run states
+
+```mermaid
+stateDiagram-v2
+  [*] --> queued : createRun (dedups on Idempotency-Key or schedule)
+  queued --> running : a runner claims it
+  queued --> cancelled : cancelled before any runner claims it
+  running --> succeeded : executeRun resolves
+  running --> failed : executeRun throws
+  running --> cancelled : cancellation observed by the runner
+  running --> interrupted : lease expires - runner crashed or lost
+  succeeded --> [*]
+  failed --> [*]
+  cancelled --> [*]
+  interrupted --> [*]
+```
+
+`interrupted` is terminal, not retried automatically: a tool call before the crash may already have taken effect, so replaying blind is unsafe. Review the run's trace and start a new run deliberately.
+
+### Workflow node types
+
+| Node type   | Behavior                                                                                   | Outgoing connections                                       |
+| ----------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `start`     | Entry point of the workflow                                                                | one `next`                                                 |
+| `agent`     | Runs an agent's bounded reasoning loop; the model chooses when to call its bound MCP tools | one `next`, plus bottom-port MCP tool / knowledge bindings |
+| `tool`      | Makes one fixed MCP call with templated arguments, no model involved                       | one `next`                                                 |
+| `parallel`  | Runs 2-8 agents concurrently on the same prompt and waits for all                          | one `next`                                                 |
+| `condition` | Evaluates a templated comparison                                                           | `onTrue` and `onFalse`                                     |
+| `output`    | Renders a template from accumulated state and ends that path                               | none - terminal                                            |
+| `finish`    | Same as `output`; the canonical end of a workflow                                          | none - terminal                                            |
+
+For example, the **Research and review** starter wires two agents and a knowledge binding like this:
+
+```mermaid
+flowchart LR
+  Start([Start]) --> Researcher[["Researcher (agent)"]]
+  Researcher --> Reviewer[["Reviewer (agent)"]]
+  Reviewer --> Finish([Finish])
+  Knowledge[("Knowledge base")] -. bound to .-> Researcher
+```
+
+An agent's bound MCP tools and knowledge bases are available throughout its own turn budget, not fixed steps in the graph; a `tool` node is for a call that must happen in a fixed order outside any agent's reasoning.
 
 ## Operations and limits
 
