@@ -1,8 +1,8 @@
 # API reference
 
 All paths below start with `/api`. Requests and errors are JSON except document
-uploads/downloads. Errors have the shape `{ "error": "message" }`. All resource
-IDs are UUIDs. Unknown fields are removed by the input schemas.
+uploads/downloads. Errors have the shape `{ "error": "message" }`. Stored resource
+IDs are UUIDs; workflow node/resource IDs are local names. Unknown fields are removed by the input schemas.
 
 ## Local accounts and sessions
 
@@ -26,10 +26,12 @@ scoped bearer API key for application integrations.
 
 The following collections provide `GET /collection`, `POST /collection`,
 `GET /collection/:id`, `PUT /collection/:id`, and `DELETE /collection/:id`.
-They require a studio session and return only resources owned by that account.
+They require a studio session and return only resources in that user's tenant.
 PUT uses a complete resource definition. The list endpoints return the newest
 500 resources. Delete fails with 409 while dependent resources still reference
-the item.
+the item. Responses include a `revision`. Supply `If-Match: <revision>` on PUT
+for optimistic concurrency; a stale version returns 409. The canvas always
+uses this precondition. Legacy resources without revisions use `If-Match: 0`.
 
 | Collection    | Required fields                      | Optional fields                                                                                                                                        |
 | ------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -37,7 +39,7 @@ the item.
 | `connections` | `name`, `url`                        | `transport` (`http`/`sse`), `authType` (`none`/`token`/`oauth`), `token`, `tokenHeader`, `oauthClientId`, `oauthClientSecret`, `oauthScope`, `enabled` |
 | `agents`      | `name`, `providerId`, `systemPrompt` | `description`, `connections`, `knowledgeBaseIds`, `maxTurns`, `timeoutSeconds`, `enabled`                                                              |
 | `knowledge`   | `name`, `providerId`                 | `description`                                                                                                                                          |
-| `workflows`   | `name`, `startAt`, `nodes`           | `description`, `enabled`, `schedule`                                                                                                                   |
+| `workflows`   | `name`, `startAt`, `nodes`           | `description`, `enabled`, `schedule`, `resources`, `bindings`, `maxSteps`                                                                              |
 
 Secret fields are write-only. Omit them on PUT to preserve an existing secret;
 an explicit empty string clears it. Responses expose `hasApiKey`, `hasToken`,
@@ -69,38 +71,69 @@ Discover tools before selecting them. Empty lists grant no tool permissions.
 ## Workflow definitions
 
 ```yaml
-name: Research and summarize
+name: MCP research assistant
 enabled: true
-startAt: research
+startAt: start
+maxSteps: 100
 nodes:
-  - id: research
-    name: Research
+  - id: start
+    name: Start
+    type: start
+    next: researcher
+  - id: researcher
+    name: Researcher
     type: agent
-    agentId: AGENT_UUID
+    config:
+      name: Researcher
+      providerId: PROVIDER_UUID
+      systemPrompt: Use the selected tools to research the question and verify the results.
     prompt: '{{input}}'
-    next: answer
-  - id: answer
-    name: Final response
-    type: output
-    template: '{{steps.research}}'
+    next: finish
+  - id: finish
+    name: Finish
+    type: finish
+    template: '{{last}}'
+resources:
+  - id: research_tools
+    name: Research tools
+    type: mcp
+    connectionId: MCP_CONNECTION_UUID
+    tools: [search, read_document]
+bindings:
+  - agentNodeId: researcher
+    resourceId: research_tools
 ```
 
-Nodes use stable local IDs. All nodes must be reachable from `startAt`; cycles
-are rejected. Supported definitions:
+Nodes use stable local IDs (letters, numbers, `_` and `-`, beginning with a
+letter, maximum 64 characters). All nodes must be reachable from `startAt`.
+An explicit harness has exactly one Start at the entry and at least one Finish;
+every step needs a possible path to Finish. Cycles are permitted with a bounded
+`maxSteps` (default 100, maximum 500). Exhaustion fails the run. Execution cannot
+return to Start. Legacy graphs without Start keep their acyclic validation.
 
-| Type        | Fields                                                      |
-| ----------- | ----------------------------------------------------------- |
-| `agent`     | `agentId`, `prompt`, optional `next`                        |
-| `tool`      | `connectionId`, `tool`, object `arguments`, optional `next` |
-| `parallel`  | `agentIds` (up to 8), `prompt`, optional `next`             |
-| `condition` | `value`, `operator`, `compare`, `onTrue`, `onFalse`         |
-| `output`    | `template`                                                  |
+| Type        | Fields                                                                           |
+| ----------- | -------------------------------------------------------------------------------- |
+| `start`     | `next`                                                                           |
+| `agent`     | Exactly one of `agentId` or inline `config` (agent definition), `prompt`, `next` |
+| `tool`      | `connectionId`, `tool`, object `arguments`, `next`                               |
+| `parallel`  | `agentIds` (up to 8), `prompt`, `next`                                           |
+| `condition` | `value`, `operator`, `compare`, `onTrue`, `onFalse`                              |
+| `finish`    | `template`                                                                       |
+| `output`    | Legacy alias for Finish                                                          |
 
-Every node also has `id`, `name`, and optional `position: {x,y}`. Conditions use
-`equals`, `notEquals`, `contains`, `truthy`, or `greaterThan`. A complete binding
-such as `{{steps.query}}` preserves the underlying JSON value in tool arguments.
-Embedded bindings such as `Result: {{last}}` render text. Missing values fail the
-run explicitly.
+Every node has `id`, `name`, and optional `position: {x,y}`. Resources use
+`type: mcp`, `connectionId`, and a nonempty `tools` selection, or
+`type: knowledge` and `knowledgeBaseId`, plus the same ID/name/position fields.
+`bindings` grant resources to an agent; they never advance the execution path.
+Every resource must be attached to an agent. One resource may serve several
+agents, and an agent may attach multiple MCP connections or knowledge bases.
+The server validates all references and discovered tool names within the tenant.
+
+Conditions use `equals`, `notEquals`, `contains`, `truthy`, or `greaterThan`.
+A complete binding such as `{{steps.query}}` preserves the underlying JSON value
+in tool arguments. Embedded bindings such as `Result: {{last}}` render text.
+`{{payload.event.id}}` accesses structured API/webhook payloads. Missing values
+fail the run explicitly. Resource cards cannot be used as control targets; explicit MCP action steps can.
 
 An optional schedule is `{ "enabled": true, "everyMinutes": 60,
 "input": "Run the daily research." }`. It begins after the next dispatcher poll.
@@ -121,16 +154,16 @@ Create run:
 ```
 
 Specify exactly one of `agentId` and `workflowId`. History is optional, up to 20
-messages. The browser playground supplies recent conversation history; runs
-are otherwise independent. An `Idempotency-Key` header reuses the existing run
+messages. These runs are independent; use `/chat` for server-managed history.
+An optional `payload` object exposes structured fields to workflow templates. An `Idempotency-Key` header reuses the existing run
 for an identical request. Reusing it for a different payload returns 409.
 
 | Method   | Path                       | Access                                                           |
 | -------- | -------------------------- | ---------------------------------------------------------------- |
 | POST     | `/runs`                    | Session or API token with `execute` for the target; returns 202. |
 | GET      | `/runs?page=0`             | Session or API token with `read`; 50 runs per page.              |
-| GET      | `/runs/:id`                | Owner session, or the creating API token with `read`.            |
-| POST     | `/runs/:id/cancel`         | Owner session, or the creating API token with `execute`.         |
+| GET      | `/runs/:id`                | Tenant session, or the creating API token with `read`.           |
+| POST     | `/runs/:id/cancel`         | Tenant session, or the creating API token with `execute`.        |
 | GET/POST | `/integrations/tokens`     | Session only; list/create a scoped API key.                      |
 | DELETE   | `/integrations/tokens/:id` | Session only; revoke immediately.                                |
 | GET/POST | `/integrations/embeds`     | Session only; list/create a scoped embed.                        |
@@ -147,8 +180,72 @@ its fragment. The embedded UI calls `/embed/:id`, `/embed/:id/runs`, and
 agent snapshots, tool arguments, retrieval sources, or execution traces through
 these endpoints.
 
-Run creation is bounded per account (`MAX_ACTIVE_RUNS`) and rate limited.
+Run creation is bounded per tenant (`MAX_ACTIVE_RUNS`) and rate limited.
 Authentication, provider tests, retrieval tests, and embeds also have request
 limits. Use 429 responses to back off. External tools can have side effects;
 cancellation stops future/in-flight work where possible but does not undo an
 action already accepted by an external service.
+
+## Tenant membership
+
+`GET /tenant` returns the current tenant's ID, name and member count. An
+administrator can rename it with `PUT /tenant {"name":"Research team"}`.
+`/users` lists only the current tenant; creating a user defaults to the same
+tenant. A member cannot manage users. Account updates are limited to the admin's
+tenant and invalidate that user's sessions when access/password changes.
+
+To provision an isolated workspace through the admin API, supply
+`"workspace":"new"` in `POST /users`. The new user becomes its administrator;
+the requesting administrator does not join the new tenant. Emails are unique
+across the installation. Existing accounts retain their original private tenants
+on upgrade. Resources, runs and credentials are never implicitly transferred.
+
+## Conversational API
+
+With a session or a target-scoped bearer API key, submit:
+
+```json
+{ "workflowId": "WORKFLOW_UUID", "message": "Research this topic." }
+```
+
+`POST /chat` returns `202 { "id": "RUN_UUID", "runId": "RUN_UUID",
+"conversationId": "CONVERSATION_UUID", "status": "queued" }`. Use `agentId`
+instead for an agent. Poll `/runs/:id` as usual. The next turn sends:
+
+```json
+{ "conversationId": "CONVERSATION_UUID", "message": "Which sources support that?" }
+```
+
+The target cannot change. Only the initiating user or API key can continue or
+read the conversation. `GET /conversations/:id` returns its successful user and
+assistant messages (last 20) and `activeRunId` if a turn is pending. A second
+concurrent turn receives 409. Failed/cancelled turns are omitted from memory.
+`/chat` does not accept `Idempotency-Key`; use one turn at a time and retain its
+returned IDs. API keys require `execute` to submit and `read` to poll.
+Conversation privacy does not restrict the tenant's shared execution history.
+
+Cross-origin browser clients may send bearer requests; CORS allows Authorization,
+Content-Type, and Idempotency-Key. Cookie credentials are never enabled by CORS.
+Do not put a privileged studio session or a broadly scoped API key in public code.
+
+## Webhook triggers
+
+Session-only management:
+
+- `GET /integrations/webhooks`: list this tenant's webhook metadata.
+- `POST /integrations/webhooks`: `name`, exactly one `agentId` or `workflowId`,
+  optional `inputPath` (dot-separated JSON field), and `expiresDays` (1–365).
+  Returns `id`, `url`, and a one-time `secret`.
+- `DELETE /integrations/webhooks/:id`: revoke the capability.
+
+Send `POST /hooks/:id` with `Authorization: Bearer <secret>` and a JSON object.
+With `inputPath: "event.message"`, that field becomes the run input; missing
+fields return 400. Without a path, the `input` field is used, or the entire JSON
+object if absent. The full event is always available as `payload`. Non-string
+input values are serialized as JSON. The response is 202 with the queued run ID.
+
+An optional `Idempotency-Key` deduplicates identical events for this webhook;
+reuse with a different body returns 409. Poll `GET /hooks/:id/runs/:runId` with
+the same secret. It returns only status/output and a generic failure message,
+and cannot access other webhooks' runs. Secrets are hashed, expiring, revocable,
+and bound to an enabled creator. Webhooks accept up to 60 submissions per minute.

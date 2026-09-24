@@ -7,8 +7,11 @@ export function collection<T extends Document & { _id: string }>(name: string) {
 }
 export async function connectDatabase() {
   await mongo.connect();
+  // Keep legacy private workspaces isolated. New members explicitly join a tenant.
+  await db.collection('users').updateMany({ tenantId: { $exists: false } }, [{ $set: { tenantId: '$_id' } }]);
   await Promise.all([
     db.collection('users').createIndex({ email: 1 }, { unique: true }),
+    db.collection('users').createIndex({ tenantId: 1 }),
     db.collection('sessions').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     db.collection('oauth_states').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     db.collection('rate_limits').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
@@ -36,6 +39,8 @@ export async function connectDatabase() {
       'runs',
       'api_tokens',
       'embeds',
+      'webhooks',
+      'conversations',
     ].map((n) => db.collection(n).createIndex({ ownerId: 1, createdAt: -1 })),
   ]);
 }

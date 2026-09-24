@@ -7,6 +7,7 @@ import { executeRun } from '../../../packages/core/src/runtime.js';
 import { deleteDocument, indexDocument } from '../../../packages/core/src/knowledge.js';
 import { safeError } from '../../../packages/core/src/security.js';
 import type { KnowledgeDocument, Run } from '../../../packages/core/src/schema.js';
+import { settleConversation } from '../../../packages/core/src/conversations.js';
 
 await connectDatabase();
 const channel = await queueChannel();
@@ -75,6 +76,8 @@ async function processJob(job: Job, controller: AbortController) {
       { ...filter, cancelRequested: true },
       { $set: { status: 'cancelled', finishedAt: new Date() } },
     );
+    const finished = await runs.findOne({ _id: run._id });
+    if (finished) await settleConversation(finished);
   } else {
     const docs = collection<KnowledgeDocument>('documents');
     const doc = await docs.findOneAndUpdate(

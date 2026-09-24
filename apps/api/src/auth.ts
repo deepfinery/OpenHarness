@@ -20,6 +20,7 @@ export type User = {
   role: 'admin' | 'member';
   enabled: boolean;
   createdAt: Date;
+  tenantId?: string;
 };
 type Session = { _id: string; userId: string; expiresAt: Date };
 export type ApiToken = {
@@ -32,8 +33,9 @@ export type ApiToken = {
   scopes: ('read' | 'execute')[];
   expiresAt: Date;
   createdAt: Date;
+  createdBy?: string;
 };
-export type Principal = { user: User; sessionHash?: string; token?: ApiToken };
+export type Principal = { user: User; tenantId: string; sessionHash?: string; token?: ApiToken };
 declare global {
   namespace Express {
     interface Request {
@@ -47,6 +49,7 @@ export const publicUser = (u: User) => ({
   email: u.email,
   role: u.role,
   enabled: u.enabled,
+  tenantId: u.tenantId ?? u._id,
 });
 export const credentialsSchema = z.object({
   email: z
@@ -90,7 +93,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
           tokenHash: hash(req.headers.authorization.slice(7)),
           expiresAt: { $gt: new Date() },
         })) ?? undefined;
-      userId = token?.ownerId;
+      userId = token?.createdBy ?? token?.ownerId;
     } else if (typeof req.cookies.agentic_session === 'string') {
       sessionHash = hash(req.cookies.agentic_session);
       const session = await collection<Session>('sessions').findOne({
@@ -102,7 +105,9 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     if (!userId) throw new HttpError(401, 'Please sign in');
     const user = await collection<User>('users').findOne({ _id: userId, enabled: true });
     if (!user) throw new HttpError(401, 'Account unavailable');
-    req.principal = { user, token, sessionHash };
+    const tenantId = user.tenantId ?? user._id;
+    if (token && token.ownerId !== tenantId) throw new HttpError(401, 'Token workspace is unavailable');
+    req.principal = { user, tenantId, token, sessionHash };
     next();
   } catch (e) {
     next(e);
@@ -147,6 +152,7 @@ export async function setup(req: Request, res: Response) {
     role: 'admin',
     enabled: true,
     createdAt: new Date(),
+    tenantId: '00000000-0000-4000-8000-000000000001',
   };
   try {
     await collection<User>('users').insertOne(user);

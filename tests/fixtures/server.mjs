@@ -58,9 +58,11 @@ function guard(req, res, next) {
       .json({ error: 'unauthorized' });
   if (req.path.includes('token-mcp') && req.headers.authorization !== 'Bearer test-mcp-secret')
     return res.status(401).json({ error: 'unauthorized' });
+  if (req.path.includes('custom-mcp') && req.headers['x-custom-token'] !== 'test-custom-mcp-value')
+    return res.status(401).json({ error: 'unauthorized' });
   next();
 }
-app.all(['/mcp', '/token-mcp', '/oauth-mcp'], guard, async (req, res) => {
+app.all(['/mcp', '/token-mcp', '/oauth-mcp', '/custom-mcp'], guard, async (req, res) => {
   try {
     const id = req.headers['mcp-session-id'];
     let transport = id ? sessions.get(id) : null;
@@ -157,6 +159,14 @@ app.post('/expire-token', (_req, res) => {
 function answer(messages, tools) {
   const last = messages.at(-1);
   const input = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+  if (String(input).includes('recall conversation'))
+    return {
+      content: `Earlier messages: ${messages
+        .filter((m) => m.role === 'user')
+        .slice(0, -1)
+        .map((m) => m.content)
+        .join(' | ')}`,
+    };
   if (last?.role === 'tool') return { content: `Tool completed: ${last.content}` };
   if (String(input).includes('use tool') && tools?.length)
     return {

@@ -27,6 +27,7 @@ import {
 } from './auth.js';
 import { resources } from './resources.js';
 import { embedApi, integrations, publicRun, type Embed } from './integrations.js';
+import { conversationApi, webhookApi, webhookSettings } from './triggers.js';
 
 export const app = express();
 app.disable('x-powered-by');
@@ -52,11 +53,27 @@ app.use(cookieParser());
 app.use(express.json({ limit: '1mb' }));
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
+  const origin = req.headers.origin;
+  if (
+    origin &&
+    (req.headers.authorization ||
+      (req.method === 'OPTIONS' &&
+        req.headers['access-control-request-headers']?.toLowerCase().includes('authorization')))
+  ) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Idempotency-Key');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    if (req.method === 'OPTIONS') return res.status(204).end();
+  }
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-    const origin = req.headers.origin;
-    if (origin && origin !== new URL(config.PUBLIC_URL).origin)
+    if (
+      origin &&
+      origin !== new URL(config.PUBLIC_URL).origin &&
+      !req.headers.authorization?.startsWith('Bearer ')
+    )
       return next(new HttpError(403, 'Request origin is not allowed'));
-    if (req.cookies.agentic_session && !req.headers.authorization && !origin)
+    if (req.cookies.agentic_session && !req.headers.authorization?.startsWith('Bearer ') && !origin)
       return next(new HttpError(403, 'A studio session write requires an Origin header'));
     if (
       !req.is('application/json') &&
@@ -90,25 +107,45 @@ app.get('/api/auth/status', async (_req, res) => {
 app.post('/api/auth/setup', setup);
 app.post('/api/auth/login', login);
 app.use('/api/embed', embedApi);
+app.use('/api/hooks', webhookApi);
 app.use('/api', authenticate);
+app.use('/api', conversationApi);
 app.get('/api/auth/me', requireSession, (req, res) => res.json(publicUser(req.principal!.user)));
 app.post('/api/auth/logout', requireSession, logout);
 app.put('/api/profile', requireSession, updateProfile);
 app.get('/api/config', requireSession, (_req, res) =>
   res.json({ publicUrl: config.PUBLIC_URL, maxUploadMB: config.MAX_UPLOAD_MB }),
 );
+app.get('/api/tenant', requireSession, async (req, res) => {
+  const tenantId = req.principal!.tenantId;
+  const tenant = await collection<{ _id: string; name: string }>('tenants').findOne({ _id: tenantId });
+  res.json({
+    id: tenantId,
+    name: tenant?.name ?? 'Team workspace',
+    members: await collection<User>('users').countDocuments({ tenantId }),
+  });
+});
+app.put('/api/tenant', requireAdmin, async (req, res) => {
+  const body = z.object({ name: z.string().trim().min(1).max(100) }).parse(req.body);
+  await collection<{ _id: string; name: string }>('tenants').updateOne(
+    { _id: req.principal!.tenantId },
+    { $set: body },
+    { upsert: true },
+  );
+  res.json({ id: req.principal!.tenantId, ...body });
+});
 app.get('/api/mcp/oauth/callback', requireSession, async (req, res) => {
   const query = z
     .object({ state: z.string().min(10).max(256), code: z.string().min(1).max(4096) })
     .parse(req.query);
-  await finishOAuth(query.state, query.code, req.principal!.user._id, req.principal!.sessionHash!);
+  await finishOAuth(query.state, query.code, req.principal!.tenantId, req.principal!.sessionHash!);
   res.redirect('/connections?authorized=1');
 });
 app.get('/api/runs', async (req, res) => {
   checkTokenScope(req, 'read');
   const page = z.coerce.number().int().min(0).max(10000).default(0).parse(req.query.page);
   const filter = {
-    ownerId: req.principal!.user._id,
+    ownerId: req.principal!.tenantId,
     ...(req.principal!.token ? { tokenId: req.principal!.token._id } : {}),
   };
   const runs = await collection<Run>('runs')
@@ -122,12 +159,14 @@ app.get('/api/runs', async (req, res) => {
 app.post('/api/runs', async (req, res) => {
   const body = runSchema.parse(req.body);
   checkTokenScope(req, 'execute', body);
-  await rateLimit(`run:${req.principal!.user._id}`, 60);
+  await rateLimit(`run:${req.principal!.tenantId}`, 60);
   const rawKey = req.headers['idempotency-key'];
   const key = rawKey ? z.string().min(1).max(128).parse(rawKey) : undefined;
-  const run = await createRun(req.principal!.user._id, body, {
+  const run = await createRun(req.principal!.tenantId, body, {
     ...(key ? { idempotencyKey: key } : {}),
     ...(req.principal!.token ? { tokenId: req.principal!.token._id } : {}),
+    initiatedBy: req.principal!.user._id,
+    trigger: req.principal!.token ? 'api' : 'studio',
   });
   res.status(202).json(publicRun(run));
 });
@@ -135,7 +174,7 @@ app.get('/api/runs/:id', async (req, res) => {
   checkTokenScope(req, 'read');
   const run = await collection<Run>('runs').findOne({
     _id: String(req.params.id),
-    ownerId: req.principal!.user._id,
+    ownerId: req.principal!.tenantId,
     ...(req.principal!.token ? { tokenId: req.principal!.token._id } : {}),
   });
   if (!run) throw new HttpError(404, 'Run not found');
@@ -145,7 +184,7 @@ app.get('/api/runs/:id', async (req, res) => {
 app.post('/api/runs/:id/cancel', async (req, res) => {
   const filter = {
     _id: String(req.params.id),
-    ownerId: req.principal!.user._id,
+    ownerId: req.principal!.tenantId,
     ...(req.principal!.token ? { tokenId: req.principal!.token._id } : {}),
   };
   const run = await collection<Run>('runs').findOne(filter);
@@ -163,17 +202,29 @@ app.post('/api/runs/:id/cancel', async (req, res) => {
   res.status(202).json({ status: 'cancellation_requested' });
 });
 app.get('/api/users', requireAdmin, async (_req, res) =>
-  res.json((await collection<User>('users').find().sort({ createdAt: -1 }).toArray()).map(publicUser)),
+  res.json(
+    (
+      await collection<User>('users')
+        .find({ tenantId: _req.principal!.tenantId })
+        .sort({ createdAt: -1 })
+        .toArray()
+    ).map(publicUser),
+  ),
 );
 app.post('/api/users', requireAdmin, async (req, res) => {
   const body = credentialsSchema
-    .extend({ name: z.string().min(1).max(100), role: z.enum(['admin', 'member']).default('member') })
+    .extend({
+      name: z.string().min(1).max(100),
+      role: z.enum(['admin', 'member']).default('member'),
+      workspace: z.enum(['current', 'new']).default('current'),
+    })
     .parse(req.body);
   const user: User = {
     _id: randomUUID(),
+    tenantId: body.workspace === 'new' ? randomUUID() : req.principal!.tenantId,
     name: body.name,
     email: body.email,
-    role: body.role,
+    role: body.workspace === 'new' ? 'admin' : body.role,
     enabled: true,
     createdAt: new Date(),
     passwordHash: await passwordHash(body.password),
@@ -188,7 +239,7 @@ app.patch('/api/users/:id', requireAdmin, async (req, res) => {
     .parse(req.body);
   if (id === req.principal!.user._id) throw new HttpError(400, 'Use your profile to change your own account');
   const result = await collection<User>('users').updateOne(
-    { _id: id },
+    { _id: id, tenantId: req.principal!.tenantId },
     {
       $set: {
         ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
@@ -201,6 +252,7 @@ app.patch('/api/users/:id', requireAdmin, async (req, res) => {
   res.status(204).end();
 });
 app.use('/api/integrations', requireSession, integrations);
+app.use('/api/integrations/webhooks', requireSession, webhookSettings);
 app.use('/api', requireSession, resources);
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'API endpoint not found')));
 

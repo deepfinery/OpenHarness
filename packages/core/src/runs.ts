@@ -4,14 +4,34 @@ import { config } from './config.js';
 import { hash, HttpError, safeError } from './security.js';
 import { publish } from './queue.js';
 import type { Agent, KnowledgeDocument, Run, RunInput, Stored, Workflow } from './schema.js';
+import { workflowSchema } from './schema.js';
+import { agentWithResources } from './workflow.js';
 
 export async function createRun(
   ownerId: string,
   input: RunInput,
-  options: { idempotencyKey?: string; tokenId?: string; embedId?: string; scheduleKey?: string } = {},
+  options: {
+    idempotencyKey?: string;
+    tokenId?: string;
+    embedId?: string;
+    scheduleKey?: string;
+    initiatedBy?: string;
+    trigger?: Run['trigger'];
+    webhookId?: string;
+    conversationId?: string;
+    runId?: string;
+  } = {},
 ) {
   const runs = collection<Run>('runs');
-  const requestHash = hash(JSON.stringify({ ...input, tokenId: options.tokenId, embedId: options.embedId }));
+  const requestHash = hash(
+    JSON.stringify({
+      ...input,
+      tokenId: options.tokenId,
+      embedId: options.embedId,
+      initiatedBy: options.initiatedBy,
+      webhookId: options.webhookId,
+    }),
+  );
   if (options.idempotencyKey) {
     const existing = await runs.findOne({ ownerId, idempotencyKey: options.idempotencyKey });
     if (existing) {
@@ -28,17 +48,18 @@ export async function createRun(
     (await runs.countDocuments({ ownerId, status: { $in: ['queued', 'running'] } })) >= config.MAX_ACTIVE_RUNS
   )
     throw new HttpError(429, 'Too many active runs. Wait for a run to finish.');
-  const workflow = input.workflowId
+  const workflowRecord = input.workflowId
     ? await collection<Stored<Workflow>>('workflows').findOne({
         _id: input.workflowId,
         ownerId,
         enabled: true,
       })
     : null;
-  if (input.workflowId && !workflow) throw new HttpError(404, 'Workflow unavailable');
+  if (input.workflowId && !workflowRecord) throw new HttpError(404, 'Workflow unavailable');
+  const workflow = workflowRecord ? workflowSchema.parse(workflowRecord) : null;
   const ids = new Set<string>(input.agentId ? [input.agentId] : []);
   for (const node of workflow?.nodes ?? []) {
-    if (node.type === 'agent') ids.add(node.agentId);
+    if (node.type === 'agent' && node.agentId) ids.add(node.agentId);
     if (node.type === 'parallel') node.agentIds.forEach((id) => ids.add(id));
   }
   const agents: Record<string, Agent> = {};
@@ -47,12 +68,20 @@ export async function createRun(
     if (!agent) throw new HttpError(400, 'A required agent is missing or disabled');
     agents[id] = agent;
   }
+  const nodeAgents: Record<string, Agent> = {};
+  for (const node of workflow?.nodes ?? [])
+    if (node.type === 'agent') {
+      const base = node.config ?? agents[node.agentId!];
+      if (!base?.enabled) throw new HttpError(400, 'A required agent is missing or disabled');
+      nodeAgents[node.id] = agentWithResources(workflow!, node.id, base);
+    }
   const now = new Date();
+  const { runId, ...attributes } = options;
   const run: Run = {
-    _id: randomUUID(),
+    _id: runId ?? randomUUID(),
     ownerId,
     ...input,
-    ...options,
+    ...attributes,
     requestHash,
     createdAt: now,
     updatedAt: now,
@@ -60,7 +89,7 @@ export async function createRun(
     status: 'queued',
     events: [],
     outputs: {},
-    snapshot: { ...(workflow ? { workflow } : {}), agents },
+    snapshot: { ...(workflow ? { workflow, nodeAgents } : {}), agents },
   };
   try {
     await runs.insertOne(run);
@@ -152,7 +181,7 @@ export async function dispatchSchedules() {
       await createRun(
         w.ownerId,
         { workflowId: w._id, input: w.schedule.input, history: [] },
-        { scheduleKey: `${w._id}:${dueAt.toISOString()}` },
+        { scheduleKey: `${w._id}:${dueAt.toISOString()}`, trigger: 'schedule' },
       );
       await workflows.updateOne(filter, {
         $set: { nextRunAt: new Date(Date.now() + w.schedule.everyMinutes * 60000) },

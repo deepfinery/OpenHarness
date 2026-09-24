@@ -41,6 +41,7 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
     initialTarget || (targets[0] ? `${targets[0].type}:${targets[0].id}` : ''),
   );
   const [messages, setMessages] = useState<Message[]>([]);
+  const [conversationId, setConversationId] = useState<string>();
   const [input, setInput] = useState('');
   const [run, setRun] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -87,14 +88,14 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
     setError('');
     const text = input.trim();
     setInput('');
-    const history = messages.slice(-20);
     setMessages((m) => [...m, { role: 'user', content: text }]);
     try {
-      const r = await send('/runs', {
+      const r = await send('/chat', {
         [current.type === 'agent' ? 'agentId' : 'workflowId']: current.id,
-        input: text,
-        history,
+        message: text,
+        conversationId,
       });
+      setConversationId(r.conversationId);
       setRun(r);
     } catch (e) {
       setError(errorMessage(e));
@@ -116,6 +117,7 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
               onChange={(e) => {
                 setTarget(e.target.value);
                 setMessages([]);
+                setConversationId(undefined);
                 setRun(null);
                 setError('');
               }}
@@ -135,6 +137,7 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
             disabled={busy}
             onClick={() => {
               setMessages([]);
+              setConversationId(undefined);
               setRun(null);
               setError('');
             }}

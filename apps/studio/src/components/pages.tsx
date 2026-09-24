@@ -150,7 +150,7 @@ export function WorkflowsPage({ data, edit, navigate, act, refresh }: PageProps)
             Create your first workflow
           </Button>
           <button className="text-button" onClick={() => navigate('agents')}>
-            Set up an agent first <ArrowRight size={14} />
+            Browse reusable agents <ArrowRight size={14} />
           </button>
         </div>
       ) : (
@@ -187,7 +187,7 @@ export function WorkflowsPage({ data, edit, navigate, act, refresh }: PageProps)
                       <Bot size={15} />
                     ) : n.type === 'tool' ? (
                       <Plug size={15} />
-                    ) : n.type === 'output' ? (
+                    ) : n.type === 'output' || n.type === 'finish' ? (
                       <Check size={15} />
                     ) : (
                       <GitBranch size={15} />

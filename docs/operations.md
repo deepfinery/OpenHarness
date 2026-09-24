@@ -101,3 +101,31 @@ The deterministic model and MCP fixtures are only loaded by the test Compose
 overlay. Live provider behavior, model quality, tool side-effect policies, large
 document parsing, sustained-load behavior and a specific server's OAuth
 implementation still need deployment-specific validation.
+
+## Upgrading to 0.2
+
+Back up `.env` and all four volumes before upgrading. From the standalone clone:
+
+```sh
+git pull --ff-only
+./start.sh
+```
+
+The same Compose project and volumes must be retained. Startup assigns a tenant
+to each legacy account without moving or sharing its resources. Existing API
+keys and iframe capabilities keep their original owner. To collaborate, add new
+teammates in **Settings → Team & workspace**; they join the current workspace.
+Existing private accounts are not automatically merged. There is no bulk account
+or credential transfer endpoint in this release.
+
+Previously saved workflows remain executable. Opening one in the canvas shows
+Start/Finish and exposes inherited tools/knowledge as attachments. The upgraded
+definition is persisted only when saved. A reusable agent copied into the canvas
+becomes an inline configuration; later changes to that reusable agent do not
+silently change the copied configuration. Queued runs retain submission snapshots.
+
+Webhook URLs require their generated bearer secret. Expiry, revocation and
+creator account status apply immediately. Conversation turns return 409 while
+a previous turn is still active; poll its run before sending another message.
+A cancelled/failed turn is not appended to conversation memory. API calls may
+use CORS with bearer authorization; cross-origin cookie writes remain denied.

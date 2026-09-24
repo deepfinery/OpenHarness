@@ -1,5 +1,10 @@
 import type { WorkflowNode } from './schema.js';
-export type Scope = { input: string; last: unknown; steps: Record<string, unknown> };
+export type Scope = {
+  input: string;
+  last: unknown;
+  steps: Record<string, unknown>;
+  payload?: Record<string, unknown>;
+};
 function pathValue(scope: Scope, path: string): unknown {
   const parts = path.trim().split('.');
   let current: unknown = scope;

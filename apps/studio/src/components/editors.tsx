@@ -3,7 +3,12 @@ import { BookOpen, Check, KeyRound, Plug, Plus } from 'lucide-react';
 import { api, send, type Data, type Entity } from '../api';
 import { Button, Field, Modal, SaveForm } from './ui';
 
-type Props = { value?: Entity; data: Data; onClose: () => void; onSaved: () => Promise<void> };
+type Props = {
+  value?: Entity;
+  data: Data;
+  onClose: () => void;
+  onSaved: (created?: Entity) => Promise<void>;
+};
 export function AgentEditor({ value, data, onClose, onSaved }: Props) {
   const [form, set] = useState<any>(
     value ?? {
@@ -40,8 +45,8 @@ export function AgentEditor({ value, data, onClose, onSaved }: Props) {
         onCancel={onClose}
         label={value ? 'Save agent' : 'Create agent'}
         onSave={async () => {
-          await send(`/agents${value ? `/${value.id}` : ''}`, form, value ? 'PUT' : 'POST');
-          await onSaved();
+          const created = await send(`/agents${value ? `/${value.id}` : ''}`, form, value ? 'PUT' : 'POST');
+          await onSaved(created);
           onClose();
         }}
       >
@@ -234,8 +239,12 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
         onCancel={onClose}
         label="Save provider"
         onSave={async () => {
-          await send(`/providers${value ? `/${value.id}` : ''}`, form, value ? 'PUT' : 'POST');
-          await onSaved();
+          const created = await send(
+            `/providers${value ? `/${value.id}` : ''}`,
+            form,
+            value ? 'PUT' : 'POST',
+          );
+          await onSaved(created);
           onClose();
         }}
       >
@@ -360,8 +369,12 @@ export function ConnectionEditor({ value, onClose, onSaved }: Props) {
         onCancel={onClose}
         label="Save connection"
         onSave={async () => {
-          await send(`/connections${value ? `/${value.id}` : ''}`, form, value ? 'PUT' : 'POST');
-          await onSaved();
+          const created = await send(
+            `/connections${value ? `/${value.id}` : ''}`,
+            form,
+            value ? 'PUT' : 'POST',
+          );
+          await onSaved(created);
           onClose();
         }}
       >
@@ -414,15 +427,17 @@ export function ConnectionEditor({ value, onClose, onSaved }: Props) {
         {form.authType === 'token' && (
           <>
             <Field label="Token header">
-              <select
+              <input
                 aria-label="Token header"
+                list="token-headers"
                 value={form.tokenHeader}
                 onChange={(e) => update('tokenHeader', e.target.value)}
-              >
-                <option value="Authorization">Authorization: Bearer</option>
-                <option value="X-API-Key">X-API-Key</option>
-                <option value="api-key">api-key</option>
-              </select>
+              />
+              <datalist id="token-headers">
+                <option value="Authorization" />
+                <option value="X-API-Key" />
+                <option value="api-key" />
+              </datalist>
             </Field>
             <Field
               label="Access token"
@@ -499,8 +514,12 @@ export function KnowledgeEditor({ value, data, onClose, onSaved }: Props) {
         onCancel={onClose}
         label="Save knowledge base"
         onSave={async () => {
-          await send(`/knowledge${value ? `/${value.id}` : ''}`, form, value ? 'PUT' : 'POST');
-          await onSaved();
+          const created = await send(
+            `/knowledge${value ? `/${value.id}` : ''}`,
+            form,
+            value ? 'PUT' : 'POST',
+          );
+          await onSaved(created);
           onClose();
         }}
       >

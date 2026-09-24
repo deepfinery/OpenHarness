@@ -23,6 +23,8 @@ import {
 import { api, emptyData, errorMessage, send, type Data, type Entity, type User } from './api';
 import { Button, ErrorNotice } from './components/ui';
 import { AgentEditor, ConnectionEditor, KnowledgeEditor, ProviderEditor } from './components/editors';
+import { WorkflowStarter } from './components/WorkflowStarter';
+import type { Workflow } from '../../../packages/core/src/schema.js';
 import { WorkflowEditor } from './components/WorkflowEditor';
 import { AgentsPage, ConnectionsPage, KnowledgePage, RunsPage, WorkflowsPage } from './components/pages';
 import { EmbedChat, Playground } from './components/Playground';
@@ -193,13 +195,15 @@ function App() {
   const [page, setPage] = useState(location.pathname.split('/')[1] || 'workflows');
   const [target, setTarget] = useState('');
   const [data, setData] = useState<Data>(emptyData);
-  const [editor, setEditor] = useState<{ type: string; value?: Entity } | null>(null);
+  const [editor, setEditor] = useState<{ type: string; value?: Entity; draft?: Workflow } | null>(null);
   const [error, setError] = useState('');
+  const [tenant, setTenant] = useState({ name: 'Team workspace', members: 1 });
   const [healthy, setHealthy] = useState(false);
   const [sidebar, setSidebar] = useState(false);
   const refresh = useCallback(async () => {
     const keys = Object.keys(emptyData) as (keyof Data)[];
     const values = await Promise.all(keys.map((key) => api<Entity[]>(`/${key}`)));
+    setTenant(await api('/tenant'));
     setData(Object.fromEntries(keys.map((key, i) => [key, values[i]])) as unknown as Data);
   }, []);
   const act = useCallback(async (task: () => Promise<unknown>) => {
@@ -250,7 +254,8 @@ function App() {
     setSidebar(false);
     history.pushState({}, '', `/${next}`);
   };
-  const edit = (type: string, value?: Entity) => setEditor({ type, value });
+  const edit = (type: string, value?: Entity) =>
+    setEditor({ type: type === 'workflows' && !value ? 'starter' : type, value });
   if (checking)
     return (
       <div className="loading-screen">
@@ -300,8 +305,8 @@ function App() {
         <div className="workspace-switch">
           <span>{user.name[0]?.toUpperCase()}</span>
           <div>
-            <strong>My studio</strong>
-            <small>Personal workspace</small>
+            <strong>{tenant.name}</strong>
+            <small>Shared workspace</small>
           </div>
           <ChevronRight size={15} />
         </div>
@@ -358,7 +363,7 @@ function App() {
             <Menu size={20} />
           </button>
           <div className="breadcrumbs">
-            <span>My studio</span>
+            <span>{tenant.name}</span>
             <ChevronRight size={13} />
             <strong>{nav.find((n) => n.id === page)?.label ?? 'Workflows'}</strong>
           </div>
@@ -367,7 +372,7 @@ function App() {
               <i />
               {healthy ? 'Services connected' : 'Checking services'}
             </span>
-            <span className="version">v0.1</span>
+            <span className="version">v0.2</span>
           </div>
         </header>
         {error && (
@@ -403,8 +408,23 @@ function App() {
       {Editor && editor && (
         <Editor value={editor.value} data={data} onClose={() => setEditor(null)} onSaved={refresh} />
       )}{' '}
+      {editor?.type === 'starter' && (
+        <WorkflowStarter
+          data={data}
+          refresh={refresh}
+          onClose={() => setEditor(null)}
+          onChoose={(draft) => setEditor({ type: 'workflows', draft })}
+        />
+      )}
       {editor?.type === 'workflows' && (
-        <WorkflowEditor value={editor.value} data={data} onClose={() => setEditor(null)} onSaved={refresh} />
+        <WorkflowEditor
+          value={editor.value}
+          draft={editor.draft}
+          data={data}
+          onClose={() => setEditor(null)}
+          onSaved={refresh}
+          onRun={(id) => navigate('playground', `workflow:${id}`)}
+        />
       )}
     </div>
   );

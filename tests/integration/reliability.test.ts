@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { makeStarter } from '../../packages/core/src/starters.js';
 
 const enabled = process.env.TEST_FAULT_INJECTION === 'true';
 const project = process.env.TEST_COMPOSE_PROJECT ?? 'agentic-orchestration-test';
@@ -13,6 +14,8 @@ const command = promisify(execFile);
 let cookie = '';
 let agentId = '';
 let workflowId = '';
+let providerId = '';
+let connectionId = '';
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function compose(...args: string[]) {
   if (!project.startsWith('agentic-test-') && project !== 'agentic-orchestration-test')
@@ -67,6 +70,7 @@ before(async () => {
     baseUrl: 'http://fixtures:9090/v1',
     model: 'test-chat',
   });
+  providerId = provider.id;
   const agent = await request('/agents', {
     name: 'Recovery agent',
     providerId: provider.id,
@@ -75,6 +79,7 @@ before(async () => {
   });
   agentId = agent.id;
   const c = await request('/connections', { name: 'Recovery MCP', url: 'http://fixtures:9090/mcp' });
+  connectionId = c.id;
   await request(`/connections/${c.id}/discover`, {});
   const flow = await request('/workflows', {
     name: 'Interrupted MCP call',
@@ -224,5 +229,57 @@ test(
       }
       await request(`/agents/${agentId}`, originalAgent, 'PUT');
     }
+  },
+);
+
+test(
+  'queued conversation keeps its harness and tool grants when teammates edit the workflow',
+  { skip: !enabled, timeout: 120000 },
+  async () => {
+    const flow = await request(
+      '/workflows',
+      makeStarter({
+        kind: 'mcp',
+        providerId,
+        connectionId,
+        tools: ['lookup'],
+        name: 'Queued harness snapshot',
+      }),
+    );
+    let accepted: any;
+    try {
+      await compose('stop', 'runner');
+      accepted = await request('/chat', {
+        workflowId: flow.id,
+        message: 'Please use tool from the accepted snapshot',
+      });
+      assert.equal(accepted.status, 'queued');
+      const changed = structuredClone(flow);
+      changed.resources = [];
+      changed.bindings = [];
+      changed.nodes.find((n: any) => n.type === 'finish').template = 'Workflow edited after submission';
+      await request(`/workflows/${flow.id}`, changed, 'PUT');
+    } finally {
+      await compose('up', '-d', 'runner');
+    }
+    const run = await until(
+      () => request(`/runs/${accepted.id}`),
+      (r) => ['succeeded', 'failed'].includes(r.status),
+    );
+    assert.equal(run.status, 'succeeded', run.error);
+    assert.match(run.output, /MCP lookup/);
+    assert.equal(run.events.filter((e: any) => e.type === 'tool_completed').length, 1);
+    const conversation = await request(`/conversations/${accepted.conversationId}`);
+    assert.equal(conversation.activeRunId, undefined);
+    assert.equal(conversation.messages.length, 2);
+    const subsequent = await request('/chat', {
+      conversationId: accepted.conversationId,
+      message: 'Use the updated workflow for this new turn',
+    });
+    const result = await until(
+      () => request(`/runs/${subsequent.id}`),
+      (r) => ['succeeded', 'failed'].includes(r.status),
+    );
+    assert.equal(result.output, 'Workflow edited after submission');
   },
 );

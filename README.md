@@ -33,15 +33,23 @@ Allow approximately 4 GB of available memory for the application stack, plus the
 ## What is included
 
 - **Agent studio:** instructions, descriptions, model choice, explicit tool permissions, multiple MCP connections, knowledge bindings, execution limits, and enable/disable controls.
-- **Visual orchestration:** agent steps, explicit MCP tool calls, conditions, parallel agents, and output templates. Drag and connect steps; auto-arrange the graph; edit or export YAML.
+- **Workflow harness:** explicit Start and Finish, inline agents, MCP tool and knowledge attachments, conditions, parallel agents, bounded cycles, and explicit MCP actions. Drag the labelled ports to connect components, reconnect or delete edges, undo/redo, auto-arrange, or edit/export YAML.
 - **Runner:** durable RabbitMQ jobs, persisted execution snapshots and traces, bounded agent loops, cancellation, run history, and interval schedules.
 - **One tool connector: MCP.** Streamable HTTP or legacy SSE, unauthenticated servers, bearer/API-key authentication, and OAuth discovery, PKCE, dynamic registration or a pre-registered client, and refresh tokens.
 - **Model providers:** OpenAI-compatible APIs, Anthropic, Gemini, and Ollama. Model IDs and endpoints are configurable. Model providers are inference services; all external agent tools use MCP.
 - **Knowledge bases:** filesystem uploads, asynchronous ingestion, Weaviate hybrid search, source citations in the prompt, and retrieval testing. TXT, Markdown, CSV, JSON, YAML, text PDFs, and DOCX are supported.
-- **Local accounts:** MongoDB-backed users and sessions, password hashing, profile editing, administrator-managed accounts, and private resources per account.
-- **Integrations:** target-scoped, expiring API keys and revocable iframe links with allowed frame origins.
+- **Shared workspaces:** MongoDB-backed local accounts, administrator-managed teammates, shared agents/workflows/tools/knowledge within a tenant, profile settings, tenant isolation, and workflow edit-conflict detection.
+- **Integrations:** target-scoped API keys, persistent conversational API, authenticated JSON webhooks, and revocable iframe links with allowed frame origins.
 
-No provider-specific tool connectors, external account login, website builder, setup wizards, reports, customer management, product/service management, billing, or customer portal are included.
+No provider-specific tool connectors, external account login, website builder, business setup wizards, reports, customer management, product/service management, billing, or customer portal are included.
+
+## Start with a template
+
+Choose **Create workflow**, then **Knowledge research**, **MCP tool assistant**, or **Research and review**. Select or create your model provider and resources in the starter. You can discover MCP tools or upload knowledge files there, then open a connected canvas. **Blank canvas** starts with Start → Finish.
+
+An agent's left/right ports control execution. Its bottom **Tools** and **Knowledge** ports attach resources available during its reasoning loop. Tools are not forced into the execution sequence: the model chooses when to call the tools you selected. Use an **MCP action** step when a specific call must happen in a fixed order. Clicking a palette item adds and connects it; dragging a port creates or replaces a connection. Select an edge and press Delete to disconnect it, or use the inspector. **Save & test** opens the workflow in the playground.
+
+In **Settings → Team & workspace**, administrators can name the workspace and add teammates. Teammates share resources and run history. Model/MCP credentials stay write-only. Conversation histories are scoped to their initiating user or API key; workspace members can still inspect the shared execution history.
 
 ## First agent
 
@@ -70,7 +78,7 @@ docker compose up -d api runner
 
 MCP OAuth callback URL: `PUBLIC_URL/api/mcp/oauth/callback`. Configure the public URL before authorizing a server. OAuth here authorizes tools; studio users always use local accounts. Servers without dynamic registration can use a pre-registered client ID and optional client secret. A remote stdio-only MCP server should be exposed through an HTTP/SSE MCP gateway; the application does not execute arbitrary shell commands supplied in the UI.
 
-## API and iframe
+## API, conversation, webhooks, and iframe
 
 Create an API key in **Integrations**, choosing its allowed agent or workflow. Then:
 
@@ -84,6 +92,10 @@ curl -X POST http://localhost:8088/api/runs \
 
 The response is `202 Accepted` with an `id`. Poll `GET /api/runs/:id` using the same key. Terminal statuses are `succeeded`, `failed`, `cancelled`, and `interrupted`. Cancel with `POST /api/runs/:id/cancel`. Use `workflowId` instead of `agentId` for workflows.
 
+For a conversation, call `POST /api/chat` with `workflowId` (or `agentId`) and `message`. Subsequent turns send the returned `conversationId` and a new `message`; history is maintained on the server. Each turn is queued and returns a run ID to poll.
+
+For event-driven workflows, use **Integrations → Webhooks**. Choose a target and optionally a JSON input field such as `event.message`. Send JSON to the generated URL with its bearer secret. The input field becomes `{{input}}`; all event fields are available through `{{payload.field}}`. Poll `/api/hooks/:id/runs/:runId` with the same secret. Webhook retries support `Idempotency-Key`.
+
 For iframes, choose **Integrations → Iframe embeds**, select one target, set exact allowed website origins and an expiration, then copy the generated HTML. The capability is carried in the URL fragment and sent as an authorization header by the embedded UI. No third-party login cookie is needed. Treat the embed link as a credential: it can run the selected target until revoked or expired. Allowed frame origins restrict where the UI may be framed; they do not make a copied capability secret.
 
 See [the API reference](docs/api.md) for request shapes and permissions.
@@ -93,7 +105,7 @@ See [the API reference](docs/api.md) for request shapes and permissions.
 ```mermaid
 flowchart LR
   UI[React agent studio] --> API[Express frontend API]
-  Client[API / iframe client] --> API
+  Client[API / chat / webhook / iframe] --> API
   API --> Mongo[(MongoDB metadata + outbox)]
   API --> MQ[(RabbitMQ)]
   MQ --> Runner[Agent and indexing runner]
@@ -125,7 +137,7 @@ MongoDB, RabbitMQ, and Weaviate use their community distributions, run locally, 
 - A Mongo run/document record is the durable outbox. Queue deliveries are at least once. Atomic claims prevent two workers from executing the same active run.
 - A run interrupted during external work is marked **interrupted**, not automatically replayed. A tool may have acted before the process was lost. Review the trace and start a new run deliberately. This is not an exactly-once guarantee for external side effects.
 - Agent tool errors are returned to the model for correction within its turn budget. An explicit workflow tool error fails that run. There is no automatic retry of a potentially mutating MCP tool.
-- Workflows use an acyclic execution graph, bounded to 100 steps. Agent reasoning loops are bounded separately. Template bindings support `input`, `last`, and `steps.<id>`; arbitrary code is not evaluated.
+- Harness workflows have one Start and at least one Finish. Every execution step needs a possible path to Finish. Cycles are permitted with a step budget (default 100, maximum 500); a run fails when it exhausts that budget. Agent turns and timeouts are bounded separately. Template bindings support `input`, `last`, `steps.<id>`, and `payload.<field>`; arbitrary code is not evaluated. Legacy graphs remain runnable and are upgraded visually when opened and saved.
 - Parallel agent steps wait for all agents. A failed sibling aborts the others' in-flight requests; it cannot undo completed external actions.
 - Interval schedules dispatch while the API is running. After downtime, an overdue schedule dispatches once; it does not replay every missed interval.
 - Knowledge indexing is retriable and replaces partial document vectors. Changing the embedding configuration of a provider already bound to a knowledge base is blocked; create a new provider/base instead.
@@ -133,6 +145,10 @@ MongoDB, RabbitMQ, and Weaviate use their community distributions, run locally, 
 - Run history and documents persist until you remove them or their volumes. Backups and retention are the installation operator's responsibility.
 
 See [operations](docs/operations.md) for backup and recovery, and [design notes](docs/design.md) for the architecture and execution guarantees.
+
+## Upgrade
+
+Back up your configuration and volumes, then run `git pull --ff-only` and `./start.sh` from your clone. Existing private accounts keep separate workspaces and their data; the upgrade does not automatically share previously private credentials. New teammates created by a workspace administrator join that administrator's workspace. See [upgrade details](docs/operations.md#upgrading-to-02).
 
 ## Development and verification
 

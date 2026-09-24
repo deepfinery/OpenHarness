@@ -162,7 +162,8 @@ export async function connectMcp(connection: ConnectionRecord, signal?: AbortSig
   if (connection.authType === 'token') {
     const token = decrypt(connection.tokenEncrypted);
     if (!token) throw new HttpError(400, 'An MCP access token is required');
-    headers[connection.tokenHeader] = connection.tokenHeader === 'Authorization' ? `Bearer ${token}` : token;
+    headers[connection.tokenHeader] =
+      connection.tokenHeader.toLowerCase() === 'authorization' ? `Bearer ${token}` : token;
   }
   const authProvider = connection.authType === 'oauth' ? new StoredOAuthProvider(connection) : undefined;
   const guardedFetch: typeof fetch = (input, init) =>

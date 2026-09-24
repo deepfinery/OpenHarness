@@ -18,6 +18,7 @@ export type Embed = {
   origins: string[];
   expiresAt: Date;
   createdAt: Date;
+  createdBy?: string;
 };
 export function publicRun(run: Run) {
   const { _id, ownerId, leaseId, leaseUntil, snapshot, requestHash, idempotencyKey, publishedAt, ...data } =
@@ -40,7 +41,7 @@ integrations.get('/tokens', async (req, res) => {
   res.json(
     (
       await collection<ApiToken>('api_tokens')
-        .find({ ownerId: req.principal!.user._id })
+        .find({ ownerId: req.principal!.tenantId })
         .sort({ createdAt: -1 })
         .toArray()
     ).map(({ _id, tokenHash, ownerId, ...t }) => ({ id: _id, ...t })),
@@ -59,7 +60,7 @@ integrations.post('/tokens', async (req, res) => {
       expiresDays: z.number().int().min(1).max(365).default(30),
     })
     .parse(req.body);
-  const ownerId = req.principal!.user._id;
+  const ownerId = req.principal!.tenantId;
   await validateTargets(ownerId, body.agentIds, body.workflowIds);
   const token = `ao_${randomToken()}`;
   const { expiresDays, ...rest } = body;
@@ -67,6 +68,7 @@ integrations.post('/tokens', async (req, res) => {
     _id: randomUUID(),
     ownerId,
     ...rest,
+    createdBy: req.principal!.user._id,
     tokenHash: hash(token),
     expiresAt: new Date(Date.now() + expiresDays * 86400000),
     createdAt: new Date(),
@@ -77,7 +79,7 @@ integrations.post('/tokens', async (req, res) => {
 integrations.delete('/tokens/:id', async (req, res) => {
   await collection<ApiToken>('api_tokens').deleteOne({
     _id: String(req.params.id),
-    ownerId: req.principal!.user._id,
+    ownerId: req.principal!.tenantId,
   });
   res.status(204).end();
 });
@@ -85,7 +87,7 @@ integrations.get('/embeds', async (req, res) => {
   res.json(
     (
       await collection<Embed>('embeds')
-        .find({ ownerId: req.principal!.user._id })
+        .find({ ownerId: req.principal!.tenantId })
         .sort({ createdAt: -1 })
         .toArray()
     ).map(({ _id, ownerId, tokenHash, ...t }) => ({ id: _id, ...t })),
@@ -113,7 +115,7 @@ integrations.post('/embeds', async (req, res) => {
     })
     .refine((b) => Boolean(b.agentId) !== Boolean(b.workflowId), 'Choose one target')
     .parse(req.body);
-  const ownerId = req.principal!.user._id;
+  const ownerId = req.principal!.tenantId;
   await validateTargets(
     ownerId,
     body.agentId ? [body.agentId] : [],
@@ -125,6 +127,7 @@ integrations.post('/embeds', async (req, res) => {
     _id: randomUUID(),
     ownerId,
     ...rest,
+    createdBy: req.principal!.user._id,
     tokenHash: hash(token),
     expiresAt: new Date(Date.now() + expiresDays * 86400000),
     createdAt: new Date(),
@@ -139,7 +142,7 @@ integrations.post('/embeds', async (req, res) => {
 integrations.delete('/embeds/:id', async (req, res) => {
   await collection<Embed>('embeds').deleteOne({
     _id: String(req.params.id),
-    ownerId: req.principal!.user._id,
+    ownerId: req.principal!.tenantId,
   });
   res.status(204).end();
 });
@@ -152,7 +155,10 @@ embedApi.use('/:id', async (req, res, next) => {
       tokenHash: hash(token),
       expiresAt: { $gt: new Date() },
     });
-    if (!token || !embed || !(await collection<User>('users').findOne({ _id: embed.ownerId, enabled: true })))
+    const creator =
+      embed &&
+      (await collection<User>('users').findOne({ _id: embed.createdBy ?? embed.ownerId, enabled: true }));
+    if (!token || !embed || !creator || (creator.tenantId ?? creator._id) !== embed.ownerId)
       throw new HttpError(401, 'This embed link has expired or been revoked');
     res.locals.embed = embed;
     next();
@@ -179,7 +185,7 @@ embedApi.post('/:id/runs', async (req, res) => {
   const run = await createRun(
     embed.ownerId,
     { ...body, agentId: embed.agentId, workflowId: embed.workflowId },
-    { embedId: embed._id },
+    { embedId: embed._id, trigger: 'embed' },
   );
   res.status(202).json({ id: run._id, status: run.status });
 });

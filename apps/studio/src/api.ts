@@ -15,7 +15,14 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
 export const send = <T = any>(path: string, body?: unknown, method = 'POST') =>
   api<T>(path, { method, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 export type Entity = { id: string; name: string; [key: string]: any };
-export type User = { id: string; name: string; email: string; role: 'admin' | 'member'; enabled: boolean };
+export type User = {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'member';
+  enabled: boolean;
+  tenantId: string;
+};
 export type Data = {
   agents: Entity[];
   workflows: Entity[];

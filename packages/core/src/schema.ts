@@ -26,7 +26,22 @@ export const connectionSchema = z.object({
   transport: z.enum(['http', 'sse']).default('http'),
   authType: z.enum(['none', 'token', 'oauth']).default('none'),
   token: z.string().max(8192).optional(),
-  tokenHeader: z.enum(['Authorization', 'X-API-Key', 'api-key']).default('Authorization'),
+  tokenHeader: z
+    .string()
+    .regex(/^[A-Za-z][A-Za-z0-9-]{0,99}$/)
+    .refine(
+      (s) =>
+        ![
+          'host',
+          'cookie',
+          'content-length',
+          'connection',
+          'transfer-encoding',
+          'proxy-authorization',
+        ].includes(s.toLowerCase()),
+      'Use an authentication header',
+    )
+    .default('Authorization'),
   oauthClientId: z.string().max(1024).optional(),
   oauthClientSecret: z.string().max(8192).optional(),
   oauthScope: z.string().max(2048).default(''),
@@ -53,11 +68,23 @@ const baseNode = {
   position: z.object({ x: z.number(), y: z.number() }).optional(),
 };
 const next = z.string().min(1).max(64).optional();
+export const resourceSchema = z.discriminatedUnion('type', [
+  z.object({
+    ...baseNode,
+    type: z.literal('mcp'),
+    connectionId: id,
+    tools: z.array(z.string().min(1).max(200)).min(1).max(100),
+  }),
+  z.object({ ...baseNode, type: z.literal('knowledge'), knowledgeBaseId: id }),
+]);
 export const nodeSchema = z.discriminatedUnion('type', [
+  z.object({ ...baseNode, type: z.literal('start'), next }),
+  z.object({ ...baseNode, type: z.literal('finish'), template: z.string().max(32000).default('{{last}}') }),
   z.object({
     ...baseNode,
     type: z.literal('agent'),
-    agentId: id,
+    agentId: id.optional(),
+    config: agentSchema.optional(),
     prompt: z.string().max(32000).default('{{input}}'),
     next,
   }),
@@ -94,6 +121,12 @@ export const workflowSchema = z
     enabled: z.boolean().default(true),
     startAt: z.string(),
     nodes: z.array(nodeSchema).min(1).max(100),
+    resources: z.array(resourceSchema).max(100).default([]),
+    bindings: z
+      .array(z.object({ agentNodeId: z.string(), resourceId: z.string() }))
+      .max(200)
+      .default([]),
+    maxSteps: z.number().int().min(1).max(500).default(100),
     schedule: z
       .object({
         enabled: z.boolean().default(false),
@@ -106,12 +139,32 @@ export const workflowSchema = z
     const nodes = new Map(w.nodes.map((n) => [n.id, n]));
     const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
     if (nodes.size !== w.nodes.length) issue('Node IDs must be unique');
+    const resources = new Map(w.resources.map((r) => [r.id, r]));
+    if (resources.size !== w.resources.length || w.resources.some((r) => nodes.has(r.id)))
+      issue('Resource IDs must be unique');
+    const bindingKeys = new Set<string>();
+    for (const b of w.bindings) {
+      if (nodes.get(b.agentNodeId)?.type !== 'agent' || !resources.has(b.resourceId))
+        issue('Connect resources to an agent, not to the execution path');
+      const key = `${b.agentNodeId}:${b.resourceId}`;
+      if (bindingKeys.has(key)) issue('Duplicate resource connection');
+      bindingKeys.add(key);
+    }
+    for (const r of w.resources)
+      if (!w.bindings.some((b) => b.resourceId === r.id)) issue(`Connect ${r.name} to an agent or remove it`);
+    for (const n of w.nodes)
+      if (n.type === 'agent' && Boolean(n.agentId) === Boolean(n.config))
+        issue(`Choose an existing agent or configure ${n.name} inline`);
+    const explicitStart = w.nodes.filter((n) => n.type === 'start');
+    if (explicitStart.length && (explicitStart.length !== 1 || explicitStart[0].id !== w.startAt))
+      issue('Use exactly one Start node as the entry point');
     if (!nodes.has(w.startAt)) issue('Start node does not exist');
     const visiting = new Set<string>();
     const visited = new Set<string>();
     const walk = (nodeId: string) => {
       if (visiting.has(nodeId)) {
-        issue('Workflow cycles are not supported');
+        if (!explicitStart.length)
+          issue('Workflow cycles require an explicit Start and Finish with a step budget');
         return;
       }
       if (visited.has(nodeId)) return;
@@ -124,12 +177,25 @@ export const workflowSchema = z
       if (n.type === 'condition') {
         walk(n.onTrue);
         walk(n.onFalse);
-      } else if (n.type !== 'output' && n.next) walk(n.next);
+      } else if (n.type !== 'output' && n.type !== 'finish' && n.next) walk(n.next);
       visiting.delete(nodeId);
       visited.add(nodeId);
     };
     walk(w.startAt);
     if (visited.size !== nodes.size) issue('Every node must be reachable from the start node');
+    if (explicitStart.length) {
+      const finishes = new Set(w.nodes.filter((n) => ['output', 'finish'].includes(n.type)).map((n) => n.id));
+      if (!finishes.size) issue('Add a Finish node');
+      const canFinish = new Set(finishes);
+      for (let i = 0; i < w.nodes.length; i++)
+        for (const n of w.nodes) {
+          const targets =
+            n.type === 'condition' ? [n.onTrue, n.onFalse] : 'next' in n && n.next ? [n.next] : [];
+          if (targets.some((t) => canFinish.has(t))) canFinish.add(n.id);
+          if (i === 0 && targets.includes(w.startAt)) issue('Execution cannot return to Start');
+        }
+      if (w.nodes.some((n) => !canFinish.has(n.id))) issue('Every execution step needs a path to Finish');
+    }
   });
 export const knowledgeSchema = z.object({
   name,
@@ -141,6 +207,7 @@ export const runSchema = z
     agentId: id.optional(),
     workflowId: id.optional(),
     input: z.string().min(1).max(32000),
+    payload: z.record(z.unknown()).optional(),
     history: z
       .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(32000) }))
       .max(20)
@@ -152,6 +219,7 @@ export type McpConnection = z.infer<typeof connectionSchema>;
 export type Agent = z.infer<typeof agentSchema>;
 export type Workflow = z.infer<typeof workflowSchema>;
 export type WorkflowNode = z.infer<typeof nodeSchema>;
+export type WorkflowResource = z.infer<typeof resourceSchema>;
 export type KnowledgeBase = z.infer<typeof knowledgeSchema>;
 export type RunInput = z.infer<typeof runSchema>;
 export type Stored<T> = T & { _id: string; ownerId: string; createdAt: Date; updatedAt: Date };
@@ -160,7 +228,7 @@ export type RunEvent = { at: string; type: string; nodeId?: string; message: str
 export type Run = Stored<RunInput> & {
   status: RunStatus;
   label: string;
-  snapshot: { workflow?: Workflow; agents: Record<string, Agent> };
+  snapshot: { workflow?: Workflow; agents: Record<string, Agent>; nodeAgents?: Record<string, Agent> };
   output?: string;
   error?: string;
   events: RunEvent[];
@@ -176,6 +244,10 @@ export type Run = Stored<RunInput> & {
   tokenId?: string;
   embedId?: string;
   scheduleKey?: string;
+  initiatedBy?: string;
+  trigger?: 'studio' | 'api' | 'chat' | 'webhook' | 'embed' | 'schedule';
+  webhookId?: string;
+  conversationId?: string;
 };
 export type KnowledgeDocument = Stored<{
   knowledgeBaseId: string;

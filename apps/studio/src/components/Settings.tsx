@@ -14,6 +14,7 @@ import {
   UserRound,
   Users,
 } from 'lucide-react';
+import { WebhooksPanel } from './WebhooksPanel';
 import { api, errorMessage, send, timestamp, type Data, type Entity, type User } from '../api';
 import {
   Button,
@@ -44,6 +45,7 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
     currentPassword: '',
     newPassword: '',
   });
+  const [workspaceName, setWorkspaceName] = useState('Team workspace');
   const [users, setUsers] = useState<User[]>([]);
   const [adding, setAdding] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'member' });
@@ -51,6 +53,7 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
   const [busy, setBusy] = useState('');
   async function loadUsers() {
     setUsers(await api('/users'));
+    setWorkspaceName((await api('/tenant')).name);
   }
   useEffect(() => {
     if (tab === 'users') void act(loadUsers);
@@ -60,7 +63,7 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
       <PageTitle
         eyebrow="MAKE IT YOURS"
         title="Settings."
-        text="Manage your model providers, local profile, and studio accounts."
+        text="Manage your model providers, local profile, and shared workspace."
       />
       <div className="tabs">
         <button className={tab === 'models' ? 'active' : ''} onClick={() => setTab('models')}>
@@ -74,7 +77,7 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
         {user.role === 'admin' && (
           <button className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}>
             <Users size={16} />
-            Local accounts
+            Team & workspace
           </button>
         )}
       </div>
@@ -248,6 +251,33 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
       )}
       {tab === 'users' && (
         <>
+          <div className="settings-card workspace-settings">
+            <h2>Shared workspace</h2>
+            <p>
+              Members share workflows, agents, knowledge, model providers, and MCP connections. Administrators
+              also manage accounts. Saved credentials stay encrypted.
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void act(async () => {
+                  await send('/tenant', { name: workspaceName }, 'PUT');
+                  await refresh();
+                });
+              }}
+            >
+              <Field label="Workspace name">
+                <input
+                  aria-label="Workspace name"
+                  value={workspaceName}
+                  onChange={(e) => setWorkspaceName(e.target.value)}
+                />
+              </Field>
+              <Button type="submit" variant="secondary">
+                Save workspace name
+              </Button>
+            </form>
+          </div>
           <div className="section-toolbar">
             <div>
               <h2>Studio accounts</h2>
@@ -255,7 +285,7 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
             </div>
             <Button onClick={() => setAdding(true)}>
               <Plus size={16} />
-              Add account
+              Add teammate
             </Button>
           </div>
           <div className="table-wrap">
@@ -319,13 +349,14 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
         </>
       )}
       {adding && (
-        <Modal title="Create local account" onClose={() => setAdding(false)}>
+        <Modal title="Add a teammate" onClose={() => setAdding(false)}>
           <SaveForm
             onCancel={() => setAdding(false)}
-            label="Create account"
+            label="Create teammate"
             onSave={async () => {
               await send('/users', newUser);
               await loadUsers();
+              await refresh();
               setAdding(false);
               setNewUser({ name: '', email: '', password: '', role: 'member' });
             }}
@@ -417,232 +448,258 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
           <Bot size={16} />
           Iframe embeds
         </button>
+        <button className={tab === 'webhooks' ? 'active' : ''} onClick={() => setTab('webhooks')}>
+          Webhooks
+        </button>
       </div>
-      <div className="section-toolbar">
-        <div>
-          <h2>{tab === 'api' ? 'Scoped API keys' : 'Embedded conversations'}</h2>
-          <p>
-            {tab === 'api'
-              ? 'Keys can run and read executions for a selected agent or workflow.'
-              : 'Each link grants access to one agent or workflow and can be revoked.'}
-          </p>
-        </div>
-        <Button
-          onClick={() => {
-            setForm({
-              name: '',
-              target: targets[0] ? `${targets[0].type}:${targets[0].id}` : '',
-              origins: '',
-              expiresDays: 7,
-            });
-            setAdding(true);
-          }}
-        >
-          <Plus size={16} />
-          {tab === 'api' ? 'Create API key' : 'Create embed'}
-        </Button>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Target</th>
-              <th>Expires</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {(tab === 'api' ? tokens : embeds).map((t) => (
-              <tr key={t.id}>
-                <td>
-                  <strong>{t.name}</strong>
-                </td>
-                <td>
-                  {targets.find(
-                    (a) => a.id === (t.agentId ?? t.workflowId ?? t.agentIds?.[0] ?? t.workflowIds?.[0]),
-                  )?.name ?? 'Target unavailable'}
-                </td>
-                <td>{timestamp(t.expiresAt)}</td>
-                <td>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      if (confirm(`Revoke “${t.name}”? Existing clients will lose access.`))
-                        void act(async () => {
-                          await api(`/integrations/${tab === 'api' ? 'tokens' : 'embeds'}/${t.id}`, {
-                            method: 'DELETE',
-                          });
-                          await load();
-                        });
-                    }}
-                  >
-                    <Trash2 size={14} />
-                    Revoke
-                  </Button>
-                </td>
-              </tr>
-            ))}
-            {!(tab === 'api' ? tokens : embeds).length && (
-              <tr>
-                <td colSpan={4} className="empty-table">
-                  {tab === 'api' ? 'No API keys yet.' : 'No embed links yet.'}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      {tab === 'api' ? (
-        <div className="integration-guide">
-          <div>
-            <div className="eyebrow">A SIMPLE API</div>
-            <h2>One request. A complete workflow.</h2>
-            <p>
-              Submit a run, then poll its status for the result. A stable idempotency key prevents duplicate
-              submissions.
-            </p>
-            <ol>
-              <li>
-                Send <code>POST /api/runs</code> with a target and input.
-              </li>
-              <li>
-                Read the returned run <code>id</code>.
-              </li>
-              <li>
-                Poll <code>GET /api/runs/:id</code> until the status is terminal.
-              </li>
-            </ol>
-            <p>
-              Cancel with <code>POST /api/runs/:id/cancel</code>.
-            </p>
-          </div>
-          <div className="code-card">
-            <div>
-              <span>cURL</span>
-              <CopyButton value={curl} />
-            </div>
-            <pre>{curl}</pre>
-          </div>
-        </div>
+      {tab === 'webhooks' ? (
+        <WebhooksPanel data={data} />
       ) : (
-        <div className="notice provider-note">
-          <ShieldCheck size={22} />
-          <div>
-            <strong>Share a focused experience.</strong>
-            <p>
-              Embed visitors see the conversation, without access to your studio or internal traces. Choose
-              exact allowed website origins. The link contains a bearer capability: anyone with it can use the
-              selected agent until it expires or you revoke it.
-            </p>
+        <>
+          <div className="section-toolbar">
+            <div>
+              <h2>{tab === 'api' ? 'Scoped API keys' : 'Embedded conversations'}</h2>
+              <p>
+                {tab === 'api'
+                  ? 'Keys can run and read executions for a selected agent or workflow.'
+                  : 'Each link grants access to one agent or workflow and can be revoked.'}
+              </p>
+            </div>
+            <Button
+              onClick={() => {
+                setForm({
+                  name: '',
+                  target: targets[0] ? `${targets[0].type}:${targets[0].id}` : '',
+                  origins: '',
+                  expiresDays: 7,
+                });
+                setAdding(true);
+              }}
+            >
+              <Plus size={16} />
+              {tab === 'api' ? 'Create API key' : 'Create embed'}
+            </Button>
           </div>
-        </div>
-      )}
-      {adding && (
-        <Modal
-          title={tab === 'api' ? 'Create an API key' : 'Create an iframe embed'}
-          onClose={() => setAdding(false)}
-        >
-          <SaveForm
-            onCancel={() => setAdding(false)}
-            label={tab === 'api' ? 'Create API key' : 'Create embed link'}
-            onSave={async () => {
-              const [type, id] = form.target.split(':');
-              if (!id) throw new Error('Choose a target');
-              const body =
-                tab === 'api'
-                  ? {
-                      name: form.name,
-                      agentIds: type === 'agent' ? [id] : [],
-                      workflowIds: type === 'workflow' ? [id] : [],
-                      scopes: ['execute', 'read'],
-                      expiresDays: form.expiresDays,
-                    }
-                  : {
-                      name: form.name,
-                      [type === 'agent' ? 'agentId' : 'workflowId']: id,
-                      origins: form.origins
-                        .split(',')
-                        .map((o) => o.trim())
-                        .filter(Boolean),
-                      expiresDays: form.expiresDays,
-                    };
-              const result = await send(`/integrations/${tab === 'api' ? 'tokens' : 'embeds'}`, body);
-              await load();
-              setAdding(false);
-              setSecret({
-                type: tab,
-                value:
-                  tab === 'api'
-                    ? result.token
-                    : `<iframe src="${result.url}" title="Agent conversation" width="420" height="640" style="border:1px solid #dde4de;border-radius:16px" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>`,
-              });
-            }}
-          >
-            <Field label="Name">
-              <input
-                aria-label="Integration name"
-                required
-                placeholder="My application"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </Field>
-            <Field label="Agent or workflow">
-              <select
-                aria-label="Integration target"
-                required
-                value={form.target}
-                onChange={(e) => setForm({ ...form, target: e.target.value })}
-              >
-                <option value="" disabled>
-                  Select a target
-                </option>
-                {targets.map((t) => (
-                  <option key={`${t.type}:${t.id}`} value={`${t.type}:${t.id}`}>
-                    {t.name} · {t.type}
-                  </option>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Target</th>
+                  <th>Expires</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {(tab === 'api' ? tokens : embeds).map((t) => (
+                  <tr key={t.id}>
+                    <td>
+                      <strong>{t.name}</strong>
+                    </td>
+                    <td>
+                      {targets.find(
+                        (a) => a.id === (t.agentId ?? t.workflowId ?? t.agentIds?.[0] ?? t.workflowIds?.[0]),
+                      )?.name ?? 'Target unavailable'}
+                    </td>
+                    <td>{timestamp(t.expiresAt)}</td>
+                    <td>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          if (confirm(`Revoke “${t.name}”? Existing clients will lose access.`))
+                            void act(async () => {
+                              await api(`/integrations/${tab === 'api' ? 'tokens' : 'embeds'}/${t.id}`, {
+                                method: 'DELETE',
+                              });
+                              await load();
+                            });
+                        }}
+                      >
+                        <Trash2 size={14} />
+                        Revoke
+                      </Button>
+                    </td>
+                  </tr>
                 ))}
-              </select>
-            </Field>
-            {tab === 'embed' && (
-              <Field
-                label="Allowed website origins"
-                hint="Comma-separated origins, without a trailing slash or path."
-              >
-                <input
-                  aria-label="Allowed embed origins"
-                  required
-                  placeholder="https://example.com, http://localhost:3000"
-                  value={form.origins}
-                  onChange={(e) => setForm({ ...form, origins: e.target.value })}
-                />
-              </Field>
-            )}
-            <Field label="Expires in (days)">
-              <input
-                aria-label="Integration expiration days"
-                type="number"
-                min={1}
-                max={tab === 'api' ? 365 : 30}
-                value={form.expiresDays}
-                onChange={(e) => setForm({ ...form, expiresDays: Number(e.target.value) })}
-              />
-            </Field>
-          </SaveForm>
-        </Modal>
-      )}
-      {secret && (
-        <Modal
-          title={secret.type === 'api' ? 'Your API key is ready' : 'Your embed is ready'}
-          onClose={() => setSecret(null)}
-        >
-          <div className="form-content">
-            <div className="notice">Copy this now. The secret is only shown once.</div>
-            <pre className="secret-value">{secret.value}</pre>
-            <CopyButton value={secret.value} />
+                {!(tab === 'api' ? tokens : embeds).length && (
+                  <tr>
+                    <td colSpan={4} className="empty-table">
+                      {tab === 'api' ? 'No API keys yet.' : 'No embed links yet.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-        </Modal>
+          {tab === 'api' ? (
+            <div className="integration-guide">
+              <div>
+                <div className="eyebrow">A SIMPLE API</div>
+                <h2>One request. A complete workflow.</h2>
+                <p>
+                  Submit a run, then poll its status for the result. A stable idempotency key prevents
+                  duplicate submissions.
+                </p>
+                <ol>
+                  <li>
+                    Send <code>POST /api/runs</code> with a target and input.
+                  </li>
+                  <li>
+                    Read the returned run <code>id</code>.
+                  </li>
+                  <li>
+                    Poll <code>GET /api/runs/:id</code> until the status is terminal.
+                  </li>
+                </ol>
+                <p>
+                  Cancel with <code>POST /api/runs/:id/cancel</code>.
+                </p>
+                <h3>Conversational API</h3>
+                <p>
+                  Send <code>POST /api/chat</code> with your target and <code>message</code>. Keep the
+                  returned <code>conversationId</code> for follow-up messages; the server retains conversation
+                  history. Poll the returned run ID for each answer.
+                </p>
+                <pre className="tool-schema">
+                  {JSON.stringify(
+                    { workflowId: 'YOUR_WORKFLOW_ID', message: 'Research this topic' },
+                    null,
+                    2,
+                  )}
+                </pre>
+                <p>
+                  Follow-up: <code>{'{"conversationId":"…","message":"Explain the sources"}'}</code>. Read
+                  saved messages with <code>GET /api/conversations/:id</code>.
+                </p>
+              </div>
+              <div className="code-card">
+                <div>
+                  <span>cURL</span>
+                  <CopyButton value={curl} />
+                </div>
+                <pre>{curl}</pre>
+              </div>
+            </div>
+          ) : (
+            <div className="notice provider-note">
+              <ShieldCheck size={22} />
+              <div>
+                <strong>Share a focused experience.</strong>
+                <p>
+                  Embed visitors see the conversation, without access to your studio or internal traces.
+                  Choose exact allowed website origins. The link contains a bearer capability: anyone with it
+                  can use the selected agent until it expires or you revoke it.
+                </p>
+              </div>
+            </div>
+          )}
+          {adding && (
+            <Modal
+              title={tab === 'api' ? 'Create an API key' : 'Create an iframe embed'}
+              onClose={() => setAdding(false)}
+            >
+              <SaveForm
+                onCancel={() => setAdding(false)}
+                label={tab === 'api' ? 'Create API key' : 'Create embed link'}
+                onSave={async () => {
+                  const [type, id] = form.target.split(':');
+                  if (!id) throw new Error('Choose a target');
+                  const body =
+                    tab === 'api'
+                      ? {
+                          name: form.name,
+                          agentIds: type === 'agent' ? [id] : [],
+                          workflowIds: type === 'workflow' ? [id] : [],
+                          scopes: ['execute', 'read'],
+                          expiresDays: form.expiresDays,
+                        }
+                      : {
+                          name: form.name,
+                          [type === 'agent' ? 'agentId' : 'workflowId']: id,
+                          origins: form.origins
+                            .split(',')
+                            .map((o) => o.trim())
+                            .filter(Boolean),
+                          expiresDays: form.expiresDays,
+                        };
+                  const result = await send(`/integrations/${tab === 'api' ? 'tokens' : 'embeds'}`, body);
+                  await load();
+                  setAdding(false);
+                  setSecret({
+                    type: tab,
+                    value:
+                      tab === 'api'
+                        ? result.token
+                        : `<iframe src="${result.url}" title="Agent conversation" width="420" height="640" style="border:1px solid #dde4de;border-radius:16px" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>`,
+                  });
+                }}
+              >
+                <Field label="Name">
+                  <input
+                    aria-label="Integration name"
+                    required
+                    placeholder="My application"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  />
+                </Field>
+                <Field label="Agent or workflow">
+                  <select
+                    aria-label="Integration target"
+                    required
+                    value={form.target}
+                    onChange={(e) => setForm({ ...form, target: e.target.value })}
+                  >
+                    <option value="" disabled>
+                      Select a target
+                    </option>
+                    {targets.map((t) => (
+                      <option key={`${t.type}:${t.id}`} value={`${t.type}:${t.id}`}>
+                        {t.name} · {t.type}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {tab === 'embed' && (
+                  <Field
+                    label="Allowed website origins"
+                    hint="Comma-separated origins, without a trailing slash or path."
+                  >
+                    <input
+                      aria-label="Allowed embed origins"
+                      required
+                      placeholder="https://example.com, http://localhost:3000"
+                      value={form.origins}
+                      onChange={(e) => setForm({ ...form, origins: e.target.value })}
+                    />
+                  </Field>
+                )}
+                <Field label="Expires in (days)">
+                  <input
+                    aria-label="Integration expiration days"
+                    type="number"
+                    min={1}
+                    max={tab === 'api' ? 365 : 30}
+                    value={form.expiresDays}
+                    onChange={(e) => setForm({ ...form, expiresDays: Number(e.target.value) })}
+                  />
+                </Field>
+              </SaveForm>
+            </Modal>
+          )}
+          {secret && (
+            <Modal
+              title={secret.type === 'api' ? 'Your API key is ready' : 'Your embed is ready'}
+              onClose={() => setSecret(null)}
+            >
+              <div className="form-content">
+                <div className="notice">Copy this now. The secret is only shown once.</div>
+                <pre className="secret-value">{secret.value}</pre>
+                <CopyButton value={secret.value} />
+              </div>
+            </Modal>
+          )}
+        </>
       )}
     </>
   );

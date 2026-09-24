@@ -374,13 +374,13 @@ test('file upload, background indexing, Weaviate retrieval and grounded agent re
 test('internal accounts cannot read or bind another account’s data, files or runs', async () => {
   const email = `member-${suffix}@agentic.test`;
   const password = 'Another-test-password-42';
-  const user = await ok('/users', { name: 'Other User', email, password });
+  const user = await ok('/users', { name: 'Other User', email, password, workspace: 'new' });
   const loggedIn = await request('/auth/login', { method: 'POST', body: { email, password }, auth: '' });
   otherCookie = loggedIn.headers.get('set-cookie')!.split(';')[0];
   assert.deepEqual((await request('/agents', { auth: otherCookie })).data, []);
   assert.equal((await request(`/agents/${agent.id}`, { auth: otherCookie })).status, 404);
   assert.equal((await request(`/documents/${doc.id}/download`, { auth: otherCookie })).status, 404);
-  assert.equal((await request('/users', { auth: otherCookie })).status, 403);
+  assert.equal((await request('/users', { auth: otherCookie })).data.length, 1);
   assert.equal(
     (await request('/agents', { auth: otherCookie, method: 'POST', body: { ...agent, name: 'Borrowed' } }))
       .status,

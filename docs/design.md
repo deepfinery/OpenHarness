@@ -13,22 +13,50 @@ RabbitMQ, Weaviate, and uploaded files use dedicated installation volumes.
 | `apps/runner`   | Queued agent/workflow execution, document ingestion, and deletion.                             |
 | `packages/core` | Schemas, model adapters, MCP/OAuth, retrieval, storage, and execution semantics.               |
 
-Workflows support agent, MCP tool, condition, parallel-agent, and output nodes.
-The graph is acyclic; each agent has a separate bounded reasoning/tool loop.
-All external tools use explicit MCP bindings. There is no arbitrary-code node.
+Harness workflows have explicit Start and Finish nodes, agents, MCP actions,
+conditions, and parallel-agent steps. Control edges determine execution order.
+Separate resource edges attach MCP tool permissions or knowledge bases to
+individual agents. An agent can be configured inline or reference a reusable
+agent. Templates use inline configurations so they need no separate agent setup.
+At submission, resource bindings are compiled into per-node agent snapshots;
+editing a workflow afterwards cannot change the accepted graph or its tool grants.
+
+Cycles are allowed only in explicit harness graphs, with a path to Finish and
+an execution budget of 1–500 steps. Agent reasoning/tool loops have separate
+turn and timeout limits; the worker also enforces a 30-minute run limit.
+Legacy graphs remain compatible. There is no arbitrary-code node.
 
 ## Data boundaries
 
-Every resource has an `ownerId`. Studio users operate their own resources.
-Administrators manage local accounts; they do not implicitly receive other
-users' credentials. A run stores workflow and agent snapshots at submission;
-credentials and provider connections are resolved from that owner's resources.
+Every user has a `tenantId`. The storage field `ownerId` identifies that tenant's
+workspace for compatibility with existing installations. Teammates share
+resources, document access, and execution history within that tenant. All
+reference validation, credential lookup, file access and retrieval queries
+include that boundary. Administrators manage their tenant's users; members
+cannot manage accounts. API-created isolated workspaces have separate admins.
+
+Legacy accounts are migrated to tenant IDs matching their original user IDs,
+preserving private resource ownership rather than silently sharing credentials.
+Provider and MCP secrets remain write-only for every role. Runs record the
+initiating user and trigger; workflow saves include a revision precondition to
+prevent silent overwrites when two people edit the same saved version.
 
 API keys are hashed, expiring capabilities with `read` and/or `execute` scopes
 and explicit target IDs. They cannot manage studio resources, users, model
 providers, or connections. Run reads through an API key are limited to that key's
 runs. Embed capabilities are independently revocable and return only execution
-status and the final output, without internal traces.
+status and the final output, without internal traces. Webhook capabilities are
+hashed, expiring, target-scoped and use the same queued execution path. The raw
+JSON event remains available to template bindings. Webhook polling reveals only
+runs created through that webhook. Disabling a capability's creator invalidates
+its API keys, webhooks and embeds.
+
+Conversational API turns reserve one pending run per conversation atomically.
+Successful turns append bounded server-side history; failed or cancelled turns
+release the reservation without adding a fabricated answer. Terminal runs can
+settle conversations after a worker interruption. Conversation access is scoped
+to the initiating user or API key; it does not create a private run-history
+boundary within the shared workspace.
 
 ## Secrets and remote endpoints
 
@@ -51,7 +79,7 @@ token is treated as an application login.
 ## Queue semantics
 
 MongoDB is the durable submission record. RabbitMQ publishes are confirmed and
-messages are persistent. A periodic dispatcher republishes unclaimed queued
+messages are persistent and carry a run/document correlation ID. A periodic dispatcher republishes unclaimed queued
 work, including work accepted while the broker was unavailable. Workers
 atomically claim jobs and heartbeat a lease; duplicate deliveries cannot claim
 an active or terminal run.
@@ -66,7 +94,7 @@ retrieval and are deleted by a background job.
 ## Excluded surfaces
 
 No provider-specific tool connectors or plugin catalogs, external UI OAuth,
-website builders/renderers, wizards, reports, customers, product/service
+website builders/renderers, business wizards, reports, customers, product/service
 catalogs, customer portals, billing, subscriptions, or managed-cloud storage
 components are present in the standalone dependency graph or UI navigation.
 

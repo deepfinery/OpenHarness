@@ -61,9 +61,26 @@ async function validateReferences(kind: string, ownerId: string, body: any) {
     if (!p.embeddingModel || p.kind === 'anthropic')
       throw new HttpError(400, 'This knowledge base needs a provider with a supported embedding model');
   }
-  if (kind === 'workflows')
+  if (kind === 'workflows') {
+    for (const resource of body.resources ?? []) {
+      if (resource.type === 'knowledge') await assertOwned('knowledge', ownerId, resource.knowledgeBaseId);
+      else {
+        const c = await collection<Resource>('connections').findOne({ _id: resource.connectionId, ownerId });
+        if (
+          !c?.enabled ||
+          resource.tools.some((name: string) => !c.tools?.some((t: { name: string }) => t.name === name))
+        )
+          throw new HttpError(
+            400,
+            'Attach discovered tools from an enabled MCP connection in this workspace',
+          );
+      }
+    }
     for (const n of body.nodes) {
-      if (n.type === 'agent') await assertOwned('agents', ownerId, n.agentId);
+      if (n.type === 'agent') {
+        if (n.agentId) await assertOwned('agents', ownerId, n.agentId);
+        if (n.config) await validateReferences('agents', ownerId, n.config);
+      }
       if (n.type === 'parallel') for (const id of n.agentIds) await assertOwned('agents', ownerId, id);
       if (n.type === 'tool') {
         const c = await collection<Resource>('connections').findOne({ _id: n.connectionId, ownerId });
@@ -71,6 +88,7 @@ async function validateReferences(kind: string, ownerId: string, body: any) {
           throw new HttpError(400, 'Choose a discovered tool from an owned MCP connection');
       }
     }
+  }
 }
 export const resources = Router();
 const definitions = {
@@ -86,7 +104,7 @@ for (const [kind, schema] of Object.entries(definitions)) {
     res.json(
       (
         await records()
-          .find({ ownerId: req.principal!.user._id })
+          .find({ ownerId: req.principal!.tenantId })
           .sort({ createdAt: -1 })
           .limit(500)
           .toArray()
@@ -94,13 +112,13 @@ for (const [kind, schema] of Object.entries(definitions)) {
     );
   });
   resources.get(`/${kind}/:id`, async (req, res) => {
-    const record = await records().findOne({ _id: String(req.params.id), ownerId: req.principal!.user._id });
+    const record = await records().findOne({ _id: String(req.params.id), ownerId: req.principal!.tenantId });
     if (!record) throw new HttpError(404, 'Resource not found');
     res.json(publicResource(record));
   });
   for (const method of ['post', 'put'] as const)
     resources[method](`/${kind}${method === 'put' ? '/:id' : ''}`, async (req, res) => {
-      const ownerId = req.principal!.user._id;
+      const ownerId = req.principal!.tenantId;
       const body: any = schema.parse(req.body);
       const id = method === 'put' ? String((req.params as Record<string, string>).id) : randomUUID();
       const previous = method === 'put' ? await records().findOne({ _id: id, ownerId }) : null;
@@ -149,29 +167,67 @@ for (const [kind, schema] of Object.entries(definitions)) {
       )
         clear.nextRunAt = '';
       const now = new Date();
-      if (method === 'put')
-        await records().updateOne(
-          { _id: id, ownerId },
-          { $set: { ...data, updatedAt: now }, ...(Object.keys(clear).length ? { $unset: clear } : {}) },
+      if (method === 'put') {
+        const expected = req.headers['if-match'];
+        if (expected !== undefined && String(previous?.revision ?? 0) !== expected)
+          throw new HttpError(
+            409,
+            'This workflow was changed by a teammate. Close and reopen it before saving.',
+          );
+        const result = await records().updateOne(
+          {
+            _id: id,
+            ownerId,
+            ...(expected === undefined
+              ? {}
+              : previous?.revision === undefined
+                ? { revision: { $exists: false } }
+                : { revision: previous.revision }),
+          },
+          {
+            $set: { ...data, updatedAt: now, updatedBy: req.principal!.user._id },
+            $inc: { revision: 1 },
+            ...(Object.keys(clear).length ? { $unset: clear } : {}),
+          },
         );
-      else await records().insertOne({ ...data, _id: id, ownerId, createdAt: now, updatedAt: now });
+        if (!result.matchedCount) throw new HttpError(409, 'This resource changed. Reopen it before saving.');
+      } else
+        await records().insertOne({
+          ...data,
+          _id: id,
+          ownerId,
+          createdBy: req.principal!.user._id,
+          revision: 1,
+          createdAt: now,
+          updatedAt: now,
+        });
       res
         .status(method === 'post' ? 201 : 200)
         .json(publicResource((await records().findOne({ _id: id, ownerId }))!));
     });
   resources.delete(`/${kind}/:id`, async (req, res) => {
     const id = String(req.params.id);
-    const ownerId = req.principal!.user._id;
+    const ownerId = req.principal!.tenantId;
     const blockers: [string, Record<string, unknown>][] =
       kind === 'providers'
         ? [
             ['agents', { providerId: id }],
             ['knowledge', { providerId: id }],
+            ['workflows', { 'nodes.config.providerId': id }],
           ]
         : kind === 'connections'
           ? [
               ['agents', { 'connections.connectionId': id }],
-              ['workflows', { 'nodes.connectionId': id }],
+              [
+                'workflows',
+                {
+                  $or: [
+                    { 'nodes.connectionId': id },
+                    { 'resources.connectionId': id },
+                    { 'nodes.config.connections.connectionId': id },
+                  ],
+                },
+              ],
             ]
           : kind === 'agents'
             ? [['workflows', { $or: [{ 'nodes.agentId': id }, { 'nodes.agentIds': id }] }]]
@@ -179,6 +235,10 @@ for (const [kind, schema] of Object.entries(definitions)) {
               ? [
                   ['agents', { knowledgeBaseIds: id }],
                   ['documents', { knowledgeBaseId: id }],
+                  [
+                    'workflows',
+                    { $or: [{ 'resources.knowledgeBaseId': id }, { 'nodes.config.knowledgeBaseIds': id }] },
+                  ],
                 ]
               : [];
     for (const [name, query] of blockers)
@@ -190,27 +250,27 @@ for (const [kind, schema] of Object.entries(definitions)) {
   });
 }
 resources.post('/providers/:id/test', async (req, res) => {
-  await rateLimit(`provider-test:${req.principal!.user._id}`, 10);
-  const provider = await ownedProvider(req.principal!.user._id, String(req.params.id));
+  await rateLimit(`provider-test:${req.principal!.tenantId}`, 10);
+  const provider = await ownedProvider(req.principal!.tenantId, String(req.params.id));
   const response = await chat(provider, [{ role: 'user', content: 'Reply with the word Connected.' }], []);
   res.json({ text: response.text });
 });
 resources.post('/connections/:id/discover', async (req, res) => {
-  await rateLimit(`mcp-discover:${req.principal!.user._id}`, 20);
-  res.json(await discoverTools(req.principal!.user._id, String(req.params.id)));
+  await rateLimit(`mcp-discover:${req.principal!.tenantId}`, 20);
+  res.json(await discoverTools(req.principal!.tenantId, String(req.params.id)));
 });
 resources.post('/connections/:id/oauth', async (req, res) => {
-  res.json(await startOAuth(req.principal!.user._id, String(req.params.id), req.principal!.sessionHash!));
+  res.json(await startOAuth(req.principal!.tenantId, String(req.params.id), req.principal!.sessionHash!));
 });
 resources.post('/connections/:id/disconnect', async (req, res) => {
   await collection<Resource>('connections').updateOne(
-    { _id: String(req.params.id), ownerId: req.principal!.user._id },
+    { _id: String(req.params.id), ownerId: req.principal!.tenantId },
     { $unset: { oauthTokensEncrypted: '', oauthClientEncrypted: '', tools: '', lastCheckedAt: '' } },
   );
   res.status(204).end();
 });
 resources.get('/knowledge/:id/documents', async (req, res) => {
-  const ownerId = req.principal!.user._id;
+  const ownerId = req.principal!.tenantId;
   await assertOwned('knowledge', ownerId, String(req.params.id));
   const docs = await collection<KnowledgeDocument>('documents')
     .find({ knowledgeBaseId: String(req.params.id), ownerId })
@@ -224,7 +284,7 @@ const upload = multer({
   limits: { fileSize: config.MAX_UPLOAD_MB * 1024 * 1024, files: 1 },
 });
 resources.post('/knowledge/:id/documents', upload.single('file'), async (req, res) => {
-  const ownerId = req.principal!.user._id;
+  const ownerId = req.principal!.tenantId;
   const knowledgeBaseId = String(req.params.id);
   await assertOwned('knowledge', ownerId, knowledgeBaseId);
   if (!req.file) throw new HttpError(400, 'Choose a file to upload');
@@ -259,7 +319,7 @@ resources.post('/knowledge/:id/documents', upload.single('file'), async (req, re
 resources.get('/documents/:id/download', async (req, res) => {
   const doc = await collection<KnowledgeDocument>('documents').findOne({
     _id: String(req.params.id),
-    ownerId: req.principal!.user._id,
+    ownerId: req.principal!.tenantId,
     status: { $ne: 'deleting' },
   });
   if (!doc) throw new HttpError(404, 'Document not found');
@@ -267,7 +327,7 @@ resources.get('/documents/:id/download', async (req, res) => {
 });
 resources.post('/documents/:id/reindex', async (req, res) => {
   const r = await collection<KnowledgeDocument>('documents').updateOne(
-    { _id: String(req.params.id), ownerId: req.principal!.user._id, status: { $in: ['ready', 'failed'] } },
+    { _id: String(req.params.id), ownerId: req.principal!.tenantId, status: { $in: ['ready', 'failed'] } },
     {
       $set: { status: 'queued', updatedAt: new Date() },
       $unset: { publishedAt: '', error: '', leaseId: '', leaseUntil: '' },
@@ -278,7 +338,7 @@ resources.post('/documents/:id/reindex', async (req, res) => {
 });
 resources.delete('/documents/:id', async (req, res) => {
   const r = await collection<KnowledgeDocument>('documents').updateOne(
-    { _id: String(req.params.id), ownerId: req.principal!.user._id },
+    { _id: String(req.params.id), ownerId: req.principal!.tenantId },
     { $set: { status: 'deleting', updatedAt: new Date() }, $unset: { publishedAt: '' } },
   );
   if (!r.matchedCount) throw new HttpError(404, 'Document not found');
@@ -286,6 +346,6 @@ resources.delete('/documents/:id', async (req, res) => {
 });
 resources.post('/knowledge/:id/search', async (req, res) => {
   const body = z.object({ query: z.string().min(1).max(4000) }).parse(req.body);
-  await rateLimit(`knowledge-search:${req.principal!.user._id}`, 30);
-  res.json(await searchKnowledge(req.principal!.user._id, String(req.params.id), body.query));
+  await rateLimit(`knowledge-search:${req.principal!.tenantId}`, 30);
+  res.json(await searchKnowledge(req.principal!.tenantId, String(req.params.id), body.query));
 });

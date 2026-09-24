@@ -1,5 +1,4 @@
-// The source agent loop's bounded turns, tool messages and execution graph,
-// reduced to MCP tools, model adapters and knowledge context.
+// Durable execution harness: bounded control flow, attached MCP tools, and context.
 import type { Agent, Run, RunEvent } from './schema.js';
 import { collection } from './db.js';
 import { chat, ownedProvider, type ChatMessage, type ToolDefinition } from './llm.js';
@@ -136,22 +135,26 @@ export async function executeRun(run: Run, signal: AbortSignal) {
     );
   const workflow = run.snapshot.workflow;
   if (!workflow) throw new Error('Workflow snapshot missing');
-  const scope: Scope = { input: run.input, last: run.input, steps: {} };
+  const scope: Scope = { input: run.input, last: run.input, payload: run.payload ?? {}, steps: {} };
   let current: string | undefined = workflow.startAt;
   let steps = 0;
   while (current) {
     signal.throwIfAborted();
-    if (++steps > 100) throw new Error('Workflow step budget exceeded');
+    if (++steps > (workflow.maxSteps ?? 100)) throw new Error('Workflow step budget exceeded');
     const node = workflow.nodes.find((n) => n.id === current);
     if (!node) throw new Error(`Workflow node ${current} is missing`);
     const event: EventWriter = (e) => writeEvent({ ...e, nodeId: node.id });
     await event({ type: 'node_started', message: node.name });
     let result: unknown;
     switch (node.type) {
+      case 'start':
+        result = run.input;
+        current = node.next;
+        break;
       case 'agent':
         result = await runAgent(
           run.ownerId,
-          run.snapshot.agents[node.agentId],
+          run.snapshot.nodeAgents?.[node.id] ?? run.snapshot.agents[node.agentId!],
           asText(render(node.prompt, scope)),
           run.history,
           event,
@@ -218,6 +221,7 @@ export async function executeRun(run: Run, signal: AbortSignal) {
         current = result ? node.onTrue : node.onFalse;
         break;
       case 'output':
+      case 'finish':
         result = render(node.template, scope);
         current = undefined;
         break;

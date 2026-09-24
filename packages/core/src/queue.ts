@@ -47,7 +47,14 @@ export async function publish(job: Job) {
     c.sendToQueue(
       JOB_QUEUE,
       Buffer.from(JSON.stringify(job)),
-      { persistent: true, contentType: 'application/json', messageId: `${job.kind}:${job.id}` },
+      {
+        persistent: true,
+        contentType: 'application/json',
+        messageId: `${job.kind}:${job.id}`,
+        correlationId: job.id,
+        type: `agentic.${job.kind}`,
+        timestamp: Math.floor(Date.now() / 1000),
+      },
       (error) => (error ? reject(error) : resolve()),
     ),
   );
