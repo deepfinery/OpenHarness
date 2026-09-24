@@ -241,6 +241,80 @@ flowchart LR
 
 An agent's bound MCP tools and knowledge bases are available throughout its own turn budget, not fixed steps in the graph; a `tool` node is for a call that must happen in a fixed order outside any agent's reasoning.
 
+## Design rationale
+
+### Idempotency, resiliency, and what "handled" actually means
+
+Three distinct guarantees exist today, and one deliberately doesn't:
+
+- **Submission idempotency.** `POST /runs` and webhook deliveries accept an `Idempotency-Key`. The same key with the same payload returns the original run; the same key with a different payload is rejected with `409` (`createRun` in `packages/core/src/runs.ts`). Scheduled workflows dedup the same way on a `scheduleKey`, so a scheduler restart cannot double-fire an interval.
+- **Durable delivery (the outbox).** A run is written to MongoDB with `status: queued` _before_ anything is published to RabbitMQ. If the broker is down at that instant, the write still succeeds, and a periodic dispatcher (`dispatchPending`) republishes it once the broker is reachable again. No run is lost to a broker outage — the fault-injection test in `tests/integration/reliability.test.ts` stops the RabbitMQ container mid-submission to verify exactly this.
+- **Exclusive execution.** A runner claims a run with an atomic `findOneAndUpdate` (`queued` → `running`, tagged with a `leaseId`). A duplicate delivery of the same message finds the run already claimed and no-ops instead of executing it twice. A 5-second heartbeat keeps the lease alive; if the runner process dies, the lease simply stops renewing.
+
+What is **not** built is automatic replay of a crashed run from its last checkpoint. The runner does checkpoint every node's output to MongoDB as it goes (see [Run lifecycle](#run-lifecycle)), but those checkpoints exist for inspection and for a fast `interrupted` verdict — they are not proof that resuming is safe. MCP defines no generic way to ask "did that tool call already take effect?" A blind replay risks doing it twice (sending a second email, filing a duplicate ticket); silently skipping it risks not doing it at all. Neither is a decision this platform makes on an operator's behalf, so a run whose lease expires is swept to a terminal `interrupted` state with an error pointing at the trace, instead ([Run states](#run-states)).
+
+Real saga-style recovery — automatically resuming past the point of failure — needs one of two things this platform does not yet assume: either every MCP tool call carries an idempotency key that the _external_ service itself honors (outside this platform's control; MCP has no standard for it), or each workflow node declares an explicit compensating action to undo its effect. Both are real, scoped follow-up work. `docs/design.md`'s "Queue semantics" section documents the current stance as a deliberate design decision, not an oversight.
+
+### Why this design holds up
+
+- **One tool protocol, not N connectors.** Search, ticketing, file access, and any other external capability arrive through MCP. That means one auth model (bearer or OAuth with PKCE), one discovery mechanism (`listTools`), and one place — `toolValidation.ts` — where every tool call is checked against the server's own live schema before it is dispatched. A new integration is a new MCP server, not new orchestrator code.
+- **Durable by construction.** The outbox → broker → lease → heartbeat chain means a client's dropped connection, a broker restart, or a runner crash cannot silently lose a submitted run. This is exercised, not assumed: the isolated test stack actually kills the RabbitMQ container and `SIGKILL`s the runner mid-run.
+- **Bounded everywhere.** Agent turns, per-turn tool-call counts, run step budgets, context size, and wall-clock timeouts are all capped (`agent.maxTurns`, `workflow.maxSteps`, a 30-minute worker limit). An agent cannot run away with your token budget or your infrastructure.
+- **Least privilege by default.** An agent's tool access is an explicit allow-list (`agent.connections[].tools`); an empty list grants nothing. Provider and MCP credentials are write-only, even to administrators.
+- **Tenant isolation at the execution layer, not just the UI.** `ownerId`/tenant scoping is enforced in the same resource-lookup functions the runner calls to execute a job — a misconfigured or compromised agent cannot read another tenant's connections or knowledge base.
+- **Tested against real infrastructure.** Integration tests run against real MongoDB, RabbitMQ, and Weaviate containers with deterministic MCP/model fixtures, including fault injection — killed containers, expired OAuth tokens, interrupted runs. A passing suite here means the failure mode was actually exercised, not asserted away with a mock.
+
+### Agentic architecture in context
+
+This project does not use LangChain, or any agent framework — there is no such dependency in `package.json`, and `packages/core/src/runtime.ts` talks to each model provider's native API directly. It's still useful to place this design against the architecture most agent frameworks (LangChain's `AgentExecutor` and its equivalents elsewhere) converge on, since the same tradeoffs apply either way:
+
+```mermaid
+flowchart LR
+  U[User input] --> L["LLM: decide next action"]
+  L -->|tool call| T[Tool executor]
+  T -->|observation| L
+  L -->|final answer| O[Response]
+  Mem[("Conversation memory / chat history")] -.-> L
+```
+
+_A generic ReAct-style agent-executor loop — the common shape behind LangChain and most other agent frameworks, shown here as background, not as this repository's own stack._
+
+That loop's benefits are real: a large ecosystem of pre-built tool, memory, and retriever integrations; a shared vocabulary (chains, agents, tools, memory) that's easy to hire and reason about; and fast prototyping. Its costs are just as real for a long-lived, self-hosted product: a fast-moving dependency with frequent breaking changes, an abstraction layer between the developer and the provider's actual request/response, and no built-in opinion about durability, multi-tenancy, or credential handling — that part gets built regardless of the framework underneath. This project takes the other side of that trade: a small, dependency-light execution core purpose-built around the durability, tenancy, and tool-validation guarantees described above, in exchange for not inheriting a framework's integration catalog. MCP is the integration catalog instead.
+
+**Agentic patterns, and what this platform supports today:**
+
+```mermaid
+flowchart TD
+  subgraph "ReAct / tool-calling loop - built in"
+    A1["agent node: model chooses tools each turn, up to maxTurns"]
+  end
+  subgraph "Sequential pipeline - built in"
+    S1[agent] --> S2[agent] --> S3[agent]
+  end
+  subgraph "Parallel multi-agent - built in"
+    P0[agent] --> P1{{parallel node}}
+    P1 --> P2[agent A]
+    P1 --> P3[agent B]
+  end
+  subgraph "Plan-then-delegate - not a distinct node yet"
+    Pl["one agent with a planning prompt does both today"]
+  end
+```
+
+The `agent` node already runs a bounded ReAct loop, `next` edges already chain agents into a sequential pipeline, and the `parallel` node already fans one prompt out to 2-8 agents and waits for all of them. A dedicated **planner** pattern — a step that decomposes a task and explicitly dispatches named sub-steps to specialized agents — is not its own node type yet; today it is approximated by writing a planning instruction into a single agent's system prompt. That gap is open backlog, not shipped.
+
+### The agent and tool design, in depth
+
+Zooming into `packages/core/src/runtime.ts` and `mcp.ts` — the parts of this platform that decide what an agent is allowed to do and how it does it:
+
+- **The tool-calling loop is explicit and inspectable.** Each turn, the model sees the full tool list with live schemas, picks zero or more calls, each call is validated locally against that schema before dispatch, and every call and result is written to the run's event log as it happens rather than reconstructed afterward. That log is what the Playground's trace and the Executions page render.
+- **Tool errors are recoverable, not fatal.** A schema violation or an MCP-side error is handed back to the model as a normal tool result (marked `tool_error`) so it can retry with corrected arguments inside its existing turn budget — instead of one bad call, like the Tavily `topic` enum mismatch that motivated this fix, taking down the entire run.
+- **Every tool call happens inside a lease.** Tool calls only ever run inside a claimed, heartbeating run; if the runner dies mid-call, no other replica can also be mid-call on the same run, and the run fails safe to `interrupted` instead of silently continuing from stale state.
+- **Retrieval is a context stage, not a tool the model can misuse.** Knowledge lookups happen before the model sees the prompt, are cited by source title, and are explicitly labeled as reference data rather than instructions in the system prompt — the model cannot be tricked into treating retrieved text as a new instruction the way an ungoverned RAG-as-a-tool integration can be.
+- **Nothing here trusts the model's judgment for authorization.** Which tools exist, which knowledge base is searched, which tenant's data is reachable, and how many turns or tool calls are allowed are all decided by configuration before the model runs, never requested by the model at run time.
+
+Why this matters in production, specifically: the failure modes above are not hypothetical — they are the exact shape of the bugs reported against this platform, such as a bad tool argument crashing an entire customer-facing run, or no visibility into whether a crashed run's side effects already happened. A framework or a hand-rolled prototype that skips schema validation, run leasing, or explicit tool grants will work in a demo and then produce exactly these incidents the first time a tool's schema drifts, two workers race on the same job, or an agent is given more trust than the person configuring it intended. Durability, least privilege, and schema validation are not polish layered on top of the agent loop — for a system that lets an LLM take real external actions, they are the difference between a demo and something a customer's workflow can safely run behind.
+
 ## Operations and limits
 
 - Keep `.env` backed up with the volumes. In particular, existing encrypted credentials cannot be recovered without `ENCRYPTION_KEY`.
