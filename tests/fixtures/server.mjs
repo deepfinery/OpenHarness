@@ -45,6 +45,14 @@ function mcpServer() {
     isError: true,
     content: [{ type: 'text', text: 'Intentional fixture failure' }],
   }));
+  server.registerTool(
+    'strict',
+    { description: 'Only accepts mode=fast', inputSchema: { mode: z.enum(['fast']) } },
+    async ({ mode }) => {
+      stats.tools++;
+      return { content: [{ type: 'text', text: `strict ok: ${mode}` }] };
+    },
+  );
   return server;
 }
 function guard(req, res, next) {
@@ -167,7 +175,36 @@ function answer(messages, tools) {
         .map((m) => m.content)
         .join(' | ')}`,
     };
-  if (last?.role === 'tool') return { content: `Tool completed: ${last.content}` };
+  if (last?.role === 'tool') {
+    if (String(last.content).includes('Invalid arguments') && tools?.length) {
+      const strict = tools.find((t) => t.function.description.includes('/ strict:'));
+      if (strict)
+        return {
+          content: '',
+          tool_calls: [
+            {
+              id: randomUUID(),
+              type: 'function',
+              function: { name: strict.function.name, arguments: JSON.stringify({ mode: 'fast' }) },
+            },
+          ],
+        };
+    }
+    return { content: `Tool completed: ${last.content}` };
+  }
+  if (String(input).includes('use strict tool') && tools?.length) {
+    const strict = tools.find((t) => t.function.description.includes('/ strict:')) ?? tools[0];
+    return {
+      content: '',
+      tool_calls: [
+        {
+          id: randomUUID(),
+          type: 'function',
+          function: { name: strict.function.name, arguments: JSON.stringify({ mode: 'slow' }) },
+        },
+      ],
+    };
+  }
   if (String(input).includes('use tool') && tools?.length)
     return {
       content: '',

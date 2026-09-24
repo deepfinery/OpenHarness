@@ -6,6 +6,7 @@ import { connectMcp, ownedConnection, toolAlias } from './mcp.js';
 import { searchKnowledge } from './knowledge.js';
 import { asText, evaluateCondition, render, type Scope } from './templates.js';
 import { safeError } from './security.js';
+import { validateToolArguments } from './toolValidation.js';
 
 type EventWriter = (event: Omit<RunEvent, 'at'>) => Promise<void>;
 export async function runAgent(
@@ -21,7 +22,12 @@ export async function runAgent(
   const tools: ToolDefinition[] = [];
   const handlers = new Map<
     string,
-    { session: Awaited<ReturnType<typeof connectMcp>>; name: string; label: string }
+    {
+      session: Awaited<ReturnType<typeof connectMcp>>;
+      name: string;
+      label: string;
+      inputSchema: Record<string, unknown>;
+    }
   >();
   try {
     const context: string[] = [];
@@ -50,7 +56,12 @@ export async function runAgent(
           description: `${connection.name} / ${name}: ${tool.description ?? ''}`.slice(0, 3000),
           inputSchema: tool.inputSchema,
         });
-        handlers.set(alias, { session, name, label: `${connection.name} / ${name}` });
+        handlers.set(alias, {
+          session,
+          name,
+          label: `${connection.name} / ${name}`,
+          inputSchema: tool.inputSchema as Record<string, unknown>,
+        });
       }
     }
     if (tools.length > 120) throw new Error('An agent can expose at most 120 tools per run');
@@ -92,14 +103,35 @@ export async function runAgent(
           message: handler.label,
           data: { arguments: asText(call.arguments).slice(0, 6000) },
         });
-        const result = await handler.session.client.callTool(
-          { name: handler.name, arguments: call.arguments },
-          undefined,
-          { signal, timeout: 60000 },
-        );
-        const text = asText(result).slice(0, 32000);
+        const validationError = validateToolArguments(handler.inputSchema, call.arguments);
+        let text: string;
+        let isError: boolean;
+        if (validationError) {
+          text = validationError;
+          isError = true;
+        } else {
+          try {
+            const result = await handler.session.client.callTool(
+              { name: handler.name, arguments: call.arguments },
+              undefined,
+              { signal, timeout: 60000 },
+            );
+            text = asText(result).slice(0, 32000);
+            isError = Boolean(result.isError);
+          } catch (error) {
+            signal.throwIfAborted();
+            text = `Tool call failed: ${error instanceof Error ? error.message : String(error)}`.slice(
+              0,
+              2000,
+            );
+            isError = true;
+          }
+        }
+        // Tool failures (bad args, a transient MCP error) are handed back to the model as a normal
+        // tool result rather than thrown, so it can inspect the error and retry with corrected input
+        // instead of the whole run dying on one bad call.
         await event({
-          type: result.isError ? 'tool_error' : 'tool_completed',
+          type: isError ? 'tool_error' : 'tool_completed',
           message: handler.label,
           data: { result: text.slice(0, 6000) },
         });
@@ -195,18 +227,28 @@ export async function executeRun(run: Run, signal: AbortSignal) {
         const session = await connectMcp(connection, signal);
         try {
           const available = await session.tools();
-          if (!available.some((t) => t.name === node.tool))
-            throw new Error('Workflow MCP tool no longer exists');
+          const tool = available.find((t) => t.name === node.tool);
+          if (!tool) throw new Error('Workflow MCP tool no longer exists');
           const args = render(node.arguments, scope) as Record<string, unknown>;
+          const validationError = validateToolArguments(tool.inputSchema as Record<string, unknown>, args);
+          if (validationError) throw new Error(`${connection.name} / ${node.tool}: ${validationError}`);
           await event({
             type: 'tool_started',
             message: `${connection.name} / ${node.tool}`,
             data: { arguments: asText(args).slice(0, 6000) },
           });
-          const output = await session.client.callTool({ name: node.tool, arguments: args }, undefined, {
-            signal,
-            timeout: 60000,
-          });
+          let output;
+          try {
+            output = await session.client.callTool({ name: node.tool, arguments: args }, undefined, {
+              signal,
+              timeout: 60000,
+            });
+          } catch (error) {
+            signal.throwIfAborted();
+            throw new Error(
+              `${connection.name} / ${node.tool} call failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
           if (output.isError)
             throw new Error(`MCP tool ${node.tool} reported an error: ${asText(output).slice(0, 1000)}`);
           result = output.structuredContent ?? output.content;

@@ -18,6 +18,7 @@ Open **http://localhost:8088**. Create your local administrator account using th
 
 `start.sh` generates unique credentials, builds the application, starts Compose, and waits for healthy services. After configuration exists, you can also use:
 
+
 ```sh
 docker compose up --build -d --wait
 ```

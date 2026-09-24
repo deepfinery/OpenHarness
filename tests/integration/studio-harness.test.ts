@@ -111,7 +111,7 @@ test('MCP supports custom authentication headers while refusing unsafe transport
     tokenHeader: 'X-Custom-Token',
     token: 'test-custom-mcp-value',
   });
-  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 3);
+  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 4);
   assert.equal((await request('/connections', 'POST', { ...c, tokenHeader: 'Host' })).status, 400);
 });
 test('teammates share resources and executions; workspace boundaries and concurrent edits remain enforced', async () => {

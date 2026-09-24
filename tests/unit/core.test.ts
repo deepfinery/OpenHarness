@@ -4,6 +4,7 @@ import { workflowSchema, agentSchema, connectionSchema } from '../../packages/co
 import { render, evaluateCondition } from '../../packages/core/src/templates.js';
 import { chunkText, sanitizeExtractedText } from '../../packages/core/src/chunking.js';
 import { layoutWorkflow } from '../../apps/studio/src/workflowLayout.js';
+import { validateToolArguments } from '../../packages/core/src/toolValidation.js';
 
 process.env.ENCRYPTION_KEY = 'ab'.repeat(32);
 process.env.SETUP_TOKEN = 'unit-test-setup-token'.repeat(3);
@@ -20,6 +21,18 @@ const {
 const { filePath } = await import('../../packages/core/src/storage.js');
 const { toolAlias } = await import('../../packages/core/src/mcp.js');
 
+test('MCP tool argument validation catches enum and required-field mismatches before dispatch', () => {
+  const schema = {
+    type: 'object',
+    properties: { topic: { type: 'string', enum: ['general'] }, query: { type: 'string' } },
+    required: ['query'],
+  };
+  assert.equal(validateToolArguments(schema, { query: 'x', topic: 'general' }), null);
+  assert.match(validateToolArguments(schema, { query: 'x', topic: 'news' })!, /topic/);
+  assert.match(validateToolArguments(schema, { topic: 'general' })!, /query/);
+  assert.equal(validateToolArguments(undefined, { anything: true }), null);
+  assert.equal(validateToolArguments({}, { anything: true }), null);
+});
 test('credentials use authenticated encryption with fresh IVs and reject tampering', () => {
   const a = encrypt('private-token');
   const b = encrypt('private-token');

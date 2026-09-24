@@ -138,7 +138,7 @@ test('Streamable HTTP MCP token authentication and real tool discovery', async (
   assert.equal(connection.hasToken, true);
   assert.equal(JSON.stringify(connection).includes('test-mcp-secret'), false);
   const tools = await ok(`/connections/${connection.id}/discover`, {});
-  assert.deepEqual(tools.map((t: any) => t.name).sort(), ['calculate', 'fail', 'lookup']);
+  assert.deepEqual(tools.map((t: any) => t.name).sort(), ['calculate', 'fail', 'lookup', 'strict']);
   assert.equal(tools.find((t: any) => t.name === 'lookup').inputSchema.required.includes('query'), true);
 });
 test('legacy SSE servers can expose tools through the same connector', async () => {
@@ -147,7 +147,7 @@ test('legacy SSE servers can expose tools through the same connector', async () 
     url: 'http://fixtures:9090/sse',
     transport: 'sse',
   });
-  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 3);
+  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 4);
 });
 test('MCP OAuth discovery, registration, PKCE, state binding and token refresh', async () => {
   const c = await ok('/connections', {
@@ -168,14 +168,14 @@ test('MCP OAuth discovery, registration, PKCE, state binding and token refresh',
   const result = await request(callback.pathname.replace('/api', '') + callback.search);
   assert.equal(result.status, 302, JSON.stringify(result.data));
   assert.equal((await ok(`/connections/${c.id}`)).authorized, true);
-  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 3);
+  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 4);
   assert.equal(
     (await request(callback.pathname.replace('/api', '') + callback.search)).status,
     400,
     'state cannot be replayed',
   );
   await fetch(`${fixture}/expire-token`, { method: 'POST' });
-  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 3);
+  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 4);
   const stats = (await (await fetch(`${fixture}/stats`)).json()) as any;
   assert.ok(stats.refreshes >= 1);
 });
@@ -301,6 +301,45 @@ test('explicit MCP tool steps use typed bindings and report failures without cla
   const run = await waitRun((await ok('/runs', { workflowId: bad.id, input: 'fail' })).id);
   assert.equal(run.status, 'failed');
   assert.match(run.error, /Intentional fixture failure/);
+});
+test('a workflow tool step with arguments outside the MCP schema fails locally with a clear message', async () => {
+  const flow = await ok('/workflows', {
+    name: `Invalid arguments ${suffix}`,
+    startAt: 'sum',
+    nodes: [
+      {
+        id: 'sum',
+        name: 'Sum',
+        type: 'tool',
+        connectionId: connection.id,
+        tool: 'calculate',
+        arguments: { a: 7 },
+      },
+    ],
+  });
+  const run = await waitRun((await ok('/runs', { workflowId: flow.id, input: 'calculate' })).id);
+  assert.equal(run.status, 'failed');
+  assert.match(run.error, /Invalid arguments/);
+  assert.match(run.error, /\bb\b/);
+  assert.equal(
+    run.events.some((e: any) => e.type === 'tool_started'),
+    false,
+  );
+});
+test('an agent recovers from an out-of-schema tool call by retrying with corrected arguments', async () => {
+  const a = await ok('/agents', {
+    ...agent,
+    name: `Strict retry agent ${suffix}`,
+    connections: [{ connectionId: connection.id, tools: ['strict'] }],
+  });
+  const run = await waitRun((await ok('/runs', { agentId: a.id, input: 'use strict tool' })).id);
+  assert.equal(run.status, 'succeeded', run.error);
+  assert.match(run.output, /strict ok: fast/);
+  const errorEvent = run.events.find((e: any) => e.type === 'tool_error');
+  assert.ok(errorEvent, 'expected a tool_error event for the first, invalid call');
+  assert.match(errorEvent.data.result, /Invalid arguments/);
+  assert.match(errorEvent.data.result, /mode/);
+  assert.ok(run.events.some((e: any) => e.type === 'tool_completed'));
 });
 test('idempotency protects duplicate API submissions and rejects key reuse with a different payload', async () => {
   const key = `integration-${randomUUID()}`;

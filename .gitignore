@@ -19,3 +19,4 @@ playwright-report/
 data/
 *.tsbuildinfo
 *.log
+design
