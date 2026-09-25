@@ -1,6 +1,6 @@
 # API reference
 
-All paths below start with `/api`. Requests and errors are JSON except document
+All paths below start with `/api`. The [Open Harness API](openharness-api.md) adapter is documented separately. Requests and errors are JSON except document
 uploads/downloads. Errors have the shape `{ "error": "message" }`. Stored resource
 IDs are UUIDs; workflow node/resource IDs are local names. Unknown fields are removed by the input schemas.
 
@@ -197,6 +197,10 @@ for an identical request. Reusing it for a different payload returns 409.
 Token creation: `name`, `agentIds`, `workflowIds`, `scopes` (`read`, `execute`),
 and `expiresDays` (1–365). At least one target is required. The token is returned
 once. Send `Authorization: Bearer ao_...` on subsequent requests.
+
+Administrators can instead create a workspace key with `scopes: ["harness"]` and no
+targets. It is returned as `oh_sk_...`, has full access through the
+[Open Harness API](openharness-api.md), and has read and execute access on `/api`.
 
 Embed creation: `name`, exactly one target ID, `origins` (exact HTTP(S) origins),
 and `expiresDays` (1–30). The returned URL contains a one-time-disclosed token in

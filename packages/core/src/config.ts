@@ -33,6 +33,15 @@ const s = z.object({
   GATEWAY_PUBLIC_URL: z.string().default(''),
   GATEWAY_API_TOKEN: z.string().default(''),
   GATEWAY_ADMIN_TOKEN: z.string().default(''),
+  // Open Harness API adapter (https://github.com/jeffrschneider/OpenHarness). This install is one harness.
+  OPENHARNESS_BASE_PATH: z
+    .string()
+    .regex(/^(\/[a-z0-9-]+)+$/, 'OPENHARNESS_BASE_PATH must look like /openharness/v1')
+    .default('/openharness/v1'),
+  OPENHARNESS_HARNESS_ID: z
+    .string()
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'OPENHARNESS_HARNESS_ID must be kebab-case')
+    .default('openharness'),
 });
 export const config = s.parse(process.env);
 export const secureCookies = new URL(config.PUBLIC_URL).protocol === 'https:';

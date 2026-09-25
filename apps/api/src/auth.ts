@@ -30,7 +30,8 @@ export type ApiToken = {
   tokenHash: string;
   agentIds: string[];
   workflowIds: string[];
-  scopes: ('read' | 'execute')[];
+  /** `harness` grants full workspace access through the Open Harness API (and read/execute on /api). */
+  scopes: ('read' | 'execute' | 'harness')[];
   expiresAt: Date;
   createdAt: Date;
   createdBy?: string;
@@ -128,7 +129,7 @@ export function checkTokenScope(
   target?: { agentId?: string; workflowId?: string },
 ) {
   const token = req.principal!.token;
-  if (!token) return;
+  if (!token || token.scopes.includes('harness')) return;
   if (!token.scopes.includes(scope)) throw new HttpError(403, `Token requires the ${scope} scope`);
   if (
     (target?.agentId && !token.agentIds.includes(target.agentId)) ||

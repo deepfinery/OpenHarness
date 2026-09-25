@@ -474,7 +474,7 @@ function App() {
             ) : page === 'executions' ? (
               <RunsPage />
             ) : page === 'integrations' ? (
-              <IntegrationsPage data={data} act={act} />
+              <IntegrationsPage data={data} act={act} isAdmin={user.role === 'admin'} />
             ) : page === 'settings' ? (
               <SettingsPage {...props} user={user} setUser={setUser} />
             ) : (
