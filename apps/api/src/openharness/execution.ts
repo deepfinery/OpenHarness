@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { config } from '../../../../packages/core/src/config.js';
 import { collection } from '../../../../packages/core/src/db.js';
 import { createRun, requestCancel } from '../../../../packages/core/src/runs.js';
-import { agentSchema, deviceIdPattern, type Run, type Stored } from '../../../../packages/core/src/schema.js';
+import { agentSchema, deviceIdPattern, type Run } from '../../../../packages/core/src/schema.js';
 import { hash } from '../../../../packages/core/src/security.js';
 import { rateLimit } from '../auth.js';
 import { defaultProviderId } from '../tenant.js';
