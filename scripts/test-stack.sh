@@ -18,6 +18,10 @@ trap cleanup EXIT
 compose up --build -d --wait --wait-timeout 480
 npm test
 npm run test:integration
+# The Open Harness conformance suite, pinned upstream, through the adapter in conformance/.
+if [ "${CONFORMANCE:-1}" = '1' ]; then
+  TEST_BASE_URL="$TEST_BASE_URL" ./conformance/run.sh
+fi
 if [ "${BROWSER_TESTS:-0}" = '1' ]; then
   npm run test:browser
 elif [ "${BROWSER_TESTS:-0}" = 'container' ]; then
