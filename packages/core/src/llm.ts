@@ -37,9 +37,17 @@ async function jsonRequest(
     signal: signal ? AbortSignal.any([deadline, signal]) : deadline,
   });
   if (!response.ok) {
-    await response.body?.cancel();
+    const body = await response.text().catch(() => '');
+    let detail = body;
+    try {
+      const parsed = JSON.parse(body);
+      const message = parsed.error?.message ?? parsed.error ?? parsed.message ?? body;
+      detail = typeof message === 'string' ? message : JSON.stringify(message);
+    } catch {
+      // Not JSON; fall back to the raw body text.
+    }
     throw new Error(
-      `Model provider returned HTTP ${response.status}. Check the endpoint, model, credentials and quota.`,
+      `Model provider returned HTTP ${response.status}${detail ? `: ${detail.slice(0, 500)}` : ''}. Check the endpoint, model, credentials and quota.`,
     );
   }
   // Each provider has its own wire format; normalized and validated below before use.

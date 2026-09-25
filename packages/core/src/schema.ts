@@ -51,6 +51,14 @@ export const toolBindingSchema = z.object({
   connectionId: id,
   tools: z.array(z.string().min(1).max(200)).max(100),
 });
+export const agentPatterns = ['react', 'plan-execute', 'reflection', 'loop'] as const;
+export type AgentPattern = (typeof agentPatterns)[number];
+export const patternConfigSchema = z.object({
+  reflections: z.number().int().min(1).max(3).default(1),
+  iterations: z.number().int().min(1).max(10).default(3),
+  doneMarker: z.string().trim().min(1).max(50).default('DONE'),
+  maxPlanSteps: z.number().int().min(1).max(8).default(5),
+});
 export const agentSchema = z.object({
   name,
   description: z.string().max(1000).default(''),
@@ -60,8 +68,20 @@ export const agentSchema = z.object({
   knowledgeBaseIds: z.array(id).max(20).default([]),
   maxTurns: z.number().int().min(1).max(40).default(12),
   timeoutSeconds: z.number().int().min(10).max(900).default(300),
+  pattern: z.enum(agentPatterns).default('react'),
+  patternConfig: patternConfigSchema.default({}),
   enabled: z.boolean().default(true),
 });
+export const emailSettingsSchema = z.object({
+  host: z.string().trim().max(253).default(''),
+  port: z.number().int().min(1).max(65535).default(587),
+  secure: z.boolean().default(false),
+  username: z.string().max(320).default(''),
+  password: z.string().max(4096).optional(),
+  from: z.string().trim().max(320).default(''),
+  enabled: z.boolean().default(true),
+});
+export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 const baseNode = {
   id: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/),
   name,
@@ -112,8 +132,17 @@ export const nodeSchema = z.discriminatedUnion('type', [
     prompt: z.string().max(32000).default('{{input}}'),
     next,
   }),
+  z.object({
+    ...baseNode,
+    type: z.literal('email'),
+    to: z.string().trim().min(1).max(2000),
+    subject: z.string().max(998).default('{{input}}'),
+    body: z.string().max(64000).default('{{last}}'),
+    next,
+  }),
   z.object({ ...baseNode, type: z.literal('output'), template: z.string().max(32000).default('{{last}}') }),
 ]);
+export const resumePolicies = ['safe', 'always', 'never'] as const;
 export const workflowSchema = z
   .object({
     name,
@@ -127,6 +156,7 @@ export const workflowSchema = z
       .max(200)
       .default([]),
     maxSteps: z.number().int().min(1).max(500).default(100),
+    resumePolicy: z.enum(resumePolicies).default('safe'),
     schedule: z
       .object({
         enabled: z.boolean().default(false),
@@ -177,7 +207,7 @@ export const workflowSchema = z
       if (n.type === 'condition') {
         walk(n.onTrue);
         walk(n.onFalse);
-      } else if (n.type !== 'output' && n.type !== 'finish' && n.next) walk(n.next);
+      } else if ('next' in n && n.next) walk(n.next);
       visiting.delete(nodeId);
       visited.add(nodeId);
     };
@@ -225,14 +255,19 @@ export type RunInput = z.infer<typeof runSchema>;
 export type Stored<T> = T & { _id: string; ownerId: string; createdAt: Date; updatedAt: Date };
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type RunEvent = { at: string; type: string; nodeId?: string; message: string; data?: unknown };
+/** Durable progress marker written at every node boundary so a replacement runner can resume. */
+export type RunCheckpoint = { cursor?: string; last: unknown; steps: number; nodeAttempts: Record<string, number> };
 export type Run = Stored<RunInput> & {
   status: RunStatus;
   label: string;
   snapshot: { workflow?: Workflow; agents: Record<string, Agent>; nodeAgents?: Record<string, Agent> };
   output?: string;
   error?: string;
+  partial?: string;
   events: RunEvent[];
   outputs: Record<string, unknown>;
+  checkpoint?: RunCheckpoint;
+  resumeCount?: number;
   startedAt?: Date;
   finishedAt?: Date;
   leaseUntil?: Date;

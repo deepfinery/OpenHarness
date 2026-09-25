@@ -372,10 +372,13 @@ export function WorkflowEditor({
   function add(
     type: 'agent' | 'tool' | 'parallel' | 'condition' | 'finish' | 'mcp' | 'knowledge',
     position?: { x: number; y: number },
+    anchorId?: string,
   ) {
     let f = form;
     let anchor =
-      f.nodes.find((n) => n.id === selected && n.type === 'agent') ?? f.nodes.find((n) => n.type === 'agent');
+      f.nodes.find((n) => n.id === anchorId && n.type === 'agent') ??
+      f.nodes.find((n) => n.id === selected && n.type === 'agent') ??
+      f.nodes.find((n) => n.type === 'agent');
     if (type === 'mcp' || type === 'knowledge') {
       if (!anchor) {
         const id = newId('agent');
@@ -1111,6 +1114,26 @@ export function WorkflowEditor({
                 <div className="inspector-section">
                   <h4>Connected agents</h4>
                   <p className="field-help">Connect by dragging ports, or select agents here.</p>
+                  {(() => {
+                    const connectedAgentId = form.bindings.find(
+                      (b) => b.resourceId === resource.id,
+                    )?.agentNodeId;
+                    return (
+                      <div className="compact-actions">
+                        <Button variant="secondary" onClick={() => add('mcp', undefined, connectedAgentId)}>
+                          <Plus size={13} />
+                          MCP tools
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          onClick={() => add('knowledge', undefined, connectedAgentId)}
+                        >
+                          <Plus size={13} />
+                          Knowledge
+                        </Button>
+                      </div>
+                    );
+                  })()}
                   {form.nodes
                     .filter((n) => n.type === 'agent')
                     .map((n) => (

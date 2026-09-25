@@ -18,6 +18,16 @@ const s = z.object({
   ALLOWED_PRIVATE_HOSTS: z.string().default('host.docker.internal,ollama'),
   MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(100).default(20),
   TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(0),
+  // Installation-wide SMTP defaults (for example AWS SES). Workspace settings in the studio override them.
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_SECURE: z.string().default('false'),
+  SMTP_USER: z.string().default(''),
+  SMTP_PASSWORD: z.string().default(''),
+  SMTP_FROM: z.string().default(''),
+  // 'json' swaps the network transport for nodemailer's JSON transport; only the test stack uses it.
+  SMTP_TRANSPORT: z.enum(['smtp', 'json']).default('smtp'),
+  MAX_RESUMES: z.coerce.number().int().min(0).max(10).default(3),
 });
 export const config = s.parse(process.env);
 export const secureCookies = new URL(config.PUBLIC_URL).protocol === 'https:';

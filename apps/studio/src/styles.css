@@ -1,5 +1,7 @@
+@import '@fontsource-variable/inter/standard.css';
 :root {
   font-family:
+    'Inter Variable',
     Inter,
     ui-sans-serif,
     -apple-system,
@@ -206,7 +208,7 @@ strong {
   font-size: 12px;
 }
 .eyebrow {
-  font-size: 10px;
+  font-size: 13px;
   letter-spacing: 1.7px;
   font-weight: 650;
   color: #748874;
@@ -333,11 +335,11 @@ strong {
 .workspace-switch small {
   display: block;
   color: #829787;
-  font-size: 10px;
+  font-size: 13px;
   margin-top: 4px;
 }
 .nav-label {
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 1.5px;
   color: #718875;
   padding: 0 12px 12px;
@@ -385,7 +387,7 @@ strong {
   margin-left: auto;
   border-radius: 4px;
   background: #ffffff12;
-  font-size: 10px;
+  font-size: 13px;
   padding: 1px 6px;
 }
 .sidebar-bottom {
@@ -407,7 +409,7 @@ strong {
 }
 .self-hosted small {
   display: block;
-  font-size: 9px;
+  font-size: 12px;
   color: #7e9680;
   margin-top: 4px;
 }
@@ -439,7 +441,7 @@ strong {
   display: block;
 }
 .sidebar-profile small {
-  font-size: 10px;
+  font-size: 13px;
   color: #7c9480;
   display: block;
   overflow: hidden;
@@ -458,7 +460,7 @@ strong {
 .logout {
   border: 0;
   background: none;
-  font-size: 10px;
+  font-size: 13px;
   color: #7f9784;
   display: flex;
   align-items: center;
@@ -500,7 +502,7 @@ strong {
   align-items: center;
   gap: 7px;
   color: #68846a;
-  font-size: 10px;
+  font-size: 13px;
 }
 .system-status i {
   height: 5px;
@@ -512,7 +514,7 @@ strong {
   background: #c4a568;
 }
 .version {
-  font-size: 9px;
+  font-size: 12px;
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 3px 6px;
@@ -614,7 +616,7 @@ strong {
 .overview-card small {
   margin-left: auto;
   align-self: flex-end;
-  font-size: 9px;
+  font-size: 12px;
   color: #8a9889;
   margin-bottom: 3px;
 }
@@ -634,7 +636,7 @@ strong {
   color: #72896d;
   border-radius: 5px;
   padding: 3px 6px;
-  font-size: 10px;
+  font-size: 13px;
   margin-left: 7px;
   vertical-align: middle;
 }
@@ -690,7 +692,7 @@ strong {
   gap: 9px;
 }
 .empty-flow-art small {
-  font-size: 9px;
+  font-size: 12px;
   color: #86987c;
 }
 .art-icon {
@@ -725,7 +727,7 @@ strong {
   color: #496046;
 }
 .art-agent > span {
-  font-size: 8px;
+  font-size: 11px;
   color: #92a286;
 }
 .art-tool {
@@ -739,7 +741,7 @@ strong {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 9px;
+  font-size: 12px;
   color: #7f9274;
   z-index: 2;
 }
@@ -771,7 +773,7 @@ strong {
   justify-content: center;
   gap: 7px;
   color: #99a38f;
-  font-size: 10px;
+  font-size: 13px;
   margin: 25px 0 5px;
 }
 .card-grid {
@@ -845,7 +847,7 @@ strong {
   gap: 5px;
 }
 .card-footer .button {
-  font-size: 10px;
+  font-size: 13px;
   padding: 7px 10px;
   gap: 5px;
 }
@@ -853,7 +855,7 @@ strong {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 9px;
+  font-size: 12px;
   color: #98a191;
   margin-right: auto;
 }
@@ -881,14 +883,14 @@ strong {
 }
 .flow-mini > small {
   margin-left: auto;
-  font-size: 9px;
+  font-size: 12px;
   color: #93a088;
 }
 .status {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 9px;
+  font-size: 12px;
   text-transform: capitalize;
   padding: 4px 7px;
   background: #f0f3ec;
@@ -957,7 +959,7 @@ strong {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 10px;
+  font-size: 13px;
   color: #859175;
   margin-top: 20px;
 }
@@ -973,7 +975,7 @@ strong {
   gap: 14px;
   margin-top: 13px;
   color: #7c8c70;
-  font-size: 10px;
+  font-size: 13px;
 }
 .agent-bindings span {
   display: flex;
@@ -1041,7 +1043,7 @@ strong {
 }
 .protocol-badge {
   margin-left: auto;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 1.1px;
   border: 1px solid #d7e2cb;
@@ -1073,7 +1075,7 @@ strong {
 }
 .connection-description > span {
   display: block;
-  font-size: 10px;
+  font-size: 13px;
   color: #95a087;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1095,7 +1097,7 @@ strong {
   background: #f4f7ef;
   border: 1px solid #e9ede3;
   border-radius: 4px;
-  font-size: 9px;
+  font-size: 12px;
   color: #8d9a7c;
   padding: 3px 6px;
 }
@@ -1105,7 +1107,7 @@ strong {
   gap: 6px;
 }
 .connection-actions .button {
-  font-size: 10px;
+  font-size: 13px;
   padding: 8px 10px;
 }
 .modal-backdrop {
@@ -1161,7 +1163,7 @@ strong {
 }
 .field small {
   display: block;
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1.6;
   color: #7c8c6d;
   margin-top: 6px;
@@ -1205,7 +1207,7 @@ strong {
   color: #617853;
 }
 .form-section > p {
-  font-size: 10px;
+  font-size: 13px;
   color: #92a084;
   margin: 7px 0 12px;
 }
@@ -1236,7 +1238,7 @@ strong {
 .check-row small {
   display: block;
   color: #91a081;
-  font-size: 10px;
+  font-size: 13px;
   margin: 3px 0 0;
   line-height: 1.7;
 }
@@ -1257,7 +1259,7 @@ strong {
 .tool-group summary > span {
   float: right;
   color: #7c906b;
-  font-size: 10px;
+  font-size: 13px;
 }
 .tool-group > div {
   padding: 0 0 10px;
@@ -1310,7 +1312,7 @@ strong {
 }
 .workflow-name small {
   display: block;
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 1.3px;
   color: #99a990;
   margin-top: 3px;
@@ -1351,7 +1353,7 @@ strong {
   flex-direction: column;
 }
 .node-palette > p {
-  font-size: 10px;
+  font-size: 13px;
   color: #7c906b;
   line-height: 1.9;
   margin: 10px 0 22px;
@@ -1382,7 +1384,7 @@ strong {
 }
 .palette-item small {
   display: block;
-  font-size: 9px;
+  font-size: 12px;
   color: #829175;
   margin-top: 5px;
 }
@@ -1427,7 +1429,7 @@ strong {
 }
 .palette-bottom summary {
   cursor: pointer;
-  font-size: 10px;
+  font-size: 13px;
   color: #8c9d7b;
   margin-top: 12px;
 }
@@ -1436,7 +1438,7 @@ strong {
 }
 .palette-bottom .field input,
 .palette-bottom .field textarea {
-  font-size: 10px;
+  font-size: 13px;
 }
 .flow-canvas {
   flex: 1;
@@ -1452,7 +1454,7 @@ strong {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 10px;
+  font-size: 13px;
   color: #6d825c;
   pointer-events: none;
 }
@@ -1465,7 +1467,7 @@ strong {
   right: 20px;
   top: 14px;
   z-index: 4;
-  font-size: 10px;
+  font-size: 13px;
 }
 .flow-card {
   width: 250px;
@@ -1487,7 +1489,7 @@ strong {
 }
 .flow-card-top small {
   display: block;
-  font-size: 8px;
+  font-size: 11px;
   color: #9cad8c;
   letter-spacing: 1px;
   margin-bottom: 5px;
@@ -1503,7 +1505,7 @@ strong {
   white-space: nowrap;
 }
 .flow-card > p {
-  font-size: 10px;
+  font-size: 13px;
   color: #748a62;
   padding: 0 17px 15px;
   overflow: hidden;
@@ -1519,14 +1521,14 @@ strong {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 9px;
+  font-size: 12px;
   color: #91a17f;
 }
 .start-label {
   position: absolute;
   left: 10px;
   top: -23px;
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 1px;
   color: #8baa71;
   background: #f0f7e8;
@@ -1540,7 +1542,7 @@ strong {
   border: 2px solid #f7faf2 !important;
 }
 .react-flow__edge-text {
-  font-size: 9px;
+  font-size: 12px;
   fill: #8fa07c;
 }
 .react-flow__controls {
@@ -1556,7 +1558,7 @@ strong {
 .branch-label {
   position: absolute;
   right: 13px;
-  font-size: 8px;
+  font-size: 11px;
   color: #a0af8e;
 }
 .branch-label.yes {
@@ -1590,13 +1592,13 @@ strong {
 .node-inspector .field input,
 .node-inspector .field select,
 .node-inspector .field textarea {
-  font-size: 10px;
+  font-size: 13px;
 }
 .node-inspector .field label {
-  font-size: 10px;
+  font-size: 13px;
 }
 .node-inspector > .mono {
-  font-size: 9px;
+  font-size: 12px;
   color: #a6b598;
 }
 .template-help {
@@ -1605,11 +1607,11 @@ strong {
   padding: 13px;
   background: #fafcf7;
   margin-top: 24px;
-  font-size: 9px;
+  font-size: 12px;
 }
 .template-help strong {
   display: block;
-  font-size: 10px;
+  font-size: 13px;
   color: #91a479;
   margin-bottom: 12px;
 }
@@ -1638,7 +1640,7 @@ strong {
 }
 .inspector-empty .notice {
   margin-top: 28px;
-  font-size: 10px;
+  font-size: 13px;
 }
 .yaml-editor {
   flex: 1;
@@ -1683,7 +1685,7 @@ strong {
   flex-shrink: 0;
 }
 .playground-toolbar .eyebrow {
-  font-size: 8px;
+  font-size: 11px;
   display: block;
   color: #9aac89;
   margin-bottom: 5px;
@@ -1752,7 +1754,7 @@ strong {
   background: #e0d8b6;
 }
 .chat-welcome .eyebrow {
-  font-size: 8px;
+  font-size: 11px;
   color: #819967;
 }
 .chat-welcome h2 {
@@ -1780,7 +1782,7 @@ strong {
   border: 1px solid #e2ead8;
   border-radius: 8px;
   background: #fff;
-  font-size: 10px;
+  font-size: 13px;
   color: #708761;
   padding: 11px 12px;
   display: flex;
@@ -1920,7 +1922,7 @@ strong {
 .chat-compose > small {
   display: block;
   text-align: center;
-  font-size: 8px;
+  font-size: 11px;
   color: #738268;
   margin-top: 11px;
 }
@@ -1944,7 +1946,7 @@ strong {
   animation-delay: 0.4s;
 }
 .thinking > small {
-  font-size: 10px;
+  font-size: 13px;
   color: #a1b38b;
   margin-left: 9px;
 }
@@ -1972,7 +1974,7 @@ strong {
   flex: 1;
 }
 .trace-heading .status {
-  font-size: 8px;
+  font-size: 11px;
 }
 .trace-placeholder {
   padding: 40px 10px;
@@ -1993,7 +1995,7 @@ strong {
   width: 60%;
 }
 .trace-placeholder p {
-  font-size: 10px;
+  font-size: 13px;
   margin-top: 22px;
   line-height: 1.9;
 }
@@ -2005,18 +2007,18 @@ strong {
 .trace-meta small {
   display: block;
   letter-spacing: 1px;
-  font-size: 8px;
+  font-size: 11px;
   color: #a4b68d;
   margin-bottom: 7px;
 }
 .trace-meta code {
-  font-size: 8px;
+  font-size: 11px;
   color: #899f70;
   overflow-wrap: anywhere;
 }
 .trace-meta > span {
   display: block;
-  font-size: 9px;
+  font-size: 12px;
   color: #7d926a;
   margin-top: 7px;
 }
@@ -2045,7 +2047,7 @@ strong {
   display: none;
 }
 .trace-event strong {
-  font-size: 10px;
+  font-size: 13px;
   color: #8ca175;
   font-weight: 500;
   word-break: break-word;
@@ -2054,12 +2056,12 @@ strong {
 }
 .trace-event small {
   display: block;
-  font-size: 8px;
+  font-size: 11px;
   color: #839670;
   margin-top: 3px;
 }
 .trace-event time {
-  font-size: 8px;
+  font-size: 11px;
   color: #81916d;
   margin-left: auto;
   flex-shrink: 0;
@@ -2086,7 +2088,7 @@ strong {
 }
 .trace-event pre {
   margin: 10px 0 0 10px;
-  font-size: 9px;
+  font-size: 12px;
   background: #fafff5;
   padding: 9px;
 }
@@ -2109,7 +2111,7 @@ strong {
   padding: 24px 12px;
 }
 .knowledge-nav .eyebrow {
-  font-size: 8px;
+  font-size: 11px;
   padding: 0 10px 17px;
 }
 .knowledge-nav > button {
@@ -2146,11 +2148,11 @@ strong {
   font-size: 17px;
 }
 .knowledge-content .section-toolbar p {
-  font-size: 10px;
+  font-size: 13px;
   max-width: 360px;
 }
 .knowledge-content .section-toolbar .button {
-  font-size: 10px;
+  font-size: 13px;
   padding: 8px 10px;
 }
 .upload-dropzone {
@@ -2174,7 +2176,7 @@ strong {
   font-size: 11px;
 }
 .upload-dropzone small {
-  font-size: 9px;
+  font-size: 12px;
   color: #b0bd9c;
   margin-top: 5px;
 }
@@ -2190,7 +2192,7 @@ table {
   text-align: left;
 }
 th {
-  font-size: 9px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.7px;
   color: #99a986;
@@ -2213,7 +2215,7 @@ td strong {
   color: #6f8458;
 }
 td > small {
-  font-size: 9px;
+  font-size: 12px;
 }
 .table-subtitle {
   display: block;
@@ -2230,19 +2232,19 @@ td > small {
   flex-shrink: 0;
 }
 .document-name strong {
-  font-size: 10px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .document-name small {
   display: block;
-  font-size: 9px;
+  font-size: 12px;
   max-width: 260px;
   margin-top: 6px;
 }
 .knowledge-content th,
 .knowledge-content td {
   padding: 12px 10px;
-  font-size: 10px;
+  font-size: 13px;
 }
 .knowledge-content .table-wrap {
   margin-top: 15px;
@@ -2260,7 +2262,7 @@ td > small {
   color: #8b9e75;
 }
 .knowledge-search > p {
-  font-size: 10px;
+  font-size: 13px;
   color: #80916c;
   margin: 8px 0 15px;
 }
@@ -2272,7 +2274,7 @@ td > small {
   font-size: 11px;
 }
 .knowledge-search form .button {
-  font-size: 10px;
+  font-size: 13px;
 }
 .knowledge-results > article {
   padding: 17px;
@@ -2286,7 +2288,7 @@ td > small {
   color: #8fa778;
 }
 .knowledge-results small {
-  font-size: 9px;
+  font-size: 12px;
   color: #81966c;
   margin-left: 8px;
 }
@@ -2310,11 +2312,11 @@ td > small {
   margin-top: 18px;
 }
 .pagination > span {
-  font-size: 10px;
+  font-size: 13px;
   color: #9bab89;
 }
 .pagination .button {
-  font-size: 10px;
+  font-size: 13px;
   padding: 7px 11px;
 }
 .run-detail-head {
@@ -2325,7 +2327,7 @@ td > small {
   flex-wrap: wrap;
 }
 .run-detail-head code {
-  font-size: 10px;
+  font-size: 13px;
   color: #96a77f;
 }
 .run-detail-head > .button {
@@ -2388,7 +2390,7 @@ td > small {
   color: #6e8755;
 }
 .profile-heading span {
-  font-size: 10px;
+  font-size: 13px;
   color: #7d8f67;
   display: block;
   margin-top: 6px;
@@ -2428,7 +2430,7 @@ td > small {
   margin: 15px 0;
 }
 .integration-guide code {
-  font-size: 10px;
+  font-size: 13px;
   color: #7c9c5d;
 }
 .code-card {
@@ -2445,12 +2447,12 @@ td > small {
   border-bottom: 1px solid #344c2d;
 }
 .code-card > div > span {
-  font-size: 10px;
+  font-size: 13px;
   color: #96b67d;
 }
 .code-card .button {
   padding: 4px 8px;
-  font-size: 9px;
+  font-size: 12px;
   background: #2c4428;
   border-color: #3f5736;
   color: #98b882;
@@ -2459,7 +2461,7 @@ td > small {
   background: transparent;
   border: 0;
   color: #bad0a5;
-  font-size: 10px;
+  font-size: 13px;
   padding: 18px;
   margin: 0;
   line-height: 1.9;
@@ -2507,7 +2509,7 @@ td > small {
 }
 .auth-story-content .eyebrow {
   color: #81987a;
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 2px;
 }
 .auth-story h1 {
@@ -2554,7 +2556,7 @@ td > small {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 10px;
+  font-size: 13px;
   color: #829674;
   position: relative;
   z-index: 1;
@@ -2573,7 +2575,7 @@ td > small {
 }
 .auth-form > .eyebrow {
   color: #9eb089;
-  font-size: 9px;
+  font-size: 12px;
 }
 .auth-form h2 {
   font-size: 30px;
@@ -2610,7 +2612,7 @@ td > small {
   color: #b6c3a4;
 }
 .auth-form label small {
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.8;
   color: #7b8b6c;
   display: block;
@@ -2630,7 +2632,7 @@ td > small {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: 9px;
+  font-size: 12px;
   color: #748467;
   margin-top: 27px;
 }
@@ -2671,7 +2673,7 @@ td > small {
 }
 .embed-chat > header small {
   display: block;
-  font-size: 9px;
+  font-size: 12px;
   color: #7b9264;
   margin-top: 4px;
 }
@@ -2834,7 +2836,7 @@ td > small {
     font-size: 11px;
   }
   .page-title > .button {
-    font-size: 10px;
+    font-size: 13px;
     padding: 9px 10px;
   }
   .trace-panel {
@@ -2858,10 +2860,10 @@ td > small {
     height: 29px;
   }
   .palette-item strong {
-    font-size: 10px;
+    font-size: 13px;
   }
   .palette-item small {
-    font-size: 8px;
+    font-size: 11px;
   }
   .node-inspector {
     width: 215px;
@@ -2871,7 +2873,7 @@ td > small {
     gap: 8px;
   }
   .workflow-header .button {
-    font-size: 10px;
+    font-size: 13px;
     padding: 8px;
   }
   .workflow-header .segmented button {
@@ -2945,14 +2947,14 @@ td > small {
     justify-content: flex-start;
   }
   .breadcrumbs {
-    font-size: 10px;
+    font-size: 13px;
     gap: 7px;
   }
   .topbar-right {
     margin-left: auto;
   }
   .system-status {
-    font-size: 8px;
+    font-size: 11px;
   }
   .version {
     display: none;
@@ -2977,7 +2979,7 @@ td > small {
     min-height: 89px;
   }
   .overview-card span {
-    font-size: 9px;
+    font-size: 12px;
   }
   .overview-card strong {
     font-size: 25px;
@@ -2992,14 +2994,14 @@ td > small {
     font-size: 16px;
   }
   .section-toolbar p {
-    font-size: 10px;
+    font-size: 13px;
   }
   .search-input {
     max-width: 140px;
   }
   .search-input input {
     width: 100%;
-    font-size: 10px;
+    font-size: 13px;
   }
   .workflow-empty {
     padding: 28px 15px 20px;
@@ -3028,7 +3030,7 @@ td > small {
     font-size: 11px;
   }
   .workspace-note {
-    font-size: 8px;
+    font-size: 11px;
     line-height: 1.6;
     align-items: flex-start;
   }
@@ -3049,17 +3051,17 @@ td > small {
     font-size: 13px;
   }
   .connection-banner p {
-    font-size: 10px;
+    font-size: 13px;
   }
   .connection-actions .button {
-    font-size: 9px;
+    font-size: 12px;
   }
   .connection-row {
     padding: 17px 13px;
   }
   .connection-description > span {
     max-width: 230px;
-    font-size: 9px;
+    font-size: 12px;
   }
   .connection-actions {
     width: 100%;
@@ -3106,7 +3108,7 @@ td > small {
     font-size: 13px;
   }
   .workflow-name small {
-    font-size: 7px;
+    font-size: 10px;
   }
   .workflow-header > .button.secondary {
     display: none;
@@ -3140,7 +3142,7 @@ td > small {
     font-size: 13px;
   }
   .inspector-empty p {
-    font-size: 10px;
+    font-size: 13px;
   }
   .inspector-empty .notice {
     display: none;
@@ -3152,7 +3154,7 @@ td > small {
     top: auto;
     bottom: 18px;
     right: 10px;
-    font-size: 9px;
+    font-size: 12px;
     padding: 7px;
   }
   .react-flow__minimap {
@@ -3182,7 +3184,7 @@ td > small {
     padding: 10px 15px 14px;
   }
   .chat-compose > small {
-    font-size: 7px;
+    font-size: 10px;
   }
   .tabs {
     gap: 19px;
@@ -3190,7 +3192,7 @@ td > small {
   }
   .tabs button {
     white-space: nowrap;
-    font-size: 10px;
+    font-size: 13px;
   }
   .settings-card {
     padding: 22px;
@@ -3231,7 +3233,7 @@ td > small {
     margin: 10px 15px;
   }
   .pagination .button {
-    font-size: 9px;
+    font-size: 12px;
   }
   .table-wrap table {
     min-width: 550px;
@@ -3240,10 +3242,10 @@ td > small {
     min-width: 500px;
   }
   .run-detail-head code {
-    font-size: 8px;
+    font-size: 11px;
   }
   .trace-event time {
-    font-size: 7px;
+    font-size: 10px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -3258,7 +3260,7 @@ td > small {
 
 /* Keep compact metadata legible on high-density displays. */
 .status {
-  font-size: 10px;
+  font-size: 13px;
 }
 .field > label {
   font-size: 12px;
@@ -3285,7 +3287,7 @@ td > small {
   font-size: 11px;
 }
 .trace-event small {
-  font-size: 9px;
+  font-size: 12px;
 }
 
 /* Harness editor: execution across the canvas, agent resources underneath. */
@@ -3311,7 +3313,7 @@ td > small {
   color: #304c40;
 }
 .harness-editor .palette-item small {
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1.4;
 }
 .harness-editor .palette-item {
@@ -3416,7 +3418,7 @@ td > small {
   white-space: nowrap;
 }
 .harness-card .flow-card-top small {
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 1.1px;
   color: #7a8e80;
 }
@@ -3440,7 +3442,7 @@ td > small {
 .harness-card.kind-finish > p,
 .harness-card.kind-output > p {
   white-space: normal;
-  font-size: 10px;
+  font-size: 13px;
 }
 .harness-card.kind-start .node-icon {
   background: #eaf6ef;
@@ -3486,13 +3488,13 @@ td > small {
   color: #537897;
 }
 .agent-ports small {
-  font-size: 10px;
+  font-size: 13px;
   margin-left: 4px;
 }
 .resource-card-foot {
   padding: 9px 15px;
   border-top: 1px solid #ece7f2;
-  font-size: 10px;
+  font-size: 13px;
   color: #8b779f;
 }
 .harness-card .react-flow__handle {
@@ -3522,7 +3524,7 @@ td > small {
 .harness-card .port-label {
   position: absolute;
   color: #779184;
-  font-size: 9px;
+  font-size: 12px;
   pointer-events: none;
 }
 .port-in {
@@ -3547,7 +3549,7 @@ td > small {
   background: #fff4dc;
   color: #937127;
   border-radius: 5px;
-  font-size: 10px;
+  font-size: 13px;
 }
 .harness-card.needs-config {
   border-color: #ddcaa0;
@@ -3563,7 +3565,7 @@ td > small {
   top: 20px;
   left: 18px;
   max-width: calc(100% - 170px);
-  font-size: 10px;
+  font-size: 13px;
   color: #85988b;
   pointer-events: none;
 }
@@ -3631,7 +3633,7 @@ td > small {
   display: block;
   font-family: monospace;
   color: #9aaa9f;
-  font-size: 10px;
+  font-size: 13px;
   margin-top: 20px;
 }
 .resource-tool-picker {
@@ -3667,7 +3669,7 @@ td > small {
 }
 .tool-choice small {
   display: block;
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1.5;
   margin-top: 5px;
   color: #839086;
@@ -3725,7 +3727,7 @@ td > small {
   margin: 5px 0;
 }
 .tool-schema {
-  font-size: 10px;
+  font-size: 13px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   padding: 10px;
@@ -3747,7 +3749,7 @@ td > small {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 10px;
+  font-size: 13px;
   color: #95a398;
 }
 .starter-progress span {
@@ -3799,7 +3801,7 @@ td > small {
   color: #7b8c80;
 }
 .starter-card small {
-  font-size: 10px;
+  font-size: 13px;
   color: #688675;
   margin-top: auto;
 }
@@ -3845,7 +3847,7 @@ td > small {
     padding: 18px;
   }
   .starter-progress {
-    font-size: 9px;
+    font-size: 12px;
     gap: 5px;
   }
   .harness-editor .node-palette {
@@ -3885,7 +3887,7 @@ td > small {
     min-width: 180px;
   }
   .harness-editor .node-palette > p {
-    font-size: 10px;
+    font-size: 13px;
   }
 }
 .workspace-settings {
