@@ -116,6 +116,41 @@ export function AgentFields({
         onChange={(skillIds) => onChange({ skillIds })}
       />
       <div className="form-section">
+        <h3>Sub-agents</h3>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            aria-label="Can start sub-agents"
+            checked={Boolean(value.delegation?.enabled)}
+            onChange={(e) =>
+              onChange({
+                delegation: { maxAgents: value.delegation?.maxAgents ?? 4, enabled: e.target.checked },
+              })
+            }
+          />
+          Can hand focused tasks to sub-agents that work in parallel with a share of this agent’s budget
+        </label>
+        {value.delegation?.enabled && (
+          <Field label="Sub-agents per run">
+            <input
+              aria-label="Sub-agents per run"
+              type="number"
+              min={1}
+              max={12}
+              value={value.delegation.maxAgents ?? 4}
+              onChange={(e) =>
+                onChange({
+                  delegation: {
+                    enabled: true,
+                    maxAgents: Math.max(1, Math.min(12, Number(e.target.value) || 1)),
+                  },
+                })
+              }
+            />
+          </Field>
+        )}
+      </div>
+      <div className="form-section">
         <h3>Reasoning pattern</h3>
         <PatternFields
           pattern={value.pattern ?? 'react'}

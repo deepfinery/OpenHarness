@@ -184,6 +184,10 @@ Email is sent by the **Email** workflow step. Recipients, subject and body are t
 
 In **Workflow settings → Knowledge workspace**, pick a knowledge base. The workflow's agents then search it (`kb_search`), read only what they need (`kb_read`), and record findings, decisions with their reasons, and feedback (`kb_write`) as notes in folders such as `research/` and `decisions/`. Large tool results are saved there too, and the agent keeps a summary. See [docs/knowledge-workspace.md](docs/knowledge-workspace.md).
 
+### 6c. Let an agent start sub-agents
+
+Turn on **Can hand focused tasks to sub-agents** in an agent's settings. The agent can then call `spawn_agents` to run up to four focused sub-agents in parallel. Each gets a fresh context, optionally one of its skills, and a share of its remaining token budget. Each writes its findings to the knowledge workspace and reports back a summary and note ids. See [docs/subagents.md](docs/subagents.md).
+
 ### 7. Give agents skills
 
 **Skills → New skill**: name it, write one line saying _when_ it applies (“Use when someone reports an outage or error spike”), and the instructions to follow — steps, checklists, output formats, examples. In any agent's settings, **Skills** lists the library; tick as many as the agent should have, or create one in place.
