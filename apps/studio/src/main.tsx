@@ -23,7 +23,7 @@ import {
   Laptop,
 } from 'lucide-react';
 import { api, collections, emptyData, errorMessage, send, type Data, type Entity, type User } from './api';
-import { Button, ErrorNotice } from './components/ui';
+import { Button, ErrorNotice, UpdateNotice } from './components/ui';
 import { ConnectionEditor, KnowledgeEditor, ProviderEditor } from './components/editors';
 import { WorkflowStarter } from './components/WorkflowStarter';
 import type { Workflow } from '../../../packages/core/src/schema.js';
@@ -318,6 +318,7 @@ function App() {
   const Editor = editor ? editors[editor.type] : undefined;
   return (
     <div className="app-shell">
+      <UpdateNotice />
       <aside className={`sidebar ${sidebar ? 'open' : ''}`}>
         <button className="brand" onClick={() => navigate('workflows')}>
           <div className="brand-mark">
