@@ -195,10 +195,31 @@ export const scheduleSchema = z.object({
   timezone: z.string().max(64).refine(validTimeZone, 'Unknown time zone').optional(),
 });
 export type Schedule = z.infer<typeof scheduleSchema>;
+const kebabKey = z
+  .string()
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Use lowercase letters, digits and dashes')
+  .max(100);
+/**
+ * Open Agent Format identity for a workflow published as an agent (Open Harness API). Absent fields are derived
+ * from the workspace and workflow names when the agent is listed or exported.
+ */
+export const agentIdentitySchema = z.object({
+  vendorKey: kebabKey.optional(),
+  agentKey: kebabKey.optional(),
+  version: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/, 'Use a semantic version such as 1.0.0')
+    .optional(),
+  author: z.string().trim().max(100).optional(),
+  license: z.string().trim().max(100).optional(),
+  tags: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
+});
+export type AgentIdentity = z.infer<typeof agentIdentitySchema>;
 export const workflowSchema = z
   .object({
     name,
     description: z.string().max(1000).default(''),
+    identity: agentIdentitySchema.optional(),
     enabled: z.boolean().default(true),
     startAt: z.string(),
     nodes: z.array(nodeSchema).min(1).max(100),
