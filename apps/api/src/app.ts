@@ -8,7 +8,7 @@ import { config } from '../../../packages/core/src/config.js';
 import { collection, db } from '../../../packages/core/src/db.js';
 import { hash, HttpError, passwordHash, safeError } from '../../../packages/core/src/security.js';
 import { queueChannel, JOB_QUEUE } from '../../../packages/core/src/queue.js';
-import { createRun } from '../../../packages/core/src/runs.js';
+import { createRun, requestCancel, terminalStatuses } from '../../../packages/core/src/runs.js';
 import { runSchema, type Run } from '../../../packages/core/src/schema.js';
 import { finishOAuth } from '../../../packages/core/src/mcp.js';
 import {
@@ -207,7 +207,6 @@ app.get('/api/runs/:id', async (req, res) => {
   checkTokenScope(req, 'read', run);
   res.json(publicRun(run));
 });
-const terminalStatuses = ['succeeded', 'failed', 'cancelled', 'interrupted'];
 /** Server-sent events: status, streamed model text and trace events as the runner writes them. */
 app.get('/api/runs/:id/stream', async (req, res) => {
   checkTokenScope(req, 'read');
@@ -267,15 +266,7 @@ app.post('/api/runs/:id/cancel', async (req, res) => {
   const run = await collection<Run>('runs').findOne(filter);
   if (!run) throw new HttpError(404, 'Run not found');
   checkTokenScope(req, 'execute', run);
-  const now = new Date();
-  await collection<Run>('runs').updateOne(
-    { ...filter, status: 'queued' },
-    { $set: { cancelRequested: true, status: 'cancelled', updatedAt: now, finishedAt: now } },
-  );
-  await collection<Run>('runs').updateOne(
-    { ...filter, status: 'running' },
-    { $set: { cancelRequested: true, updatedAt: now } },
-  );
+  await requestCancel(filter);
   res.status(202).json({ status: 'cancellation_requested' });
 });
 app.get('/api/users', requireAdmin, async (_req, res) =>

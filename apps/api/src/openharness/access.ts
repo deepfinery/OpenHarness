@@ -17,7 +17,7 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction) {
   // Invalid credentials on an optional-auth route are treated as anonymous rather than rejected.
   void authenticate(req, res, () => next());
 }
-export function requireAccess(req: Request, need: Need, target?: { workflowId?: string }) {
+export function requireAccess(req: Request, need: Need, target?: { workflowId?: string; agentId?: string }) {
   const principal = req.principal;
   if (!principal) throw new OhError(401, 'UNAUTHORIZED', 'Authentication required');
   const token = principal.token;
@@ -31,7 +31,16 @@ export function requireAccess(req: Request, need: Need, target?: { workflowId?: 
         details: { required_scope: need === 'manage' ? 'harness' : need },
       },
     );
-  if (target?.workflowId && !token.workflowIds.includes(target.workflowId))
+  if (
+    (target?.workflowId && !token.workflowIds.includes(target.workflowId)) ||
+    (target?.agentId && !token.agentIds.includes(target.agentId)) ||
+    (target && !target.workflowId && !target.agentId)
+  )
     throw new OhError(403, 'FORBIDDEN', 'This API key cannot access this agent');
   return principal;
+}
+/** Workflow-scoped keys see only the runs they created, as on /api/runs; workspace keys and sessions see all. */
+export function runScope(req: Request) {
+  const token = req.principal!.token;
+  return token && !token.scopes.includes('harness') ? { tokenId: token._id } : {};
 }

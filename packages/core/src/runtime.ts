@@ -230,10 +230,11 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
           }
           const handler = handlers.get(call.name);
           if (!handler) throw new Error('Model requested a tool outside this agent’s allowed MCP tools');
+          // callId and tool let API clients pair each call with its result (Open Harness tool_call_* events).
           await ctx.event({
             type: 'tool_started',
             message: handler.label,
-            data: { arguments: asText(call.arguments).slice(0, 6000) },
+            data: { callId: call.id, tool: handler.name, arguments: asText(call.arguments).slice(0, 6000) },
           });
           const validationError = validateToolArguments(handler.inputSchema, call.arguments);
           let text: string;
@@ -265,7 +266,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
           await ctx.event({
             type: isError ? 'tool_error' : 'tool_completed',
             message: handler.label,
-            data: { result: text.slice(0, 6000) },
+            data: { callId: call.id, tool: handler.name, result: text.slice(0, 6000) },
           });
           dialog.push({ role: 'tool', content: text, toolCallId: call.id, name: call.name });
         }
@@ -552,10 +553,11 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
           const args = render(node.arguments, scope) as Record<string, unknown>;
           const validationError = validateToolArguments(tool.inputSchema as Record<string, unknown>, args);
           if (validationError) throw new Error(`${connection.name} / ${node.tool}: ${validationError}`);
+          const callId = `${node.id}:${attempt}`;
           await event({
             type: 'tool_started',
             message: `${connection.name} / ${node.tool}`,
-            data: { arguments: asText(args).slice(0, 6000) },
+            data: { callId, tool: node.tool, arguments: asText(args).slice(0, 6000) },
           });
           let output;
           try {
@@ -570,10 +572,20 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
             );
           } catch (error) {
             signal.throwIfAborted();
-            throw new Error(
-              `${connection.name} / ${node.tool} call failed: ${error instanceof Error ? error.message : String(error)}`,
-            );
+            const message = `${connection.name} / ${node.tool} call failed: ${error instanceof Error ? error.message : String(error)}`;
+            await event({
+              type: 'tool_error',
+              message: `${connection.name} / ${node.tool}`,
+              data: { callId, tool: node.tool, result: message.slice(0, 6000) },
+            });
+            throw new Error(message);
           }
+          const toolText = asText(output.structuredContent ?? output.content).slice(0, 6000);
+          await event({
+            type: output.isError ? 'tool_error' : 'tool_completed',
+            message: `${connection.name} / ${node.tool}`,
+            data: { callId, tool: node.tool, result: toolText },
+          });
           if (output.isError)
             throw new Error(`MCP tool ${node.tool} reported an error: ${asText(output).slice(0, 1000)}`);
           result = output.structuredContent ?? output.content;

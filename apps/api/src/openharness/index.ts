@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { config } from '../../../../packages/core/src/config.js';
 import { optionalAuth, requireAuth } from './access.js';
 import { errorHandler, notFound, OhError } from './errors.js';
+import { executionOperations } from './execution.js';
 import { harnessOperations } from './harness.js';
 import { OperationRegistry } from './operations.js';
 
@@ -12,7 +13,7 @@ import { OperationRegistry } from './operations.js';
  */
 export function openHarnessRegistry() {
   const registry = new OperationRegistry();
-  registry.register(...harnessOperations(registry));
+  registry.register(...harnessOperations(registry), ...executionOperations(registry));
   return registry;
 }
 export const registry = openHarnessRegistry();

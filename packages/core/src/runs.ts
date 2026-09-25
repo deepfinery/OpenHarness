@@ -3,7 +3,17 @@ import { collection } from './db.js';
 import { config } from './config.js';
 import { hash, HttpError, safeError } from './security.js';
 import { publish } from './queue.js';
-import type { Agent, KnowledgeDocument, Run, RunInput, Skill, Stored, Workflow } from './schema.js';
+import type {
+  Agent,
+  KnowledgeDocument,
+  Run,
+  RunInput,
+  RunOverrides,
+  RunStatus,
+  Skill,
+  Stored,
+  Workflow,
+} from './schema.js';
 import { workflowSchema } from './schema.js';
 import { agentWithResources } from './workflow.js';
 import { resumeDecision } from './runtime.js';
@@ -23,6 +33,8 @@ export async function createRun(
     webhookId?: string;
     conversationId?: string;
     runId?: string;
+    /** Per-run changes applied to every agent's snapshot; the stored agents and workflow are untouched. */
+    overrides?: RunOverrides;
   } = {},
 ) {
   const runs = collection<Run>('runs');
@@ -33,6 +45,7 @@ export async function createRun(
       embedId: options.embedId,
       initiatedBy: options.initiatedBy,
       webhookId: options.webhookId,
+      overrides: options.overrides,
     }),
   );
   if (options.idempotencyKey) {
@@ -78,6 +91,21 @@ export async function createRun(
       if (!base?.enabled) throw new HttpError(400, 'A required agent is missing or disabled');
       nodeAgents[node.id] = agentWithResources(workflow!, node.id, base);
     }
+  if (options.overrides) {
+    const o = options.overrides;
+    if (o.providerId && !(await collection('providers').findOne({ _id: o.providerId, ownerId })))
+      throw new HttpError(400, 'Model provider unavailable');
+    const apply = (a: Agent): Agent => ({
+      ...a,
+      ...(o.systemPrompt ? { systemPrompt: `${a.systemPrompt}\n\n${o.systemPrompt}`.slice(0, 32000) } : {}),
+      ...(o.providerId ? { providerId: o.providerId } : {}),
+      ...(o.skillIds?.length
+        ? { skillIds: [...new Set([...(a.skillIds ?? []), ...o.skillIds])].slice(0, 20) }
+        : {}),
+    });
+    for (const id of Object.keys(nodeAgents)) nodeAgents[id] = apply(nodeAgents[id]);
+    for (const id of Object.keys(agents)) agents[id] = apply(agents[id]);
+  }
   // Skills are snapshotted so editing one never changes a run that was already accepted.
   const withSkills = async (a: Agent): Promise<Agent> => {
     if (!a.skillIds?.length) return { ...a, skills: [] };
@@ -132,7 +160,7 @@ export async function createRun(
     };
   }
   const now = new Date();
-  const { runId, ...attributes } = options;
+  const { runId, overrides, ...attributes } = options;
   const run: Run = {
     ...(device ? { device } : {}),
     _id: runId ?? randomUUID(),
@@ -147,6 +175,7 @@ export async function createRun(
     events: [],
     outputs: {},
     snapshot: { ...(workflow ? { workflow, nodeAgents } : {}), agents },
+    ...(overrides ? { overrides } : {}),
   };
   try {
     await runs.insertOne(run);
@@ -167,6 +196,24 @@ export async function createRun(
     .then(() => runs.updateOne({ _id: run._id, status: 'queued' }, { $set: { publishedAt: now } }))
     .catch(() => {});
   return run;
+}
+export const terminalStatuses: RunStatus[] = ['succeeded', 'failed', 'cancelled', 'interrupted'];
+/**
+ * Requests cancellation of the run matched by `filter`: a queued run is cancelled at once, a running one is
+ * flagged so its runner stops at the next boundary. Returns whether the run was still active.
+ */
+export async function requestCancel(filter: { _id: string; ownerId: string; tokenId?: string }) {
+  const runs = collection<Run>('runs');
+  const now = new Date();
+  const queued = await runs.updateOne(
+    { ...filter, status: 'queued' },
+    { $set: { cancelRequested: true, status: 'cancelled', updatedAt: now, finishedAt: now } },
+  );
+  const running = await runs.updateOne(
+    { ...filter, status: 'running' },
+    { $set: { cancelRequested: true, updatedAt: now } },
+  );
+  return queued.modifiedCount + running.modifiedCount > 0;
 }
 export async function dispatchPending() {
   const stale = new Date(Date.now() - 30000);

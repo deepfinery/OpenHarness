@@ -317,6 +317,8 @@ export type RunInput = z.infer<typeof runSchema>;
 export type Stored<T> = T & { _id: string; ownerId: string; createdAt: Date; updatedAt: Date };
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type RunEvent = { at: string; type: string; nodeId?: string; message: string; data?: unknown };
+/** Per-run agent changes requested by an API caller (for example the Open Harness execute request). */
+export type RunOverrides = { systemPrompt?: string; providerId?: string; skillIds?: string[] };
 /** Durable progress marker written at every node boundary so a replacement runner can resume. */
 export type RunCheckpoint = {
   cursor?: string;
@@ -358,6 +360,7 @@ export type Run = Stored<RunInput> & {
   trigger?: 'studio' | 'api' | 'chat' | 'webhook' | 'embed' | 'schedule';
   webhookId?: string;
   conversationId?: string;
+  overrides?: RunOverrides;
 };
 export type KnowledgeDocument = Stored<{
   knowledgeBaseId: string;
