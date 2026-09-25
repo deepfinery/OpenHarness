@@ -6,6 +6,35 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
 const app = express();
+// Hook and webhook receivers keep the raw body so tests can verify signatures byte for byte.
+const received = [];
+app.post('/receiver/:mode', express.text({ type: '*/*', limit: '2mb' }), (req, res) => {
+  const body = JSON.parse(req.body || '{}');
+  received.push({ mode: req.params.mode, headers: req.headers, raw: req.body, body });
+  if (received.length > 500) received.shift();
+  switch (req.params.mode) {
+    case 'deny':
+      return res.json({ decision: 'deny', reason: 'fixture policy says no' });
+    case 'modify':
+      return res.json({
+        decision: 'modify',
+        input: { ...(body.tool?.input ?? {}), query: 'modified by hook' },
+      });
+    case 'redact':
+      return res.json({ decision: 'modify', output: 'REDACTED by hook' });
+    case 'fail':
+      return res.status(500).json({ error: 'fixture hook failure' });
+    default:
+      return res.json({ decision: 'allow' });
+  }
+});
+app.get('/receiver', (req, res) =>
+  res.json(received.filter((r) => !req.query.mode || r.mode === req.query.mode)),
+);
+app.delete('/receiver', (_req, res) => {
+  received.length = 0;
+  res.json({ ok: true });
+});
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 const stats = { tools: 0, models: 0, embeddings: 0, refreshes: 0, oauthTokens: 0 };

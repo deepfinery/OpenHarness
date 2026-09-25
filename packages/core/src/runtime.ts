@@ -4,6 +4,7 @@ import { collection } from './db.js';
 import { config } from './config.js';
 import { chat, ownedProvider, type ChatMessage, type ToolDefinition } from './llm.js';
 import { connectMcp, ownedConnection, toolAlias } from './mcp.js';
+import { afterTool, beforeTool, loadHooks, type HookRecord } from './hooks.js';
 import { searchKnowledge } from './knowledge.js';
 import { sendEmail } from './email.js';
 import { asText, evaluateCondition, render, type Scope } from './templates.js';
@@ -30,9 +31,18 @@ export type AgentContext = {
   onDelta?: DeltaWriter;
   /** The machine this run operates, when one was chosen. */
   device?: Run['device'];
+  /** The workspace's enabled lifecycle hooks, loaded once per run. */
+  hooks?: HookRecord[];
+  agentId?: string;
 };
 type Session = Awaited<ReturnType<typeof connectMcp>>;
-type Handler = { session: Session; name: string; label: string; inputSchema: Record<string, unknown> };
+type Handler = {
+  session: Session;
+  connectionId: string;
+  name: string;
+  label: string;
+  inputSchema: Record<string, unknown>;
+};
 
 export async function runAgent(stored: Agent, input: string, history: Run['history'], ctx: AgentContext) {
   // Effort decides the loop and token budgets; `auto` resolves them per request.
@@ -81,6 +91,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
         });
         handlers.set(alias, {
           session,
+          connectionId: connection._id,
           name,
           label: `${connection.name} / ${name}`,
           inputSchema: tool.inputSchema as Record<string, unknown>,
@@ -236,10 +247,31 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
             message: handler.label,
             data: { callId: call.id, tool: handler.name, arguments: asText(call.arguments).slice(0, 6000) },
           });
-          const validationError = validateToolArguments(handler.inputSchema, call.arguments);
+          const tool = {
+            id: `mcp.${handler.connectionId}.${handler.name}`,
+            name: handler.name,
+            input: (call.arguments ?? {}) as Record<string, unknown>,
+          };
+          const hookCtx = {
+            ownerId: ctx.ownerId,
+            runId: ctx.runId,
+            agentId: ctx.agentId,
+            nodeId: ctx.nodeId,
+            event: ctx.event,
+          };
+          const gate = ctx.hooks?.length
+            ? await beforeTool(ctx.hooks, hookCtx, tool)
+            : { allowed: true as const, input: tool.input };
+          if (gate.allowed) call.arguments = gate.input;
+          const validationError = gate.allowed
+            ? validateToolArguments(handler.inputSchema, call.arguments)
+            : undefined;
           let text: string;
           let isError: boolean;
-          if (validationError) {
+          if (!gate.allowed) {
+            text = `Blocked by a hook: ${gate.reason}`;
+            isError = true;
+          } else if (validationError) {
             text = validationError;
             isError = true;
           } else {
@@ -254,6 +286,8 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
               // Large tool payloads are the usual cause of context overflow; the trace keeps 6000 chars anyway.
               text = asText(result).slice(0, 12000);
               isError = Boolean(result.isError);
+              if (ctx.hooks?.length)
+                text = await afterTool(ctx.hooks, hookCtx, { ...tool, input: gate.input }, { text, isError });
             } catch (error) {
               signal.throwIfAborted();
               text = `Tool call failed: ${error instanceof Error ? error.message : String(error)}`.slice(
@@ -463,7 +497,17 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
     });
     if (!result.matchedCount) throw new Error('Run lease was lost');
   };
-  const base = { ownerId: run.ownerId, runId: run._id, signal, onDelta, device: run.device };
+  // Hooks are read once, so a run sees one consistent set even if they change mid-run.
+  const hooks = await loadHooks(run.ownerId);
+  const base = {
+    ownerId: run.ownerId,
+    runId: run._id,
+    signal,
+    onDelta,
+    device: run.device,
+    hooks,
+    agentId: run.workflowId ?? run.agentId,
+  };
   if (run.agentId)
     return runAgent(run.snapshot.agents[run.agentId], run.input, run.history, { ...base, event: writeEvent });
   const workflow: Workflow | undefined = run.snapshot.workflow;
@@ -550,7 +594,7 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
           const available = await session.tools();
           const tool = available.find((t) => t.name === node.tool);
           if (!tool) throw new Error('Workflow MCP tool no longer exists');
-          const args = render(node.arguments, scope) as Record<string, unknown>;
+          let args = render(node.arguments, scope) as Record<string, unknown>;
           const validationError = validateToolArguments(tool.inputSchema as Record<string, unknown>, args);
           if (validationError) throw new Error(`${connection.name} / ${node.tool}: ${validationError}`);
           const callId = `${node.id}:${attempt}`;
@@ -559,6 +603,33 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
             message: `${connection.name} / ${node.tool}`,
             data: { callId, tool: node.tool, arguments: asText(args).slice(0, 6000) },
           });
+          const toolRef = {
+            id: `mcp.${connection._id}.${node.tool}`,
+            name: node.tool,
+            input: args as Record<string, unknown>,
+          };
+          const hookCtx = {
+            ownerId: run.ownerId,
+            runId: run._id,
+            agentId: run.workflowId,
+            nodeId: node.id,
+            event,
+          };
+          if (hooks.length) {
+            const gate = await beforeTool(hooks, hookCtx, toolRef);
+            if (!gate.allowed) {
+              await event({
+                type: 'tool_error',
+                message: `${connection.name} / ${node.tool}`,
+                data: { callId, tool: node.tool, result: `Blocked by a hook: ${gate.reason}` },
+              });
+              throw new Error(`${connection.name} / ${node.tool} was blocked by a hook: ${gate.reason}`);
+            }
+            args = gate.input;
+            toolRef.input = args as Record<string, unknown>;
+            const invalid = validateToolArguments(tool.inputSchema as Record<string, unknown>, args);
+            if (invalid) throw new Error(`${connection.name} / ${node.tool}: ${invalid}`);
+          }
           let output;
           try {
             output = await session.client.callTool(
@@ -589,6 +660,11 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
           if (output.isError)
             throw new Error(`MCP tool ${node.tool} reported an error: ${asText(output).slice(0, 1000)}`);
           result = output.structuredContent ?? output.content;
+          if (hooks.length) {
+            const original = asText(result);
+            const reviewed = await afterTool(hooks, hookCtx, toolRef, { text: original, isError: false });
+            if (reviewed !== original) result = reviewed;
+          }
         } finally {
           await session.close();
         }

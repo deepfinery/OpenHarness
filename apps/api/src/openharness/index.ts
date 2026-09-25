@@ -5,6 +5,7 @@ import { errorHandler, notFound, OhError } from './errors.js';
 import { agentOperations } from './agents.js';
 import { executionOperations } from './execution.js';
 import { harnessOperations } from './harness.js';
+import { hookOperations } from './hooks.js';
 import { OperationRegistry } from './operations.js';
 import { toolOperations } from './tools.js';
 
@@ -20,6 +21,7 @@ export function openHarnessRegistry() {
     ...agentOperations(registry),
     ...toolOperations(registry),
     ...executionOperations(registry),
+    ...hookOperations(registry),
   );
   return registry;
 }
