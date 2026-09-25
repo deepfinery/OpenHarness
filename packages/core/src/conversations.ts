@@ -6,6 +6,7 @@ export type Conversation = {
   actor: string;
   agentId?: string;
   workflowId?: string;
+  deviceId?: string;
   messages: Run['history'];
   createdAt: Date;
   updatedAt: Date;

@@ -353,6 +353,67 @@ test('knowledge notes are created, edited and re-indexed in place', async () => 
   const pdfLike = await request(`/documents/${randomUUID()}/content`, 'GET');
   assert.equal(pdfLike.status, 404);
 });
+test('agents load the matching skill on demand and follow it; skills are snapshotted per run', async () => {
+  const triage = await ok('/skills', {
+    name: `Incident triage ${suffix}`,
+    description: 'Use when someone reports an outage or error spike.',
+    instructions: 'TRIAGE-STEPS: classify severity, then list evidence.',
+  });
+  const release = await ok('/skills', {
+    name: `Release notes ${suffix}`,
+    description: 'Use when asked to write release notes.',
+    instructions: 'RELEASE-FORMAT: headline, changes, upgrade notes.',
+  });
+  const agent = await ok('/agents', {
+    name: `Skilled ${suffix}`,
+    providerId: provider.id,
+    systemPrompt: 'Help the team.',
+    skillIds: [triage.id, release.id],
+    // A client cannot smuggle instructions in as a snapshot; the server resolves skills itself.
+    skills: [{ id: triage.id, name: 'x', description: 'x', instructions: 'SPOOFED', enabled: true }],
+  });
+  assert.equal(agent.skills, undefined, 'stored agents carry skill ids only');
+  const run = await waitRun(
+    (await ok('/runs', { agentId: agent.id, input: `Please use your skill: release notes ${suffix} for v2` }))
+      .id,
+  );
+  assert.equal(run.status, 'succeeded', run.error);
+  const loaded = run.events.filter((e: any) => e.type === 'skill_loaded');
+  assert.equal(loaded.length, 1, 'exactly one skill loaded');
+  assert.equal(loaded[0].data.skill, `Release notes ${suffix}`, 'the matching skill, not the first one');
+  assert.match(run.output, /RELEASE-FORMAT/, 'the loaded instructions reached the model');
+  assert.doesNotMatch(run.output, /SPOOFED/);
+  const plain = await waitRun((await ok('/runs', { agentId: agent.id, input: 'Just say hello' })).id);
+  assert.equal(plain.status, 'succeeded', plain.error);
+  assert.ok(!plain.events.some((e: any) => e.type === 'skill_loaded'), 'no skill when none applies');
+  // Editing a skill after acceptance does not change runs; disabling hides it from new runs.
+  await ok(`/skills/${release.id}`, { ...release, id: undefined, enabled: false }, 'PUT');
+  const after = await waitRun(
+    (await ok('/runs', { agentId: agent.id, input: `Please use your skill: release notes ${suffix}` })).id,
+  );
+  assert.ok(
+    after.events
+      .filter((e: any) => e.type === 'skill_loaded')
+      .every((e: any) => e.data.skill !== `Release notes ${suffix}`),
+    'a disabled skill is not offered',
+  );
+  assert.equal(
+    (await request(`/skills/${triage.id}`, 'DELETE')).status,
+    409,
+    'a skill in use cannot be deleted',
+  );
+  assert.equal(
+    (
+      await request('/agents', 'POST', {
+        name: 'Bad',
+        providerId: provider.id,
+        systemPrompt: 'x',
+        skillIds: [randomUUID()],
+      })
+    ).status,
+    400,
+  );
+});
 test('the workspace default model provider is stored on the tenant and falls back to the oldest provider', async () => {
   const tenant = await ok('/tenant');
   assert.ok(tenant.defaultProviderId, 'a default exists once any provider does');

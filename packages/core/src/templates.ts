@@ -4,6 +4,8 @@ export type Scope = {
   last: unknown;
   steps: Record<string, unknown>;
   payload?: Record<string, unknown>;
+  /** The machine chosen for the run, when any: {{device.name}}, {{device.platform}}, {{device.id}}. */
+  device?: Record<string, unknown>;
 };
 function pathValue(scope: Scope, path: string): unknown {
   const parts = path.trim().split('.');

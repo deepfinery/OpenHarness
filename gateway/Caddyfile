@@ -1,0 +1,18 @@
+# TLS termination and reverse proxy for the device gateway. Replace the hostname; Caddy obtains certificates itself.
+# The gateway is the only component that needs a public IP. Devices connect to wss://gateway.example.com/connect;
+# the orchestrator calls https://gateway.example.com/mcp/<device_id>.
+gateway.example.com {
+	encode zstd gzip
+	# Never expose the admin API publicly unless you need it; the CLI works locally on the data directory.
+	@admin path /admin/*
+	respond @admin 404
+	reverse_proxy gateway:8090 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-For {remote_host}
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+	# For mutual TLS from the orchestrator, add a client_auth block here and set GATEWAY_TRUST_PROXY_CLIENT_CERT=true.
+}

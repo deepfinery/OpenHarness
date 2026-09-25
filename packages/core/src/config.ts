@@ -28,6 +28,11 @@ const s = z.object({
   // 'json' swaps the network transport for nodemailer's JSON transport; only the test stack uses it.
   SMTP_TRANSPORT: z.enum(['smtp', 'json']).default('smtp'),
   MAX_RESUMES: z.coerce.number().int().min(0).max(10).default(3),
+  // Device gateway (optional). When set, the studio can enroll machines and agents can operate them.
+  GATEWAY_URL: z.string().default(''),
+  GATEWAY_PUBLIC_URL: z.string().default(''),
+  GATEWAY_API_TOKEN: z.string().default(''),
+  GATEWAY_ADMIN_TOKEN: z.string().default(''),
 });
 export const config = s.parse(process.env);
 export const secureCookies = new URL(config.PUBLIC_URL).protocol === 'https:';

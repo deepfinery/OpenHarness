@@ -1,0 +1,39 @@
+[Unit]
+Description=Agentic device connector (MCP over outbound WebSocket)
+Documentation=https://github.com/deepfinery/orchestrator/blob/main/docs/INSTALL.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agentic-connector
+Group=agentic-connector
+ExecStart=/usr/bin/node /opt/agentic-connector/connector-linux/dist/main.js --config /etc/agentic-connector/config.json
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+# Hardening: the connector only needs its work directory and its own state.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=yes
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+ReadWritePaths=/var/lib/agentic-connector
+ReadOnlyPaths=/etc/agentic-connector
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+IPAddressDeny=any
+IPAddressAllow=0.0.0.0/0 ::/0
+# Outbound HTTPS only. Uncomment and set your gateway's address to pin it:
+# IPAddressAllow=203.0.113.10/32
+
+[Install]
+WantedBy=multi-user.target

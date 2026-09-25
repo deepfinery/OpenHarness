@@ -10,6 +10,7 @@ import {
   connectionSchema,
   knowledgeSchema,
   providerSchema,
+  skillSchema,
   workflowSchema,
   type KnowledgeDocument,
 } from '../../../packages/core/src/schema.js';
@@ -52,6 +53,8 @@ async function assertOwned(name: string, ownerId: string, id: string) {
     throw new HttpError(400, `Referenced ${name} resource is unavailable`);
 }
 async function validateReferences(kind: string, ownerId: string, body: any) {
+  if (kind === 'connections' && body.kind === 'device')
+    throw new HttpError(400, 'Machines are managed on the Machines page, not as manual connections');
   if (kind === 'agents') {
     await assertOwned('providers', ownerId, body.providerId);
     for (const binding of body.connections) {
@@ -61,6 +64,9 @@ async function validateReferences(kind: string, ownerId: string, body: any) {
         throw new HttpError(400, 'Discover the connection’s tools before attaching them to an agent');
     }
     for (const id of body.knowledgeBaseIds) await assertOwned('knowledge', ownerId, id);
+    for (const id of body.skillIds ?? []) await assertOwned('skills', ownerId, id);
+    // The server resolves skills at run time; stored agents never carry a client-supplied snapshot.
+    delete body.skills;
   }
   if (kind === 'knowledge') {
     const p = await ownedProvider(ownerId, body.providerId);
@@ -103,6 +109,7 @@ const definitions = {
   connections: connectionSchema,
   knowledge: knowledgeSchema,
   workflows: workflowSchema,
+  skills: skillSchema,
 };
 for (const [kind, schema] of Object.entries(definitions)) {
   const records = () => collection<Resource>(kind);
@@ -235,18 +242,23 @@ for (const [kind, schema] of Object.entries(definitions)) {
                 },
               ],
             ]
-          : kind === 'agents'
-            ? [['workflows', { $or: [{ 'nodes.agentId': id }, { 'nodes.agentIds': id }] }]]
-            : kind === 'knowledge'
-              ? [
-                  ['agents', { knowledgeBaseIds: id }],
-                  ['documents', { knowledgeBaseId: id }],
-                  [
-                    'workflows',
-                    { $or: [{ 'resources.knowledgeBaseId': id }, { 'nodes.config.knowledgeBaseIds': id }] },
-                  ],
-                ]
-              : [];
+          : kind === 'skills'
+            ? [
+                ['agents', { skillIds: id }],
+                ['workflows', { 'nodes.config.skillIds': id }],
+              ]
+            : kind === 'agents'
+              ? [['workflows', { $or: [{ 'nodes.agentId': id }, { 'nodes.agentIds': id }] }]]
+              : kind === 'knowledge'
+                ? [
+                    ['agents', { knowledgeBaseIds: id }],
+                    ['documents', { knowledgeBaseId: id }],
+                    [
+                      'workflows',
+                      { $or: [{ 'resources.knowledgeBaseId': id }, { 'nodes.config.knowledgeBaseIds': id }] },
+                    ],
+                  ]
+                : [];
     for (const [name, query] of blockers)
       if (await collection<Resource>(name).findOne({ ownerId, ...query }))
         throw new HttpError(409, `Remove this resource’s references in ${name} first`);

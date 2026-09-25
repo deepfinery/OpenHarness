@@ -16,8 +16,13 @@ x-app-environment: &app-environment
   MAX_ACTIVE_RUNS: ${MAX_ACTIVE_RUNS:-20}
   MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
   ALLOW_PRIVATE_URLS: ${ALLOW_PRIVATE_URLS:-false}
-  ALLOWED_PRIVATE_HOSTS: ${ALLOWED_PRIVATE_HOSTS:-host.docker.internal,ollama}
+  ALLOWED_PRIVATE_HOSTS: ${ALLOWED_PRIVATE_HOSTS:-host.docker.internal,ollama,gateway}
   TRUST_PROXY: ${TRUST_PROXY:-0}
+  # Device gateway: the api and runner reach it on the internal network; devices dial GATEWAY_PUBLIC_URL.
+  GATEWAY_URL: http://gateway:8090
+  GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-ws://localhost:8090}
+  GATEWAY_API_TOKEN: ${GATEWAY_API_TOKEN:?Run ./start.sh --configure-only to add gateway credentials to .env}
+  GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run ./start.sh --configure-only to add gateway credentials to .env}
 
 services:
   storage-init:
@@ -87,6 +92,40 @@ services:
       retries: 3
       start_period: 30s
 
+  gateway:
+    build: { context: ., dockerfile: gateway/Dockerfile }
+    image: agentic-gateway:local
+    init: true
+    environment:
+      PORT: 8090
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-ws://localhost:8090}
+      GATEWAY_API_TOKENS: orchestrator:${GATEWAY_API_TOKEN:?Run ./start.sh --configure-only to add gateway credentials to .env}
+      GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run ./start.sh --configure-only to add gateway credentials to .env}
+      GATEWAY_DATA_DIR: /data
+      GATEWAY_AUDIT_FILE: /data/audit.jsonl
+      # TLS terminates at your reverse proxy (see gateway/Caddyfile); set to false once it forwards X-Forwarded-Proto.
+      GATEWAY_ALLOW_INSECURE_WS: ${GATEWAY_ALLOW_INSECURE_WS:-true}
+      GATEWAY_TOOL_TIMEOUT_SECONDS: ${GATEWAY_TOOL_TIMEOUT_SECONDS:-120}
+      GATEWAY_APPROVAL_TOOLS: ${GATEWAY_APPROVAL_TOOLS:-}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+    ports: ['${GATEWAY_BIND:-0.0.0.0}:${GATEWAY_PORT:-8090}:8090']
+    volumes: ['gateway:/data']
+    restart: unless-stopped
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   mongo:
     image: mongo:7.0
     environment:
@@ -150,3 +189,4 @@ volumes:
   rabbitmq:
   weaviate:
   files:
+  gateway:

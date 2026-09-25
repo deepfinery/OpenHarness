@@ -34,6 +34,7 @@ import {
 import { resources } from './resources.js';
 import { embedApi, integrations, publicRun, type Embed } from './integrations.js';
 import { conversationApi, webhookApi, webhookSettings } from './triggers.js';
+import { devices } from './devices.js';
 
 export const app = express();
 app.disable('x-powered-by');
@@ -358,6 +359,7 @@ app.post('/api/settings/email/test', requireAdmin, async (req, res) => {
 });
 app.use('/api/integrations', requireSession, integrations);
 app.use('/api/integrations/webhooks', requireSession, webhookSettings);
+app.use('/api/devices', requireSession, devices);
 app.use('/api', requireSession, resources);
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'API endpoint not found')));
 

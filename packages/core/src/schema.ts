@@ -23,11 +23,17 @@ export const providerSchema = z.object({
   // Prompt + output budget in tokens. Learned automatically from the provider's first context-length error.
   contextWindow: z.number().int().min(2048).max(4000000).default(128000),
 });
+export const devicePlatforms = ['linux', 'windows', 'chrome'] as const;
+export const deviceIdPattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export const connectionSchema = z.object({
   name,
   url,
   transport: z.enum(['http', 'sse']).default('http'),
   authType: z.enum(['none', 'token', 'oauth']).default('none'),
+  /** `device` connections are managed by the Machines page through the gateway; `mcp` are ordinary servers. */
+  kind: z.enum(['mcp', 'device']).default('mcp'),
+  deviceId: z.string().regex(deviceIdPattern).optional(),
+  platform: z.enum(devicePlatforms).optional(),
   token: z.string().max(8192).optional(),
   tokenHeader: z
     .string()
@@ -62,6 +68,14 @@ export const patternConfigSchema = z.object({
   doneMarker: z.string().trim().min(1).max(50).default('DONE'),
   maxPlanSteps: z.number().int().min(1).max(8).default(5),
 });
+/** A reusable skill: the agent sees name + description and loads the instructions when a request matches. */
+export const skillSchema = z.object({
+  name: z.string().trim().min(1).max(64),
+  description: z.string().trim().min(1).max(500),
+  instructions: z.string().min(1).max(32000),
+  enabled: z.boolean().default(true),
+});
+export type Skill = z.infer<typeof skillSchema>;
 export const agentSchema = z.object({
   name,
   description: z.string().max(1000).default(''),
@@ -69,6 +83,10 @@ export const agentSchema = z.object({
   providerId: id,
   connections: z.array(toolBindingSchema).max(30).default([]),
   knowledgeBaseIds: z.array(id).max(20).default([]),
+  /** Workspace skills this agent may load. Resolved into `skills` when a run is created. */
+  skillIds: z.array(id).max(20).default([]),
+  /** Snapshot of the skills at run creation; set by the server, not by clients. */
+  skills: z.array(skillSchema.extend({ id })).max(20).optional(),
   maxTurns: z.number().int().min(1).max(40).default(12),
   timeoutSeconds: z.number().int().min(10).max(900).default(300),
   pattern: z.enum(agentPatterns).default('react'),
@@ -280,6 +298,8 @@ export const runSchema = z
     workflowId: id.optional(),
     input: z.string().min(1).max(32000),
     payload: z.record(z.unknown()).optional(),
+    /** A registered machine whose tools every agent in the run receives. */
+    deviceId: z.string().regex(deviceIdPattern).optional(),
     history: z
       .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(32000) }))
       .max(20)
@@ -304,9 +324,17 @@ export type RunCheckpoint = {
   steps: number;
   nodeAttempts: Record<string, number>;
 };
+export type RunDevice = {
+  id: string;
+  name: string;
+  platform: (typeof devicePlatforms)[number];
+  connectionId: string;
+  hostname?: string;
+};
 export type Run = Stored<RunInput> & {
   status: RunStatus;
   label: string;
+  device?: RunDevice;
   snapshot: { workflow?: Workflow; agents: Record<string, Agent>; nodeAgents?: Record<string, Agent> };
   output?: string;
   error?: string;

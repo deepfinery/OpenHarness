@@ -320,79 +320,81 @@ export function ConnectionsPage({ data, edit, act, refresh }: PageProps) {
         />
       ) : (
         <div className="connection-list">
-          {data.connections.map((c) => {
-            const authState =
-              c.authType === 'oauth'
-                ? c.authorized
-                  ? { label: 'OAuth connected', status: 'enabled' }
-                  : { label: 'Authorization needed', status: 'pending' }
-                : c.authType === 'token'
-                  ? { label: 'API key', status: 'enabled' }
-                  : { label: 'No auth', status: 'enabled' };
-            return (
-              <article
-                className={`connection-row connection-card ${c.enabled ? '' : 'is-disabled'}`}
-                key={c.id}
-              >
-                <div className="resource-icon">
-                  <Plug size={23} />
-                </div>
-                <div className="connection-description">
-                  <div className="connection-title">
-                    <button className="card-name" onClick={() => edit('connections', c)}>
-                      {c.name}
-                    </button>
-                    <span className={`status ${authState.status}`}>{authState.label}</span>
-                    <span className={`status ${c.tools?.length ? 'next' : 'disabled'}`}>
-                      {c.tools?.length ?? 0} tools
-                    </span>
-                    {!c.enabled && <Status status="disabled" />}
+          {data.connections
+            .filter((c) => c.kind !== 'device')
+            .map((c) => {
+              const authState =
+                c.authType === 'oauth'
+                  ? c.authorized
+                    ? { label: 'OAuth connected', status: 'enabled' }
+                    : { label: 'Authorization needed', status: 'pending' }
+                  : c.authType === 'token'
+                    ? { label: 'API key', status: 'enabled' }
+                    : { label: 'No auth', status: 'enabled' };
+              return (
+                <article
+                  className={`connection-row connection-card ${c.enabled ? '' : 'is-disabled'}`}
+                  key={c.id}
+                >
+                  <div className="resource-icon">
+                    <Plug size={23} />
                   </div>
-                  <span>{c.url}</span>
-                  <div className="tag-row">
-                    <span>{c.transport === 'http' ? 'Streamable HTTP' : 'Legacy SSE'}</span>
-                    {c.lastCheckedAt && <span>Discovered {timestamp(c.lastCheckedAt)}</span>}
+                  <div className="connection-description">
+                    <div className="connection-title">
+                      <button className="card-name" onClick={() => edit('connections', c)}>
+                        {c.name}
+                      </button>
+                      <span className={`status ${authState.status}`}>{authState.label}</span>
+                      <span className={`status ${c.tools?.length ? 'next' : 'disabled'}`}>
+                        {c.tools?.length ?? 0} tools
+                      </span>
+                      {!c.enabled && <Status status="disabled" />}
+                    </div>
+                    <span>{c.url}</span>
+                    <div className="tag-row">
+                      <span>{c.transport === 'http' ? 'Streamable HTTP' : 'Legacy SSE'}</span>
+                      {c.lastCheckedAt && <span>Discovered {timestamp(c.lastCheckedAt)}</span>}
+                    </div>
+                    <ToolChips connection={c} onInspect={(tool) => setInspect({ connection: c, tool })} />
                   </div>
-                  <ToolChips connection={c} onInspect={(tool) => setInspect({ connection: c, tool })} />
-                </div>
-                <div className="connection-actions">
-                  {c.authType === 'oauth' && (
+                  <div className="connection-actions">
+                    {c.authType === 'oauth' && (
+                      <Button
+                        variant={c.authorized ? 'secondary' : 'primary'}
+                        disabled={busy === c.id}
+                        onClick={() => authorize(c)}
+                      >
+                        <KeyRound size={14} />
+                        {c.authorized ? 'Reauthorize' : 'Authorize'}
+                      </Button>
+                    )}
                     <Button
-                      variant={c.authorized ? 'secondary' : 'primary'}
+                      variant="secondary"
                       disabled={busy === c.id}
-                      onClick={() => authorize(c)}
+                      onClick={() => perform(c.id, () => discover(c.id))}
                     >
-                      <KeyRound size={14} />
-                      {c.authorized ? 'Reauthorize' : 'Authorize'}
+                      {busy === c.id ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}
+                      Discover tools
                     </Button>
-                  )}
-                  <Button
-                    variant="secondary"
-                    disabled={busy === c.id}
-                    onClick={() => perform(c.id, () => discover(c.id))}
-                  >
-                    {busy === c.id ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}
-                    Discover tools
-                  </Button>
-                  <IconButton title={`Edit ${c.name}`} onClick={() => edit('connections', c)}>
-                    <Settings2 size={17} />
-                  </IconButton>
-                  <IconButton
-                    title={`Delete ${c.name}`}
-                    onClick={() => {
-                      if (confirm(`Delete MCP connection “${c.name}”?`))
-                        void act(async () => {
-                          await api(`/connections/${c.id}`, { method: 'DELETE' });
-                          await refresh();
-                        });
-                    }}
-                  >
-                    <Trash2 size={16} />
-                  </IconButton>
-                </div>
-              </article>
-            );
-          })}
+                    <IconButton title={`Edit ${c.name}`} onClick={() => edit('connections', c)}>
+                      <Settings2 size={17} />
+                    </IconButton>
+                    <IconButton
+                      title={`Delete ${c.name}`}
+                      onClick={() => {
+                        if (confirm(`Delete MCP connection “${c.name}”?`))
+                          void act(async () => {
+                            await api(`/connections/${c.id}`, { method: 'DELETE' });
+                            await refresh();
+                          });
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </IconButton>
+                  </div>
+                </article>
+              );
+            })}
         </div>
       )}
       {inspect && (

@@ -78,6 +78,14 @@ export function privateAddress(address: string): boolean {
     (x === 198 && (y === 18 || y === 19))
   );
 }
+/** Hostname of the configured device gateway; its device endpoints are trusted like any listed private host. */
+function gatewayHost() {
+  try {
+    return config.GATEWAY_URL ? new URL(config.GATEWAY_URL).hostname.toLowerCase() : undefined;
+  } catch {
+    return undefined;
+  }
+}
 export async function validateRemoteUrl(value: string) {
   const u = new URL(value);
   const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
@@ -90,7 +98,8 @@ export async function validateRemoteUrl(value: string) {
     config.ALLOW_PRIVATE_URLS === 'true' ||
     config.ALLOWED_PRIVATE_HOSTS.split(',')
       .map((s) => s.trim().toLowerCase())
-      .includes(host)
+      .includes(host) ||
+    gatewayHost() === host
   )
     return;
   const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });

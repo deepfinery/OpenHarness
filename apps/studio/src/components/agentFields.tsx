@@ -13,6 +13,7 @@ import { timestamp, type Data } from '../api';
 import { ErrorNotice, Field } from './ui';
 import { PatternFields } from './editors';
 import { ProviderControl } from './ResourceControls';
+import { SkillPicker } from './SkillsPage';
 
 /** Effort sets the agent's budgets in one move: turns, tokens, time limit and pattern passes. */
 export function applyEffort(agent: Agent, effort: EffortLevel): Partial<Agent> {
@@ -108,6 +109,12 @@ export function AgentFields({
           onChange={(e) => onChange({ systemPrompt: e.target.value })}
         />
       </Field>
+      <SkillPicker
+        data={data}
+        refresh={refresh}
+        value={value.skillIds ?? []}
+        onChange={(skillIds) => onChange({ skillIds })}
+      />
       <div className="form-section">
         <h3>Reasoning pattern</h3>
         <PatternFields

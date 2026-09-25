@@ -205,6 +205,41 @@ function answer(messages, tools) {
       ],
     };
   }
+  // Skills: load the skill named in the request (or the first one), then answer from its instructions.
+  if (
+    String(input).includes('use your skill') &&
+    tools?.some((t) => t.function.name === 'load_skill') &&
+    last?.role !== 'tool'
+  ) {
+    const skill = tools.find((t) => t.function.name === 'load_skill');
+    const names = skill.function.parameters.properties.name.enum;
+    const wanted = names.find((n) => String(input).toLowerCase().includes(n.toLowerCase())) ?? names[0];
+    return {
+      content: '',
+      tool_calls: [
+        {
+          id: randomUUID(),
+          type: 'function',
+          function: { name: 'load_skill', arguments: JSON.stringify({ name: wanted }) },
+        },
+      ],
+    };
+  }
+  // Machine control: call the device's run_command with argv, then report what it returned.
+  if (String(input).includes('run uname on the machine') && tools?.length) {
+    const cmd = tools.find((t) => t.function.description.includes('/ run_command:'));
+    if (cmd)
+      return {
+        content: '',
+        tool_calls: [
+          {
+            id: randomUUID(),
+            type: 'function',
+            function: { name: cmd.function.name, arguments: JSON.stringify({ argv: ['uname', '-a'] }) },
+          },
+        ],
+      };
+  }
   if (String(input).includes('use tool') && tools?.length)
     return {
       content: '',

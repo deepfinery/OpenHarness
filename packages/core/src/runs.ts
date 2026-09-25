@@ -3,7 +3,7 @@ import { collection } from './db.js';
 import { config } from './config.js';
 import { hash, HttpError, safeError } from './security.js';
 import { publish } from './queue.js';
-import type { Agent, KnowledgeDocument, Run, RunInput, Stored, Workflow } from './schema.js';
+import type { Agent, KnowledgeDocument, Run, RunInput, Skill, Stored, Workflow } from './schema.js';
 import { workflowSchema } from './schema.js';
 import { agentWithResources } from './workflow.js';
 import { resumeDecision } from './runtime.js';
@@ -78,9 +78,63 @@ export async function createRun(
       if (!base?.enabled) throw new HttpError(400, 'A required agent is missing or disabled');
       nodeAgents[node.id] = agentWithResources(workflow!, node.id, base);
     }
+  // Skills are snapshotted so editing one never changes a run that was already accepted.
+  const withSkills = async (a: Agent): Promise<Agent> => {
+    if (!a.skillIds?.length) return { ...a, skills: [] };
+    const found = await collection<Stored<Skill>>('skills')
+      .find({ _id: { $in: a.skillIds }, ownerId, enabled: true })
+      .toArray();
+    return {
+      ...a,
+      skills: found.map((s) => ({
+        id: s._id,
+        name: s.name,
+        description: s.description,
+        instructions: s.instructions,
+        enabled: true,
+      })),
+    };
+  };
+  for (const id of Object.keys(nodeAgents)) nodeAgents[id] = await withSkills(nodeAgents[id]);
+  for (const id of Object.keys(agents)) agents[id] = await withSkills(agents[id]);
+  // A chosen machine grants its tools (through its gateway connection) to every agent in the run.
+  let device: Run['device'];
+  if (input.deviceId) {
+    const connection = await collection<{
+      _id: string;
+      name: string;
+      platform?: Run['device'] extends infer D ? (D extends { platform: infer P } ? P : never) : never;
+      tools?: { name: string }[];
+      enabled: boolean;
+    }>('connections').findOne({
+      ownerId,
+      kind: 'device',
+      deviceId: input.deviceId,
+    });
+    if (!connection || !connection.enabled) throw new HttpError(404, 'Machine unavailable');
+    const tools = (connection.tools ?? []).map((t) => t.name);
+    if (!tools.length)
+      throw new HttpError(400, 'The machine has no tools yet; make sure it is online and synced');
+    const attach = (a: Agent): Agent => ({
+      ...a,
+      connections: [
+        ...a.connections.filter((c) => c.connectionId !== connection._id),
+        { connectionId: connection._id, tools },
+      ],
+    });
+    for (const id of Object.keys(nodeAgents)) nodeAgents[id] = attach(nodeAgents[id]);
+    for (const id of Object.keys(agents)) agents[id] = attach(agents[id]);
+    device = {
+      id: input.deviceId,
+      name: connection.name,
+      platform: connection.platform ?? 'linux',
+      connectionId: connection._id,
+    };
+  }
   const now = new Date();
   const { runId, ...attributes } = options;
   const run: Run = {
+    ...(device ? { device } : {}),
     _id: runId ?? randomUUID(),
     ownerId,
     ...input,

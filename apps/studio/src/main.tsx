@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Sparkles,
   X,
+  Laptop,
 } from 'lucide-react';
 import { api, collections, emptyData, errorMessage, send, type Data, type Entity, type User } from './api';
 import { Button, ErrorNotice } from './components/ui';
@@ -28,6 +29,8 @@ import type { Workflow } from '../../../packages/core/src/schema.js';
 import { WorkflowEditor } from './components/WorkflowEditor';
 import { ConnectionsPage, RunsPage, WorkflowsPage } from './components/pages';
 import { KnowledgePage } from './components/KnowledgePage';
+import { MachinesPage } from './components/MachinesPage';
+import { SkillsPage } from './components/SkillsPage';
 import { EmbedChat, Playground, playgroundTargets } from './components/Playground';
 import { IntegrationsPage, SettingsPage } from './components/Settings';
 import './styles.css';
@@ -36,6 +39,8 @@ import './refresh.css';
 const nav = [
   { id: 'workflows', label: 'Workflows', icon: GitBranch },
   { id: 'playground', label: 'Playground', icon: MessageSquare },
+  { id: 'machines', label: 'Machines', icon: Laptop },
+  { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'connections', label: 'MCP connections', icon: Plug },
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
   { id: 'executions', label: 'Executions', icon: Activity },
@@ -190,6 +195,7 @@ function App() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [page, setPage] = useState(location.pathname.split('/')[1] || 'workflows');
   const [target, setTarget] = useState('');
+  const [machine, setMachine] = useState('');
   const [data, setData] = useState<Data>(emptyData);
   const [editor, setEditor] = useState<{ type: string; value?: Entity; draft?: Workflow } | null>(null);
   const [error, setError] = useState('');
@@ -197,12 +203,32 @@ function App() {
   const [healthy, setHealthy] = useState(false);
   const [sidebar, setSidebar] = useState(false);
   const refresh = useCallback(async () => {
-    const values = await Promise.all(collections.map((key) => api<Entity[]>(`/${key}`)));
-    const workspace = await api('/tenant');
+    const [values, workspace, devices] = await Promise.all([
+      Promise.all(collections.map((key) => api<Entity[]>(`/${key}`))),
+      api('/tenant'),
+      // A gateway outage must not take the rest of the studio down with it.
+      api('/devices').catch((e) => ({
+        configured: true,
+        publicUrl: '',
+        machines: [],
+        catalog: {},
+        error: errorMessage(e),
+      })),
+    ]);
     setTenant(workspace);
     setData({
-      ...(Object.fromEntries(collections.map((key, i) => [key, values[i]])) as Omit<Data, 'defaults'>),
+      ...(Object.fromEntries(collections.map((key, i) => [key, values[i]])) as Pick<
+        Data,
+        (typeof collections)[number]
+      >),
       defaults: { providerId: workspace.defaultProviderId ?? '' },
+      machines: devices.machines ?? [],
+      gateway: {
+        configured: Boolean(devices.configured),
+        publicUrl: devices.publicUrl ?? '',
+        catalog: devices.catalog ?? {},
+        error: devices.error,
+      },
     });
   }, []);
   const act = useCallback(async (task: () => Promise<unknown>) => {
@@ -312,7 +338,7 @@ function App() {
         <nav>
           {nav.map((item, i) => (
             <React.Fragment key={item.id}>
-              {i === 5 && <div className="nav-label lower">Workspace</div>}
+              {i === 7 && <div className="nav-label lower">Workspace</div>}
               <button
                 aria-label={item.label}
                 className={page === item.id ? 'active' : ''}
@@ -356,23 +382,40 @@ function App() {
             <span>{tenant.name}</span>
             <ChevronRight size={13} />
             {page === 'playground' ? (
-              // The playground's workflow selector lives here so the chat column starts at the very top.
-              <select
-                className="topbar-select"
-                aria-label="Playground agent or workflow"
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-              >
-                <option value="" disabled>
-                  Choose a workflow
-                </option>
-                {playgroundTargets(data).map((t) => (
-                  <option key={`${t.type}:${t.id}`} value={`${t.type}:${t.id}`}>
-                    {t.name}
-                    {t.type === 'agent' ? ' · saved agent' : ''}
+              // The playground's workflow and machine selectors live here so the chat column starts at the very top.
+              <>
+                <select
+                  className="topbar-select"
+                  aria-label="Playground agent or workflow"
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                >
+                  <option value="" disabled>
+                    Choose a workflow
                   </option>
-                ))}
-              </select>
+                  {playgroundTargets(data).map((t) => (
+                    <option key={`${t.type}:${t.id}`} value={`${t.type}:${t.id}`}>
+                      {t.name}
+                      {t.type === 'agent' ? ' · saved agent' : ''}
+                    </option>
+                  ))}
+                </select>
+                {data.machines.length > 0 && (
+                  <select
+                    className="topbar-select machine-select"
+                    aria-label="Playground machine"
+                    value={machine}
+                    onChange={(e) => setMachine(e.target.value)}
+                  >
+                    <option value="">No machine</option>
+                    {data.machines.map((m) => (
+                      <option key={m.device_id} value={m.device_id} disabled={m.disabled}>
+                        {m.name} · {m.online ? 'online' : 'offline'}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </>
             ) : (
               <strong>{nav.find((n) => n.id === page)?.label ?? 'Workflows'}</strong>
             )}
@@ -393,10 +436,27 @@ function App() {
           </div>
         )}
         {page === 'playground' ? (
-          <Playground key={target} data={data} target={target} onTargetChange={setTarget} />
+          <Playground
+            key={target}
+            data={data}
+            target={target}
+            onTargetChange={setTarget}
+            deviceId={machine}
+            onDeviceChange={setMachine}
+          />
         ) : (
           <main className="page-content">
-            {page === 'connections' ? (
+            {page === 'skills' ? (
+              <SkillsPage data={data} refresh={refresh} act={act} />
+            ) : page === 'machines' ? (
+              <MachinesPage
+                {...props}
+                onUseMachine={(deviceId) => {
+                  setMachine(deviceId);
+                  navigate('playground');
+                }}
+              />
+            ) : page === 'connections' ? (
               <ConnectionsPage {...props} />
             ) : page === 'knowledge' ? (
               <KnowledgePage {...props} />

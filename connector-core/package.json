@@ -1,0 +1,34 @@
+{
+  "name": "@agentic/connector-core",
+  "version": "0.1.0",
+  "description": "Shared library for agentic device connectors and the gateway: WebSocket MCP transports, framing, reconnect, policy and audit.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  }
+}

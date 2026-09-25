@@ -23,10 +23,38 @@ export type User = {
   enabled: boolean;
   tenantId: string;
 };
-export const collections = ['agents', 'workflows', 'providers', 'connections', 'knowledge'] as const;
+export const collections = [
+  'agents',
+  'workflows',
+  'providers',
+  'connections',
+  'knowledge',
+  'skills',
+] as const;
+export type Platform = 'linux' | 'windows' | 'chrome';
+/** A registered machine as reported by the device gateway, plus its mirrored connection. */
+export type Machine = {
+  device_id: string;
+  name: string;
+  platform: Platform;
+  online: boolean;
+  disabled: boolean;
+  hostname: string | null;
+  connector_version: string | null;
+  last_seen: string | null;
+  allowed_tools: string[];
+  tool_count: number | null;
+  connectionId?: string;
+  tools: { name: string; description?: string }[];
+  created_at: string;
+  endpoint: string;
+};
+export type ToolCatalog = Record<Platform, { name: string; description: string; risky?: boolean }[]>;
 export type Data = Record<(typeof collections)[number], Entity[]> & {
   /** Workspace defaults, such as the model provider new agents start with. */
   defaults: { providerId: string };
+  machines: Machine[];
+  gateway: { configured: boolean; publicUrl: string; catalog: Partial<ToolCatalog>; error?: string };
 };
 export const emptyData: Data = {
   agents: [],
@@ -34,7 +62,10 @@ export const emptyData: Data = {
   providers: [],
   connections: [],
   knowledge: [],
+  skills: [],
   defaults: { providerId: '' },
+  machines: [],
+  gateway: { configured: false, publicUrl: '', catalog: {} },
 };
 /** The provider new agents use: the workspace default when it exists, otherwise the first provider. */
 export const defaultProviderId = (data: Data) =>

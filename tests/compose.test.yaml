@@ -1,12 +1,31 @@
 services:
   api:
     environment:
-      ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal
+      ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal,gateway
       SMTP_TRANSPORT: json
   runner:
     environment:
-      ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal
+      ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal,gateway
       SMTP_TRANSPORT: json
+  gateway:
+    environment:
+      GATEWAY_HEARTBEAT_SECONDS: 5
+      GATEWAY_PUBLIC_URL: ws://gateway:8090
+  # A machine with no inbound ports; the integration test starts it after enrolling the device.
+  device:
+    build: { context: ., dockerfile: connector-linux/Dockerfile }
+    image: agentic-connector-linux:local
+    profiles: ['device']
+    environment:
+      GATEWAY_URL: ws://gateway:8090/connect
+      GATEWAY_ALLOW_INSECURE: 'true'
+      DEVICE_ID: ${TEST_DEVICE_ID:-test-box}
+      DEVICE_TOKEN: ${TEST_DEVICE_TOKEN:-unset}
+      ALLOW_COMMANDS: uname,echo,ls,cat
+      LOG_LEVEL: debug
+    restart: 'no'
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
   fixtures:
     image: agentic-orchestration:local
     pull_policy: never

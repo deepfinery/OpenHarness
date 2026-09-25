@@ -24,6 +24,7 @@ import {
   Flag,
   GitBranch,
   GitFork,
+  Laptop,
   LayoutGrid,
   Mail,
   Play,
@@ -439,7 +440,7 @@ export function WorkflowEditor({
               : form.bindings.filter((b) => b.resourceId === n.id).length;
         const detail =
           n.type === 'agent'
-            ? `${data.providers.find((p) => p.id === agent?.providerId)?.model ?? 'Choose a model'} · ${effortLabel(agent?.effort)} effort`
+            ? `${data.providers.find((p) => p.id === agent?.providerId)?.model ?? 'Choose a model'} · ${effortLabel(agent?.effort)} effort${agent?.skillIds?.length ? ` · ${agent.skillIds.length} skill${agent.skillIds.length === 1 ? '' : 's'}` : ''}`
             : n.type === 'start'
               ? form.schedule?.enabled
                 ? describeSchedule(form.schedule)
@@ -783,7 +784,8 @@ export function WorkflowEditor({
     ? `curl -X POST '${publicUrl}/api/runs' \\\n  -H 'Authorization: Bearer YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -H 'Idempotency-Key: unique-request-id' \\\n  -d '{"workflowId": "${value.id}", "input": "Hello"}'`
     : '';
   const read = `# poll until status is succeeded or failed\ncurl '${publicUrl}/api/runs/RUN_ID' -H 'Authorization: Bearer YOUR_API_KEY'\n\n# or stream the trace and answer as they happen\ncurl -N '${publicUrl}/api/runs/RUN_ID/stream' -H 'Authorization: Bearer YOUR_API_KEY'`;
-  const enabledConnections = data.connections.filter((c) => c.enabled);
+  const enabledConnections = data.connections.filter((c) => c.enabled && c.kind !== 'device');
+  const machineConnections = data.connections.filter((c) => c.kind === 'device');
   return (
     <div
       className="workflow-screen harness-editor"
@@ -934,6 +936,25 @@ export function WorkflowEditor({
               <p className="toolbox-empty">No servers connected.</p>
             )}
           </div>
+          {machineConnections.length > 0 && (
+            <div className="toolbox-group">
+              <h4>Machines</h4>
+              {machineConnections.map((c) => {
+                const machine = data.machines.find((m) => m.device_id === c.deviceId);
+                return (
+                  <ToolItem
+                    key={c.id}
+                    className="machine"
+                    payload={{ type: 'mcp', connectionId: c.id }}
+                    label={c.name}
+                    hint={`${c.platform ?? 'machine'} · ${machine?.online ? 'online' : 'offline'} · ${c.tools?.length ?? 0} tools`}
+                    icon={Laptop}
+                    onAdd={() => add({ type: 'mcp', connectionId: c.id })}
+                  />
+                );
+              })}
+            </div>
+          )}
           <div className="toolbox-group">
             <h4>
               Knowledge

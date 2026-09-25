@@ -33,17 +33,19 @@ the item. Responses include a `revision`. Supply `If-Match: <revision>` on PUT
 for optimistic concurrency; a stale version returns 409. The canvas always
 uses this precondition. Legacy resources without revisions use `If-Match: 0`.
 
-| Collection    | Required fields                      | Optional fields                                                                                                                                                                                                                                                                                 |
-| ------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `providers`   | `name`, `kind`, `baseUrl`, `model`   | `apiKey`, `embeddingModel`, `maxOutputTokens`, `contextWindow` (tokens, default 128000; updated automatically from provider limit errors), `outputTokenParameter` (`max_tokens` or `max_completion_tokens`), `streaming` (default `true`)                                                       |
-| `connections` | `name`, `url`                        | `transport` (`http`/`sse`), `authType` (`none`/`token`/`oauth`), `token`, `tokenHeader`, `oauthClientId`, `oauthClientSecret`, `oauthScope`, `enabled`                                                                                                                                          |
-| `agents`      | `name`, `providerId`, `systemPrompt` | `description`, `connections`, `knowledgeBaseIds`, `maxTurns`, `timeoutSeconds`, `tokenBudget`, `pattern`, `patternConfig`, `effort` (`light`/`medium`/`high`/`extra-high`/`max`/`auto`), `enabled`. The studio configures agents inline on workflow cards; this collection remains for API use. |
-| `knowledge`   | `name`, `providerId`                 | `description`                                                                                                                                                                                                                                                                                   |
-| `workflows`   | `name`, `startAt`, `nodes`           | `description`, `enabled`, `schedule`, `resources`, `bindings`, `maxSteps`, `resumePolicy` (`safe`/`always`/`never`)                                                                                                                                                                             |
+| Collection    | Required fields                       | Optional fields                                                                                                                                                                                                                                                                                 |
+| ------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `providers`   | `name`, `kind`, `baseUrl`, `model`    | `apiKey`, `embeddingModel`, `maxOutputTokens`, `contextWindow` (tokens, default 128000; updated automatically from provider limit errors), `outputTokenParameter` (`max_tokens` or `max_completion_tokens`), `streaming` (default `true`)                                                       |
+| `connections` | `name`, `url`                         | `transport` (`http`/`sse`), `authType` (`none`/`token`/`oauth`), `token`, `tokenHeader`, `oauthClientId`, `oauthClientSecret`, `oauthScope`, `enabled`                                                                                                                                          |
+| `agents`      | `name`, `providerId`, `systemPrompt`  | `description`, `connections`, `knowledgeBaseIds`, `maxTurns`, `timeoutSeconds`, `tokenBudget`, `pattern`, `patternConfig`, `effort` (`light`/`medium`/`high`/`extra-high`/`max`/`auto`), `enabled`. The studio configures agents inline on workflow cards; this collection remains for API use. |
+| `knowledge`   | `name`, `providerId`                  | `description`                                                                                                                                                                                                                                                                                   |
+| `skills`      | `name`, `description`, `instructions` | `enabled`. Referenced by agents through `skillIds`; delete fails with 409 while in use.                                                                                                                                                                                                         |
+| `workflows`   | `name`, `startAt`, `nodes`            | `description`, `enabled`, `schedule`, `resources`, `bindings`, `maxSteps`, `resumePolicy` (`safe`/`always`/`never`)                                                                                                                                                                             |
 
 Agent `pattern` is one of `react` (default), `plan-execute`, `reflection`, or `loop`.
 `patternConfig` holds `maxPlanSteps` (1–8), `reflections` (1–3), `iterations` (1–10), and
-`doneMarker`; unused fields are ignored. `effort` selects loop and token budget presets
+`doneMarker`; unused fields are ignored. Agents take `skillIds` (up to 20 workspace skills). The server snapshots them into the run; the model sees their names and descriptions and loads one through the built-in `load_skill` tool (`skill_loaded` trace event). A client-supplied `skills` field is ignored.
+`effort` selects loop and token budget presets
 (light 4 turns/30k tokens, medium 12/120k, high 24/400k, extra-high 36/1M, max 40/5M).
 For a fixed level the stored `maxTurns`, `timeoutSeconds`, `patternConfig` and
 `tokenBudget` (default: the preset) are what the runner enforces; `auto` resolves a
@@ -208,6 +210,25 @@ Authentication, provider tests, retrieval tests, and embeds also have request
 limits. Use 429 responses to back off. External tools can have side effects;
 cancellation stops future/in-flight work where possible but does not undo an
 action already accepted by an external service.
+
+## Machines
+
+Requires a configured gateway (`GATEWAY_URL`, `GATEWAY_API_TOKEN`, `GATEWAY_ADMIN_TOKEN`). Machines are
+scoped to the tenant; each has a mirrored `connections` record with `kind: "device"` that only this API
+manages.
+
+| Method | Path                        | Purpose                                                                                                                            |
+| ------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/devices`                  | `{ configured, publicUrl, machines[], catalog }` — live status from the gateway; tools are discovered when a machine comes online. |
+| POST   | `/devices`                  | Enroll `{ name, platform: linux                                                                                                    | windows | chrome, deviceId?, allowedTools[] }`→`{ machine, token, connectUrl, install }`. The token is shown once. |
+| PUT    | `/devices/:id`              | `{ name?, allowedTools?, disabled? }`; the allow-list is enforced by the gateway.                                                  |
+| POST   | `/devices/:id/rotate-token` | New one-time token; the connector is disconnected until reconfigured.                                                              |
+| POST   | `/devices/sync`             | Re-read the gateway and refresh tool lists.                                                                                        |
+| DELETE | `/devices/:id`              | Remove the machine (409 while a workflow references it).                                                                           |
+
+`POST /runs` and `POST /chat` accept `"deviceId"`: every agent in the run receives the machine's tools and an
+instruction naming it; the run records `device`, and a conversation remembers its machine (send `null` to drop it).
+The wire protocol between connectors and the gateway is in [PROTOCOL.md](PROTOCOL.md).
 
 ## Tenant membership
 

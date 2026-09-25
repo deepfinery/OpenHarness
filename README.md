@@ -11,7 +11,7 @@ A self-hosted studio for AI agents, MCP tools, and knowledge. Build agents from 
 - [Quick start](#quick-start)
 - [What you get](#what-you-get)
 - [Concepts](#concepts): [agents and patterns](#agents-and-agentic-patterns) · [workflows](#workflows) · [runs and conversations](#runs-conversations-and-traces)
-- [Guides](#guides): [model provider](#1-connect-a-model-provider) · [MCP tools](#2-connect-mcp-tools) · [agents](#3-configure-an-agent) · [workflows](#4-start-a-workflow-from-a-template) · [knowledge](#5-knowledge-bases) · [email](#6-outgoing-email) · [schedules](#7-run-it-on-a-schedule) · [API, webhooks, embeds](#8-use-it-from-outside-the-studio)
+- [Guides](#guides): [model provider](#1-connect-a-model-provider) · [MCP tools](#2-connect-mcp-tools) · [agents](#3-configure-an-agent) · [workflows](#4-start-a-workflow-from-a-template) · [knowledge](#5-knowledge-bases) · [email](#6-outgoing-email) · [skills](#7-give-agents-skills) · [machines](#7b-operate-a-machine) · [schedules](#8-run-it-on-a-schedule) · [API, webhooks, embeds](#9-use-it-from-outside-the-studio)
 - [Architecture](#architecture): [components](#components) · [run lifecycle](#run-lifecycle) · [run states](#run-states) · [resilience and idempotency](#resilience-idempotency-and-resume) · [design principles](#design-principles) · [in context](#agentic-architecture-in-context)
 - [Configuration](#configuration) · [Operations and limits](#operations-and-limits) · [Upgrade](#upgrade)
 - [Development and verification](#development-and-verification) · [License](#license)
@@ -37,19 +37,21 @@ Allow about 4 GB of memory for the stack, plus whatever your locally hosted mode
 
 ## What you get
 
-| Area                | What is included                                                                                                                                                                                                                                                                                                        |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Agents**          | Agents live on the workflow canvas as cards: instructions, model, an effort level (light, medium, high, extra high, max or auto) that sets loop and token budgets, one of four agentic patterns (ReAct, plan-and-execute, reflection, autonomous loop), seven templates, explicit tool permissions, knowledge bindings. |
-| **Workflows**       | Visual designer with a thin toolbox that lists your MCP servers and knowledge bases, drag-and-drop onto the canvas or straight onto an agent, settings in popups instead of a side panel, conditions, parallel agent groups, explicit MCP actions, Email steps, bounded cycles, undo/redo, YAML view.                   |
-| **Runner**          | Durable RabbitMQ jobs, immutable execution snapshots, per-step checkpoints, automatic resume on a replacement runner under a per-workflow policy, idempotency keys on every tool call, context-window compaction with automatic recovery from provider limit errors, cancellation.                                      |
-| **Schedules**       | Run a workflow every N minutes, hourly, daily or weekly at a wall-clock time in your time zone; deduplicated so a restart never double-fires.                                                                                                                                                                           |
-| **Playground**      | The workflow selector sits in the top bar; saved conversations per workflow, token-by-token streaming, live execution trace and a run-history tab side by side.                                                                                                                                                         |
-| **MCP connector**   | Streamable HTTP or legacy SSE; no auth, API key, or OAuth with PKCE, dynamic registration or a pre-registered client ID (for servers such as Finnhub); discovered tools shown on the connection card with their schemas; every call validated against the schema before it is sent.                                     |
-| **Model providers** | Guided setup for OpenAI, Anthropic, Gemini, Ollama, or any OpenAI-compatible server; a workspace default provider that new agents start with; separate chat and embedding models; a connection test that reports the provider's exact error before you save.                                                            |
-| **Knowledge bases** | A notebook view: write Markdown notes in place (indexed on every save) or upload TXT, Markdown, CSV, JSON, YAML, text PDF and DOCX; background indexing, Weaviate hybrid search, cited passages in the prompt, an **Ask** dialog that shows the exact passages an agent would get.                                      |
-| **Outgoing email**  | Workspace SMTP settings (Amazon SES, Google Workspace, SendGrid, Mailgun, Postmark or any relay), `.env` defaults, a test send, and an Email workflow step.                                                                                                                                                             |
-| **Workspaces**      | Local accounts, administrator-managed teammates, shared resources and run history per tenant, tenant isolation, edit-conflict detection.                                                                                                                                                                                |
-| **Integrations**    | Target-scoped API keys, conversational API, server-sent event stream per run, authenticated JSON webhooks, revocable iframe embeds with allowed origins.                                                                                                                                                                |
+| Area                | What is included                                                                                                                                                                                                                                                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Agents**          | Agents live on the workflow canvas as cards: instructions, model, an effort level (light, medium, high, extra high, max or auto) that sets loop and token budgets, one of four agentic patterns (ReAct, plan-and-execute, reflection, autonomous loop), seven templates, explicit tool permissions, knowledge bindings.              |
+| **Workflows**       | Visual designer with a thin toolbox that lists your MCP servers and knowledge bases, drag-and-drop onto the canvas or straight onto an agent, settings in popups instead of a side panel, conditions, parallel agent groups, explicit MCP actions, Email steps, bounded cycles, undo/redo, YAML view.                                |
+| **Runner**          | Durable RabbitMQ jobs, immutable execution snapshots, per-step checkpoints, automatic resume on a replacement runner under a per-workflow policy, idempotency keys on every tool call, context-window compaction with automatic recovery from provider limit errors, cancellation.                                                   |
+| **Schedules**       | Run a workflow every N minutes, hourly, daily or weekly at a wall-clock time in your time zone; deduplicated so a restart never double-fires.                                                                                                                                                                                        |
+| **Skills**          | A workspace library of skills — a name, a one-line “when to use it”, and full instructions. Give an agent several; it sees only the descriptions, loads the matching skill with a built-in `load_skill` tool, and follows it. Skills are snapshotted per run and each load appears in the trace.                                     |
+| **Machines**        | Register Linux hosts, containers, Windows machines and Chrome browsers that have no public IP: each runs a connector that dials out to the bundled gateway. Pick a machine in the playground and the workflow's agents get its tools (`run_command`, files, processes …) with per-machine allow-lists, audit and optional approvals. |
+| **Playground**      | The workflow selector sits in the top bar; saved conversations per workflow, token-by-token streaming, live execution trace and a run-history tab side by side.                                                                                                                                                                      |
+| **MCP connector**   | Streamable HTTP or legacy SSE; no auth, API key, or OAuth with PKCE, dynamic registration or a pre-registered client ID (for servers such as Finnhub); discovered tools shown on the connection card with their schemas; every call validated against the schema before it is sent.                                                  |
+| **Model providers** | Guided setup for OpenAI, Anthropic, Gemini, Ollama, or any OpenAI-compatible server; a workspace default provider that new agents start with; separate chat and embedding models; a connection test that reports the provider's exact error before you save.                                                                         |
+| **Knowledge bases** | A notebook view: write Markdown notes in place (indexed on every save) or upload TXT, Markdown, CSV, JSON, YAML, text PDF and DOCX; background indexing, Weaviate hybrid search, cited passages in the prompt, an **Ask** dialog that shows the exact passages an agent would get.                                                   |
+| **Outgoing email**  | Workspace SMTP settings (Amazon SES, Google Workspace, SendGrid, Mailgun, Postmark or any relay), `.env` defaults, a test send, and an Email workflow step.                                                                                                                                                                          |
+| **Workspaces**      | Local accounts, administrator-managed teammates, shared resources and run history per tenant, tenant isolation, edit-conflict detection.                                                                                                                                                                                             |
+| **Integrations**    | Target-scoped API keys, conversational API, server-sent event stream per run, authenticated JSON webhooks, revocable iframe embeds with allowed origins.                                                                                                                                                                             |
 
 Deliberately not included: provider-specific tool catalogs, external account login, website builders, business wizards, reports, CRM, product catalogs, billing, or customer portals.
 
@@ -178,11 +180,33 @@ On the canvas, drag the knowledge base from the toolbox onto an agent to give it
 
 Email is sent by the **Email** workflow step. Recipients, subject and body are templates (`{{last}}`, `{{steps.analyst}}`, `{{payload.email}}`). Because sending is an external side effect, a run that crashes inside an Email step is not replayed under the default resume policy.
 
-### 7. Run it on a schedule
+### 7. Give agents skills
+
+**Skills → New skill**: name it, write one line saying _when_ it applies (“Use when someone reports an outage or error spike”), and the instructions to follow — steps, checklists, output formats, examples. In any agent's settings, **Skills** lists the library; tick as many as the agent should have, or create one in place.
+
+At run time the agent's system prompt lists only each skill's name and description, and the agent gets a built-in `load_skill` tool. When a request matches, the model loads that skill's full instructions and follows them; when nothing matches, no skill is loaded. This keeps prompts short with many skills attached. Each load is recorded as a `skill_loaded` trace event, skills are snapshotted when the run is accepted (editing one never changes a run in flight), disabled skills are not offered, and a skill cannot be deleted while an agent uses it.
+
+### 7b. Operate a machine
+
+**Machines → Add machine** registers a Linux host, a container, a Windows machine or a Chrome browser.
+Choose the tools the agent may use (deny by default; tools that change state are marked **acts**), click
+**Create token**, and paste the shown install command on the machine — a systemd service, a `docker run`, or
+the Windows/Chrome connector. The machine dials **out** to the gateway (`GATEWAY_PUBLIC_URL`), so it needs no
+public IP; the dialog turns green when it connects.
+
+Then, in the **Playground**, pick a workflow and a machine in the top bar. Every agent in the run receives
+the machine's tools and an instruction naming it, and each command and result shows up in the trace. Machines
+also appear in the designer toolbox under **Machines** for workflows that should always use a specific one,
+and the API takes `"deviceId"` on `/api/runs` and `/api/chat`.
+
+Details, hardening and troubleshooting: [INSTALL.md](docs/INSTALL.md), [SECURITY.md](docs/SECURITY.md),
+[ARCHITECTURE.md](docs/ARCHITECTURE.md), [PROTOCOL.md](docs/PROTOCOL.md).
+
+### 8. Run it on a schedule
 
 **Settings** in the workflow header → **Run on a schedule**. Choose every minute, every 5/15/30 minutes, hourly, every 6 hours, **every day at a time**, **every week on a weekday at a time**, or a custom interval in minutes. Daily and weekly schedules use the time zone of your browser (changeable), including daylight-saving changes. Set the message the workflow receives; the next run time is shown once saved. Scheduled runs appear in **Executions** with trigger `schedule` and are deduplicated per slot, so an API restart never fires the same slot twice.
 
-### 8. Use it from outside the studio
+### 9. Use it from outside the studio
 
 **Use in your app** in the workflow header shows the exact calls for that workflow. Create an API key in **Integrations** for the workflow, then:
 
@@ -252,13 +276,16 @@ flowchart LR
   API -. test email .-> SMTP
 ```
 
-| Path            | Purpose                                                                                                                        |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `apps/api`      | Local authentication, resource APIs, integrations, email settings, scheduler, queue dispatcher, SSE streams, static UI hosting |
-| `apps/runner`   | RabbitMQ consumer, run leases and checkpoints, agent patterns, streaming, document ingestion and deletion                      |
-| `apps/studio`   | React studio: canvas, playground, knowledge, connections, settings                                                             |
-| `packages/core` | Shared schemas, agent runtime, provider adapters, MCP/OAuth, email, storage, retrieval, queue                                  |
-| `tests`         | Unit, real-stack integration, fault-injection, and browser tests with test-only provider/MCP fixtures                          |
+| Path              | Purpose                                                                                                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `apps/api`        | Local authentication, resource APIs, integrations, email settings, scheduler, queue dispatcher, SSE streams, static UI hosting                                                 |
+| `gateway`         | Device gateway: machines dial in over WebSocket; the orchestrator reaches each as a Streamable HTTP MCP server (`/mcp/{device}`), plus registry, allow-lists, audit, approvals |
+| `connector-core`  | Shared connector library: WebSocket MCP transports, framing, reconnect/resume, local policy (command allow-list, path jail, caps), audit                                       |
+| `connector-linux` | The Linux/container connector: MCP server with `run_command`, file, search, system and process tools; systemd unit, install script, Docker image                               |
+| `apps/runner`     | RabbitMQ consumer, run leases and checkpoints, agent patterns, streaming, document ingestion and deletion                                                                      |
+| `apps/studio`     | React studio: canvas, playground, knowledge, connections, settings                                                                                                             |
+| `packages/core`   | Shared schemas, agent runtime, provider adapters, MCP/OAuth, email, storage, retrieval, queue                                                                                  |
+| `tests`           | Unit, real-stack integration, fault-injection, and browser tests with test-only provider/MCP fixtures                                                                          |
 
 The dotted edges are administrative, not execution: the API calls a model provider directly only to verify credentials, calls an MCP server directly only to list its tools, calls Weaviate directly only for the Knowledge Base's retrieval test, and the SMTP relay only for the test email. Every agent turn, workflow step, email send, and document ingestion runs in the runner, reached only through RabbitMQ.
 

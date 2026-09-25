@@ -165,6 +165,7 @@ export function defaultAgent(data: Data): Agent {
       'Handle the user’s request using your attached tools and knowledge. Check results, cite sources, and be clear about uncertainty.',
     connections: [],
     knowledgeBaseIds: [],
+    skillIds: [],
     enabled: true,
     maxTurns: preset.maxTurns,
     timeoutSeconds: preset.timeoutSeconds,

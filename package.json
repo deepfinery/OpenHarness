@@ -18,6 +18,10 @@
     "test": "node --import tsx --test tests/unit/*.test.ts",
     "test:integration": "node --import tsx --test --test-concurrency=1 tests/integration/*.test.ts",
     "test:browser": "playwright test",
+    "devices:install": "npm --prefix connector-core ci && npm --prefix connector-linux ci && npm --prefix gateway ci",
+    "devices:build": "npm --prefix connector-core run build && npm --prefix connector-linux run build && npm --prefix gateway run build",
+    "devices:typecheck": "npm --prefix connector-core run typecheck && npm --prefix connector-linux run typecheck && npm --prefix gateway run typecheck",
+    "devices:test": "npm --prefix connector-core test && npm --prefix connector-linux test && npm --prefix gateway test",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

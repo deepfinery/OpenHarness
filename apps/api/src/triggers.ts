@@ -152,6 +152,11 @@ conversationApi.post('/chat', async (req, res) => {
       conversationId: id.optional(),
       agentId: id.optional(),
       workflowId: id.optional(),
+      deviceId: z
+        .string()
+        .regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
+        .nullable()
+        .optional(),
       message: z.string().min(1).max(32000),
     })
     .parse(req.body);
@@ -181,6 +186,7 @@ conversationApi.post('/chat', async (req, res) => {
       ownerId,
       actor,
       ...target,
+      ...(body.deviceId ? { deviceId: body.deviceId } : {}),
       messages: [],
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -198,9 +204,14 @@ conversationApi.post('/chat', async (req, res) => {
       );
   }
   const runId = randomUUID();
+  // The machine sticks to the conversation; a turn may switch it (or drop it with null).
+  const deviceId = body.deviceId === undefined ? conversation.deviceId : (body.deviceId ?? undefined);
   const reserved = await conversations.findOneAndUpdate(
     { _id: conversation._id, ownerId, actor, pending: { $exists: false } },
-    { $set: { pending: { runId, since: new Date() } } },
+    {
+      $set: { pending: { runId, since: new Date() }, ...(deviceId ? { deviceId } : {}) },
+      ...(deviceId ? {} : { $unset: { deviceId: '' } }),
+    },
     { returnDocument: 'after' },
   );
   if (!reserved) throw new HttpError(409, 'Wait for the current conversation turn to finish');
@@ -212,6 +223,7 @@ conversationApi.post('/chat', async (req, res) => {
         workflowId: reserved.workflowId,
         input: body.message,
         history: reserved.messages,
+        ...(deviceId ? { deviceId } : {}),
       },
       {
         runId,
@@ -251,6 +263,7 @@ conversationApi.get('/conversations', async (req, res) => {
       updatedAt: c.updatedAt,
       createdAt: c.createdAt,
       activeRunId: c.pending?.runId,
+      deviceId: c.deviceId,
     })),
   );
 });
@@ -285,5 +298,6 @@ conversationApi.get('/conversations/:id', async (req, res) => {
     workflowId: c.workflowId,
     messages: c.messages,
     activeRunId: c.pending?.runId,
+    deviceId: c.deviceId,
   });
 });
