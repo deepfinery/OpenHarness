@@ -19,7 +19,7 @@ jobs:
       - run: npm run devices:install
       - run: npm run devices:typecheck
       - run: npm run devices:test
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: BROWSER_TESTS=1 ./scripts/test-stack.sh
       - uses: actions/upload-artifact@v4
         if: always()

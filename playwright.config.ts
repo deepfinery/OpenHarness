@@ -14,6 +14,11 @@ export default defineConfig({
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
       : undefined,
   },
+  projects: [
+    { name: 'chromium' },
+    // Safari handles dragging differently, so the editor's drag and drop is also checked in WebKit.
+    { name: 'webkit', use: { browserName: 'webkit' }, testMatch: /toolbox-drag\.spec\.ts/ },
+  ],
   reporter: [['list']],
   outputDir: 'test-results/browser',
 });

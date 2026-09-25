@@ -137,6 +137,41 @@ td {
 .tool-item:active {
   cursor: grabbing;
 }
+/* Toolbox items are dragged with pointer events, so touch must not scroll the panel instead. */
+.tool-item {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.dragging-tool,
+body.dragging-tool * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.drag-ghost {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  display: grid;
+  gap: 2px;
+  padding: 7px 11px;
+  border: 1px solid var(--blue);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgb(16 32 56 / 18%);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.drag-ghost small {
+  font-weight: 400;
+  color: var(--muted, #5b6b7f);
+}
+.flow-canvas.drop-active {
+  outline: 2px dashed var(--blue);
+  outline-offset: -4px;
+}
 .tool-item .node-icon {
   width: 28px;
   height: 28px;
