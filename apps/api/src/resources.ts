@@ -19,6 +19,7 @@ import { discoverTools, startOAuth } from '../../../packages/core/src/mcp.js';
 import { chat, embed, ownedProvider } from '../../../packages/core/src/llm.js';
 import { dropKnowledgeIndex, searchKnowledge } from '../../../packages/core/src/knowledge.js';
 import { configuredVectorStores } from '../../../packages/core/src/vectorstores/index.js';
+import { createNote, noteFilename } from '../../../packages/core/src/workspace.js';
 import {
   filePath,
   readStoredFile,
@@ -76,6 +77,7 @@ export async function validateReferences(kind: string, ownerId: string, body: an
       throw new HttpError(400, 'This knowledge base needs a provider with a supported embedding model');
   }
   if (kind === 'workflows') {
+    if (body.workspace) await assertOwned('knowledge', ownerId, body.workspace.knowledgeBaseId);
     for (const resource of body.resources ?? []) {
       if (resource.type === 'knowledge') await assertOwned('knowledge', ownerId, resource.knowledgeBaseId);
       else {
@@ -410,47 +412,20 @@ resources.post('/knowledge/:id/documents', upload.single('file'), async (req, re
 });
 // Notes: text written in the studio, stored like any other document and re-indexed on every save.
 const noteBody = z.object({ title: z.string().trim().min(1).max(150), content: z.string().max(2_000_000) });
-const noteFilename = (title: string) =>
-  `${
-    title
-      .replace(/\.md$/i, '')
-      .replace(/[\\/:*?"<>|\r\n\0]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 140) || 'Note'
-  }.md`;
 const textDocument = (filename: string) => /\.(txt|md|csv|json|yaml|yml)$/i.test(filename);
 resources.post('/knowledge/:id/notes', async (req, res) => {
   const ownerId = req.principal!.tenantId;
   const knowledgeBaseId = String(req.params.id);
   await assertOwned('knowledge', ownerId, knowledgeBaseId);
-  const body = noteBody.parse(req.body);
-  const _id = randomUUID();
-  const storageKey = `${ownerId}/${_id}`;
-  const buffer = Buffer.from(body.content, 'utf8');
-  const now = new Date();
-  await saveFile(storageKey, buffer);
-  const doc: KnowledgeDocument = {
-    _id,
-    ownerId,
-    knowledgeBaseId,
-    filename: noteFilename(body.title),
-    storageKey,
-    size: buffer.length,
+  const body = noteBody.extend({ folder: z.string().max(80).optional() }).parse(req.body);
+  const doc = await createNote(ownerId, knowledgeBaseId, body);
+  res.status(202).json({
+    id: doc._id,
+    filename: doc.filename,
+    status: doc.status,
     kind: 'note',
-    // An empty note has nothing to index yet; it becomes searchable on its first real save.
-    status: body.content.trim() ? 'queued' : 'ready',
-    ...(body.content.trim() ? {} : { chunks: 0 }),
-    createdAt: now,
-    updatedAt: now,
-  };
-  try {
-    await collection<KnowledgeDocument>('documents').insertOne(doc);
-  } catch (e) {
-    await removeFile(storageKey);
-    throw e;
-  }
-  res.status(202).json({ id: _id, filename: doc.filename, status: doc.status, kind: 'note' });
+    ...(doc.folder ? { folder: doc.folder } : {}),
+  });
 });
 resources.get('/documents/:id/content', async (req, res) => {
   const doc = await collection<KnowledgeDocument>('documents').findOne({

@@ -91,17 +91,22 @@ export async function searchKnowledge(
   knowledgeBaseId: string,
   query: string,
   signal?: AbortSignal,
+  options: { folder?: string } = {},
 ): Promise<KnowledgeChunk[]> {
   const kb = await collection<Stored<KnowledgeBase>>('knowledge').findOne({ _id: knowledgeBaseId, ownerId });
   if (!kb) throw new Error('Knowledge base not found');
-  const ready = await collection<KnowledgeDocument>('documents')
-    .find({ knowledgeBaseId, ownerId, status: 'ready' }, { projection: { _id: 1 } })
-    .toArray();
+  const folder = options.folder;
+  const ready = (
+    await collection<KnowledgeDocument>('documents')
+      .find({ knowledgeBaseId, ownerId, status: 'ready' }, { projection: { _id: 1, folder: 1 } })
+      .toArray()
+  ).filter((d) => !folder || d.folder === folder || d.folder?.startsWith(`${folder}/`));
   if (!ready.length) return [];
   const vector = await embed(await ownedProvider(ownerId, kb.providerId), query, signal);
   const hits = await storeFor(kb).search(
     knowledgeClass(kb._id),
-    { ownerId, vector, text: query, limit: 8 },
+    // A folder filter is applied after the store's ranking, so ask for more candidates.
+    { ownerId, vector, text: query, limit: folder ? 40 : 8 },
     signal,
   );
   const allowed = new Set(ready.map((d) => d._id));

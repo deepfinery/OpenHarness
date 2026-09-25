@@ -1573,6 +1573,54 @@ export function WorkflowEditor({
             </label>
             <div className="form-section">
               <h3>
+                <BookOpen size={16} /> Knowledge workspace
+              </h3>
+              <Field
+                label="Workspace"
+                hint="Agents search it, read only what they need, and record findings, decisions and feedback there."
+              >
+                <select
+                  aria-label="Knowledge workspace"
+                  value={form.workspace?.knowledgeBaseId ?? ''}
+                  onChange={(e) =>
+                    change({
+                      ...form,
+                      workspace: e.target.value
+                        ? {
+                            knowledgeBaseId: e.target.value,
+                            offloadToolResults: form.workspace?.offloadToolResults ?? true,
+                          }
+                        : undefined,
+                    })
+                  }
+                >
+                  <option value="">No workspace</option>
+                  {data.knowledge.map((k) => (
+                    <option key={k.id} value={k.id}>
+                      {k.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {form.workspace && (
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    aria-label="Offload large tool results"
+                    checked={form.workspace.offloadToolResults !== false}
+                    onChange={(e) =>
+                      change({
+                        ...form,
+                        workspace: { ...form.workspace!, offloadToolResults: e.target.checked },
+                      })
+                    }
+                  />
+                  Save large tool results as notes and keep only a summary in the agent’s context
+                </label>
+              )}
+            </div>
+            <div className="form-section">
+              <h3>
                 <Clock3 size={16} /> Schedule
               </h3>
               <ScheduleFields
