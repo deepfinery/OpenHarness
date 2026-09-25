@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Background,
+  BackgroundVariant,
   ConnectionMode,
   Controls,
   Handle,
@@ -255,7 +256,15 @@ function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
   );
 }
 const nodeTypes = { studio: GraphCard };
-const newId = (type: string) => `${type}_${crypto.randomUUID().slice(0, 8)}`;
+/**
+ * Card ids. crypto.randomUUID exists only in secure contexts (HTTPS or localhost), and the studio is often opened
+ * over plain HTTP on a LAN address, so ids come from getRandomValues, which is available everywhere.
+ */
+const newId = (type: string) => {
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  return `${type}_${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+};
 /** When the last toolbox drag ended, so the click that can follow a release is not taken as "add". */
 let lastDragEnd = 0;
 
@@ -1176,7 +1185,20 @@ export function WorkflowEditor({
               deleteKeyCode={null}
               proOptions={{ hideAttribution: false }}
             >
-              <Background color="#d3dce6" gap={24} size={1} />
+              <Background
+                id="grid-minor"
+                variant={BackgroundVariant.Lines}
+                gap={24}
+                lineWidth={1}
+                color="#e3e9f0"
+              />
+              <Background
+                id="grid-major"
+                variant={BackgroundVariant.Lines}
+                gap={120}
+                lineWidth={1}
+                color="#cfd9e4"
+              />
               <Controls showInteractive={false} />
               <MiniMap
                 nodeColor={(n) =>
