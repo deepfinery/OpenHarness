@@ -1,12 +1,11 @@
-// Device registry. SQLite through Node's built-in module by default; the interface leaves room for Postgres.
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+// Storage contracts for the gateway. Everything the gateway persists goes through these two interfaces, so
+// swapping MongoDB for another database (for example PostgreSQL) means adding one implementation of each.
 import type { Platform } from '@agentic/connector-core';
 
 export type DeviceRecord = {
   device_id: string;
   name: string;
+  /** argon2id hash of the device token; the token itself is never stored. */
   token_hash: string;
   platform: Platform;
   allowed_tools: string[];
@@ -15,126 +14,108 @@ export type DeviceRecord = {
   last_seen?: string;
   disabled: boolean;
 };
+export type DevicePatch = Partial<
+  Pick<DeviceRecord, 'name' | 'token_hash' | 'allowed_tools' | 'disabled' | 'owner'>
+>;
 export interface Registry {
   get(deviceId: string): Promise<DeviceRecord | undefined>;
   list(owner?: string): Promise<DeviceRecord[]>;
+  /** Fails with DuplicateDeviceError when the id exists. */
   create(record: DeviceRecord): Promise<void>;
-  update(
-    deviceId: string,
-    patch: Partial<Pick<DeviceRecord, 'name' | 'token_hash' | 'allowed_tools' | 'disabled' | 'owner'>>,
-  ): Promise<boolean>;
+  update(deviceId: string, patch: DevicePatch): Promise<boolean>;
   touch(deviceId: string, when: Date): Promise<void>;
   delete(deviceId: string): Promise<boolean>;
   ping(): Promise<void>;
-  close(): void;
+  close(): Promise<void>;
 }
-type Row = {
+/** One persisted tool call (see audit.ts). Stores keep what they are given; redaction happens before. */
+export type StoredAuditRecord = {
+  ts: Date;
+  identity: string;
   device_id: string;
-  name: string;
-  token_hash: string;
-  platform: string;
-  allowed_tools: string;
-  owner: string;
-  created_at: string;
-  last_seen: string | null;
-  disabled: number;
+  tool: string;
+  arguments: unknown;
+  duration_ms: number;
+  outcome: string;
+  error?: string;
 };
-const fromRow = (r: Row): DeviceRecord => ({
-  device_id: r.device_id,
-  name: r.name,
-  token_hash: r.token_hash,
-  platform: r.platform as Platform,
-  allowed_tools: JSON.parse(r.allowed_tools) as string[],
-  owner: r.owner,
-  created_at: r.created_at,
-  last_seen: r.last_seen ?? undefined,
-  disabled: r.disabled === 1,
-});
-export class SqliteRegistry implements Registry {
-  private db: DatabaseSync;
-  constructor(dataDir: string, file = 'gateway.sqlite') {
-    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-    this.db = new DatabaseSync(file === ':memory:' ? ':memory:' : join(dataDir, file));
-    this.db.exec(`
-      PRAGMA journal_mode = WAL;
-      CREATE TABLE IF NOT EXISTS devices (
-        device_id TEXT PRIMARY KEY,
-        name TEXT NOT NULL DEFAULT '',
-        token_hash TEXT NOT NULL,
-        platform TEXT NOT NULL,
-        allowed_tools TEXT NOT NULL DEFAULT '[]',
-        owner TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL,
-        last_seen TEXT,
-        disabled INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE INDEX IF NOT EXISTS devices_owner ON devices(owner);
-    `);
+export interface AuditStore {
+  insert(record: StoredAuditRecord): Promise<void>;
+  recent(filter: { device_id?: string; limit?: number }): Promise<StoredAuditRecord[]>;
+}
+export class DuplicateDeviceError extends Error {
+  constructor(deviceId: string) {
+    super(`device ${deviceId} already exists`);
   }
+}
+export type Storage = { registry: Registry; audit: AuditStore; close(): Promise<void> };
+
+/** In-process storage for tests and throwaway runs. Nothing survives a restart. */
+export class MemoryRegistry implements Registry {
+  private devices = new Map<string, DeviceRecord>();
   async get(deviceId: string) {
-    const row = this.db.prepare('SELECT * FROM devices WHERE device_id = ?').get(deviceId) as Row | undefined;
-    return row ? fromRow(row) : undefined;
+    const d = this.devices.get(deviceId);
+    return d ? structuredClone(d) : undefined;
   }
   async list(owner?: string) {
-    const rows = (
-      owner === undefined
-        ? this.db.prepare('SELECT * FROM devices ORDER BY created_at').all()
-        : this.db.prepare('SELECT * FROM devices WHERE owner = ? ORDER BY created_at').all(owner)
-    ) as Row[];
-    return rows.map(fromRow);
+    return [...this.devices.values()]
+      .filter((d) => owner === undefined || d.owner === owner)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .map((d) => structuredClone(d));
   }
   async create(record: DeviceRecord) {
-    this.db
-      .prepare(
-        'INSERT INTO devices (device_id, name, token_hash, platform, allowed_tools, owner, created_at, last_seen, disabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      )
-      .run(
-        record.device_id,
-        record.name,
-        record.token_hash,
-        record.platform,
-        JSON.stringify(record.allowed_tools),
-        record.owner,
-        record.created_at,
-        record.last_seen ?? null,
-        record.disabled ? 1 : 0,
-      );
+    if (this.devices.has(record.device_id)) throw new DuplicateDeviceError(record.device_id);
+    this.devices.set(record.device_id, structuredClone(record));
   }
-  async update(
-    deviceId: string,
-    patch: Partial<Pick<DeviceRecord, 'name' | 'token_hash' | 'allowed_tools' | 'disabled' | 'owner'>>,
-  ) {
-    const sets: string[] = [];
-    const values: (string | number)[] = [];
-    if (patch.name !== undefined) (sets.push('name = ?'), values.push(patch.name));
-    if (patch.token_hash !== undefined) (sets.push('token_hash = ?'), values.push(patch.token_hash));
-    if (patch.allowed_tools !== undefined)
-      (sets.push('allowed_tools = ?'), values.push(JSON.stringify(patch.allowed_tools)));
-    if (patch.disabled !== undefined) (sets.push('disabled = ?'), values.push(patch.disabled ? 1 : 0));
-    if (patch.owner !== undefined) (sets.push('owner = ?'), values.push(patch.owner));
-    if (!sets.length) return Boolean(await this.get(deviceId));
-    const result = this.db
-      .prepare(`UPDATE devices SET ${sets.join(', ')} WHERE device_id = ?`)
-      .run(...values, deviceId);
-    return Number(result.changes) > 0;
+  async update(deviceId: string, patch: DevicePatch) {
+    const d = this.devices.get(deviceId);
+    if (!d) return false;
+    Object.assign(d, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)));
+    return true;
   }
   async touch(deviceId: string, when: Date) {
-    this.db.prepare('UPDATE devices SET last_seen = ? WHERE device_id = ?').run(when.toISOString(), deviceId);
+    const d = this.devices.get(deviceId);
+    if (d) d.last_seen = when.toISOString();
   }
   async delete(deviceId: string) {
-    return Number(this.db.prepare('DELETE FROM devices WHERE device_id = ?').run(deviceId).changes) > 0;
+    return this.devices.delete(deviceId);
   }
-  async ping() {
-    this.db.prepare('SELECT 1').get();
+  async ping() {}
+  async close() {}
+}
+export class MemoryAuditStore implements AuditStore {
+  records: StoredAuditRecord[] = [];
+  async insert(record: StoredAuditRecord) {
+    this.records.push(record);
+    if (this.records.length > 10_000) this.records.shift();
   }
-  close() {
-    this.db.close();
+  async recent({ device_id, limit = 100 }: { device_id?: string; limit?: number }) {
+    return this.records
+      .filter((r) => !device_id || r.device_id === device_id)
+      .slice(-limit)
+      .reverse();
   }
 }
-export function createRegistry(config: { GATEWAY_DATA_DIR: string; DATABASE_URL?: string }): Registry {
-  if (config.DATABASE_URL)
+export const memoryStorage = (): Storage => ({
+  registry: new MemoryRegistry(),
+  audit: new MemoryAuditStore(),
+  close: async () => {},
+});
+
+/** Picks the configured backend. MongoDB is the only persistent one today. */
+export async function createStorage(config: {
+  GATEWAY_MONGODB_URI?: string;
+  GATEWAY_MONGODB_DATABASE: string;
+  GATEWAY_AUDIT_RETENTION_DAYS: number;
+}): Promise<Storage> {
+  if (!config.GATEWAY_MONGODB_URI)
     throw new Error(
-      'DATABASE_URL is set, but the Postgres registry is not available in this build; unset it to use SQLite',
+      'GATEWAY_MONGODB_URI is required: the gateway stores its device registry and audit trail in MongoDB',
     );
-  return new SqliteRegistry(config.GATEWAY_DATA_DIR);
+  const { connectMongoStorage } = await import('./mongoStorage.js');
+  return connectMongoStorage(
+    config.GATEWAY_MONGODB_URI,
+    config.GATEWAY_MONGODB_DATABASE,
+    config.GATEWAY_AUDIT_RETENTION_DAYS,
+  );
 }

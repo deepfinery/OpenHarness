@@ -109,6 +109,25 @@ Model responses stream by default; the runner buffers deltas into the run's
 `partial` field a few times a second and clears it when the answer is final. The
 API exposes the run through `GET /runs/:id/stream` as server-sent events.
 
+## Storage and portability
+
+MongoDB is the only database. The orchestrator uses the `agentic` database (`MONGODB_DATABASE`); the device
+gateway uses its own `agentic_gateway` database on the same server. Weaviate holds knowledge vectors and
+RabbitMQ holds queue messages, but neither is a system of record: runs, documents and settings live in MongoDB.
+
+Moving to PostgreSQL later:
+
+- **Gateway** — already behind two interfaces (`Registry`, `AuditStore` in `gateway/src/registry.ts`). A
+  PostgreSQL port is one new file implementing them plus a switch in `createStorage`; the tests run the same
+  suite against the in-memory implementation.
+- **Orchestrator** — code reaches MongoDB through `collection()` from `packages/core/src/db.ts` in about a
+  dozen modules (heaviest: `apps/api/src/resources.ts`, `app.ts`, `triggers.ts`, `packages/core/src/runs.ts`).
+  The queries are simple — lookups by id and owner, `$set`/`$unset`/`$inc` updates, capped `$push` for run
+  events — and the correctness-critical parts are a handful of atomic compare-and-set updates (run leases,
+  conversation turn reservation, schedule dispatch, idempotency keys). A port would introduce a repository per
+  collection with those operations as named methods, then implement them with `UPDATE … WHERE … RETURNING`
+  transactions. New code should keep MongoDB-specific queries inside `packages/core` so that layer stays thin.
+
 ## Excluded surfaces
 
 No provider-specific tool connectors or plugin catalogs, external UI OAuth,

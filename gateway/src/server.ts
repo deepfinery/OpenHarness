@@ -3,7 +3,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { SUBPROTOCOL, createLogger, type Logger } from '@agentic/connector-core';
 import type { GatewayConfig } from './config.js';
-import { createRegistry, type Registry } from './registry.js';
+import { createStorage, type Registry, type Storage } from './registry.js';
 import { DeviceHub } from './hub.js';
 import { createGatewayAudit } from './audit.js';
 import { noopApproval, webhookApproval, type ApprovalProvider } from './approval.js';
@@ -21,14 +21,15 @@ export type Gateway = {
 
 export async function startGateway(
   config: GatewayConfig,
-  overrides: { registry?: Registry; log?: Logger; approval?: ApprovalProvider } = {},
+  overrides: { storage?: Storage; log?: Logger; approval?: ApprovalProvider } = {},
 ): Promise<Gateway> {
   const log = overrides.log ?? createLogger({ level: config.LOG_LEVEL, name: 'gateway' });
   if (!config.GATEWAY_API_TOKENS.trim())
     log.warn('GATEWAY_API_TOKENS is empty: no orchestrator can call this gateway');
   if (!config.GATEWAY_ADMIN_TOKEN)
     log.warn('GATEWAY_ADMIN_TOKEN is unset: the admin API is disabled; use the CLI to enroll devices');
-  const registry = overrides.registry ?? createRegistry(config);
+  const storage = overrides.storage ?? (await createStorage(config));
+  const registry = storage.registry;
   await applyBootstrapDevices(config.GATEWAY_BOOTSTRAP_DEVICES, registry, log);
   const hub = new DeviceHub({
     registry,
@@ -37,7 +38,7 @@ export async function startGateway(
     sessionRetentionMs: config.GATEWAY_SESSION_RETENTION_SECONDS * 1000,
     allowInsecure: config.GATEWAY_ALLOW_INSECURE_WS,
   });
-  const audit = createGatewayAudit(config.GATEWAY_AUDIT_FILE);
+  const audit = createGatewayAudit(storage.audit, { file: config.GATEWAY_AUDIT_FILE });
   const approval =
     overrides.approval ??
     (config.GATEWAY_APPROVAL_PROVIDER === 'webhook' && config.GATEWAY_APPROVAL_URL
@@ -84,7 +85,7 @@ export async function startGateway(
       await http.close();
       wss.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      registry.close();
+      await storage.close();
     },
   };
 }

@@ -74,7 +74,8 @@ call only what each connector's local policy permits. Neither can widen the othe
 - Put `run_command` and `write_file` in `GATEWAY_APPROVAL_TOOLS` with the webhook provider when a human must
   confirm changes; the trace still shows what the agent asked for.
 - Keep `/admin/*` off the public listener (the Caddyfile does); the orchestrator reaches it internally.
-- Back up the gateway data directory with the orchestrator volumes; it holds only hashes and allow-lists.
+- The gateway's data is in MongoDB (`agentic_gateway`), so the usual MongoDB backup covers it; it holds only
+  token hashes, allow-lists and the audit trail.
 
 ## Known limits
 
@@ -82,4 +83,6 @@ call only what each connector's local policy permits. Neither can widen the othe
   `device reconnected` and are not replayed. Combine with the orchestrator's `safe` resume policy.
 - `GATEWAY_APPROVAL_PROVIDER=webhook` is a reference implementation (POST + polling), not a UI.
 - Windows and Chrome connectors ship in the next release; their allow-lists can be prepared now.
-- The registry supports SQLite today; `DATABASE_URL` for Postgres is reserved and rejected with a clear error.
+- In the bundled stack the gateway connects to the shared MongoDB with the stack's credentials and uses its own
+  `agentic_gateway` database. For a stricter split, create a MongoDB user with `readWrite` on that database only
+  and put it in `GATEWAY_MONGODB_URI`; a standalone gateway (`gateway/compose.yaml`) already has its own MongoDB.

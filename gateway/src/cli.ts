@@ -3,7 +3,7 @@
 //   agentic-gateway enroll --id laptop-1 --platform linux [--name "Laptop"] [--owner team] [--allow run_command,read_file]
 //   agentic-gateway list | allow <id> tool,tool | disable <id> | enable <id> | remove <id> | rotate <id>
 import { loadConfig } from './config.js';
-import { createRegistry } from './registry.js';
+import { createStorage } from './registry.js';
 import { generateDeviceToken, hashDeviceToken } from './tokens.js';
 import { deviceIdPattern, platforms } from '@agentic/connector-core';
 
@@ -18,7 +18,8 @@ function flags(argv: string[]) {
   return { flags: out, rest };
 }
 const config = loadConfig();
-const registry = createRegistry(config);
+const storage = await createStorage(config);
+const registry = storage.registry;
 const [command, ...args] = process.argv.slice(2);
 const { flags: f, rest } = flags(args);
 const print = (value: unknown) =>
@@ -92,5 +93,5 @@ try {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
 } finally {
-  registry.close();
+  await storage.close();
 }

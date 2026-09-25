@@ -101,15 +101,18 @@ services:
       GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-ws://localhost:8090}
       GATEWAY_API_TOKENS: orchestrator:${GATEWAY_API_TOKEN:?Run ./start.sh --configure-only to add gateway credentials to .env}
       GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run ./start.sh --configure-only to add gateway credentials to .env}
-      GATEWAY_DATA_DIR: /data
-      GATEWAY_AUDIT_FILE: /data/audit.jsonl
+      # Registry and audit trail live in the stack's MongoDB, in their own database.
+      GATEWAY_MONGODB_URI: mongodb://agentic:${MONGO_PASSWORD:?Run ./start.sh first}@mongo:27017/?authSource=admin
+      GATEWAY_MONGODB_DATABASE: agentic_gateway
+      GATEWAY_AUDIT_RETENTION_DAYS: ${GATEWAY_AUDIT_RETENTION_DAYS:-90}
       # TLS terminates at your reverse proxy (see gateway/Caddyfile); set to false once it forwards X-Forwarded-Proto.
       GATEWAY_ALLOW_INSECURE_WS: ${GATEWAY_ALLOW_INSECURE_WS:-true}
       GATEWAY_TOOL_TIMEOUT_SECONDS: ${GATEWAY_TOOL_TIMEOUT_SECONDS:-120}
       GATEWAY_APPROVAL_TOOLS: ${GATEWAY_APPROVAL_TOOLS:-}
       TRUST_PROXY: ${TRUST_PROXY:-0}
     ports: ['${GATEWAY_BIND:-0.0.0.0}:${GATEWAY_PORT:-8090}:8090']
-    volumes: ['gateway:/data']
+    depends_on:
+      mongo: { condition: service_healthy }
     restart: unless-stopped
     security_opt: ['no-new-privileges:true']
     cap_drop: [ALL]
@@ -189,4 +192,3 @@ volumes:
   rabbitmq:
   weaviate:
   files:
-  gateway:

@@ -11,6 +11,7 @@ import { McpError } from '@modelcontextprotocol/sdk/types.js';
 import { WebSocketClientTransport, silentLogger } from '@agentic/connector-core';
 import { gatewayConfigSchema } from '../src/config.js';
 import { startGateway, type Gateway } from '../src/server.js';
+import { memoryStorage } from '../src/registry.js';
 import { generateDeviceToken, hashDeviceToken } from '../src/tokens.js';
 
 let gateway: Gateway;
@@ -76,13 +77,13 @@ const admin = (path: string, method = 'GET', body?: unknown) =>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
+const storage = memoryStorage();
 before(async () => {
   dataDir = await mkdtemp(join(tmpdir(), 'gateway-'));
   gateway = await startGateway(
     gatewayConfigSchema.parse({
       PORT: '0',
       HOST: '127.0.0.1',
-      GATEWAY_DATA_DIR: dataDir,
       GATEWAY_API_TOKENS: `orchestrator:${ORCH_TOKEN}`,
       GATEWAY_ADMIN_TOKEN: ADMIN_TOKEN,
       GATEWAY_ALLOW_INSECURE_WS: 'true',
@@ -94,6 +95,7 @@ before(async () => {
       LOG_LEVEL: 'error',
     }),
     {
+      storage,
       log: silentLogger,
       approval: { decide: async ({ tool }) => (tool === 'secret' ? 'denied' : 'approved') },
     },
@@ -187,6 +189,10 @@ test('a device dials in, is listed as online, and the orchestrator calls its too
     ),
   );
   assert.ok(audit.some((a) => a.tool === 'secret' && a.outcome === 'approval_denied'));
+  // The same calls are persisted in the audit store (MongoDB in production).
+  const stored = await storage.audit.recent({ device_id: 'dev-1' });
+  assert.ok(stored.some((a) => a.tool === 'echo' && a.outcome === 'ok'));
+  assert.ok(stored.every((a) => a.ts instanceof Date));
   assert.ok(audit.some((a) => a.tool === 'slow' && a.outcome === 'timeout'));
 });
 test('the per-device allow-list is enforced at the gateway independently of the connector', async () => {

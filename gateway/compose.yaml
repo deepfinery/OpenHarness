@@ -1,5 +1,6 @@
 # Standalone deployment of the gateway with Caddy in front. From the repository root:
-#   GATEWAY_API_TOKENS=orchestrator:$(openssl rand -hex 32) GATEWAY_ADMIN_TOKEN=$(openssl rand -hex 32) docker compose -f gateway/compose.yaml up --build -d
+#   GATEWAY_MONGO_PASSWORD=$(openssl rand -hex 24) GATEWAY_API_TOKENS=orchestrator:$(openssl rand -hex 32) \
+#   GATEWAY_ADMIN_TOKEN=$(openssl rand -hex 32) docker compose -f gateway/compose.yaml up --build -d
 name: agentic-gateway
 services:
   gateway:
@@ -12,13 +13,25 @@ services:
       GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:-}
       GATEWAY_TOOL_TIMEOUT_SECONDS: ${GATEWAY_TOOL_TIMEOUT_SECONDS:-120}
       GATEWAY_APPROVAL_TOOLS: ${GATEWAY_APPROVAL_TOOLS:-}
-      GATEWAY_AUDIT_FILE: /data/audit.jsonl
+      GATEWAY_MONGODB_URI: mongodb://gateway:${GATEWAY_MONGO_PASSWORD:?set a MongoDB password}@mongo:27017/?authSource=admin
       TRUST_PROXY: '1'
       LOG_LEVEL: ${LOG_LEVEL:-info}
-    volumes: ['gateway-data:/data']
+    depends_on:
+      mongo: { condition: service_healthy }
     restart: unless-stopped
     security_opt: ['no-new-privileges:true']
     cap_drop: [ALL]
+  mongo:
+    image: mongo:7.0
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: gateway
+      MONGO_INITDB_ROOT_PASSWORD: ${GATEWAY_MONGO_PASSWORD:?set a MongoDB password}
+    volumes: ['gateway-mongo:/data/db']
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 10s
+      retries: 10
   caddy:
     image: caddy:2.10-alpine
     ports: ['80:80', '443:443']
@@ -26,6 +39,6 @@ services:
     depends_on: [gateway]
     restart: unless-stopped
 volumes:
-  gateway-data:
+  gateway-mongo:
   caddy-data:
   caddy-config:

@@ -6,8 +6,11 @@ export const gatewayConfigSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   /** What devices and the studio show as the gateway address, e.g. wss://gateway.example.com. */
   GATEWAY_PUBLIC_URL: z.string().default('ws://localhost:8090'),
-  GATEWAY_DATA_DIR: z.string().default('./data'),
-  DATABASE_URL: z.string().optional(),
+  /** MongoDB holding the device registry and the audit trail. */
+  GATEWAY_MONGODB_URI: z.string().optional(),
+  GATEWAY_MONGODB_DATABASE: z.string().default('agentic_gateway'),
+  /** Audit entries older than this are removed by MongoDB; 0 keeps them forever. */
+  GATEWAY_AUDIT_RETENTION_DAYS: z.coerce.number().int().min(0).default(90),
   /** `name:token,name:token` — the name is the identity written to the audit log. */
   GATEWAY_API_TOKENS: z.string().default(''),
   GATEWAY_ADMIN_TOKEN: z.string().optional(),

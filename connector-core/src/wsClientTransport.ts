@@ -122,7 +122,11 @@ export class WebSocketClientTransport implements Transport {
     const handshakeTimer = this.after(HANDSHAKE_TIMEOUT_MS, () => {
       if (this.socket === socket && this.phase === 'handshake') {
         this.log.warn('gateway handshake timed out');
-        socket.close(CloseCode.PROTOCOL_ERROR, 'handshake timeout');
+        try {
+          socket.close(CloseCode.PROTOCOL_ERROR, 'handshake timeout');
+        } catch {}
+        // Node's WebSocket does not emit `close` for a socket that never opened; settle the attempt here.
+        this.socketClosed(socket, CloseCode.PROTOCOL_ERROR, 'handshake timeout');
       }
     });
     socket.addEventListener('open', () => {
@@ -169,9 +173,16 @@ export class WebSocketClientTransport implements Transport {
       // heartbeat_ack and heartbeat only refresh liveness.
     });
     socket.addEventListener('error', () => {
-      // The close event that follows carries the useful information; errors here are usually connection refusals.
+      // Browsers follow a failed attempt with `close`; Node 22's built-in WebSocket only emits `error`. Treat an
+      // error before the connection is open as the end of the attempt, or the reconnect loop would stall.
+      if (socket.readyState !== OPEN) this.socketClosed(socket, 1006, 'connection failed');
     });
-    socket.addEventListener('close', (event) => {
+    socket.addEventListener('close', (event) => this.socketClosed(socket, event.code, event.reason));
+  }
+  /** Settles one connection attempt exactly once, whichever of close, error or a timeout reports it first. */
+  private socketClosed(socket: WebSocketLike, code: number, reason: string) {
+    const event = { code, reason };
+    {
       if (this.socket !== socket) return;
       this.socket = undefined;
       this.phase = 'idle';
@@ -200,7 +211,7 @@ export class WebSocketClientTransport implements Transport {
         this.log.warn('gateway rejected the device token; retrying with maximum backoff');
       }
       this.scheduleReconnect();
-    });
+    }
   }
   private scheduleReconnect() {
     if (this.stopped) return;
@@ -222,7 +233,10 @@ export class WebSocketClientTransport implements Transport {
       if (!socket || this.phase !== 'mcp') return;
       if (Date.now() - this.lastInbound > liveness) {
         this.log.warn('no traffic from gateway; reconnecting');
-        socket.close(CloseCode.GOING_AWAY, 'liveness');
+        try {
+          socket.close(CloseCode.GOING_AWAY, 'liveness');
+        } catch {}
+        this.socketClosed(socket, CloseCode.GOING_AWAY, 'liveness');
         return;
       }
       try {

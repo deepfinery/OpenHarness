@@ -1,6 +1,8 @@
-// Gateway audit: one JSON line per tool call, with a redaction hook applied to the arguments.
+// Gateway audit: every tool call is stored (AuditStore) and mirrored as one JSON line for log pipelines.
+// Arguments pass through a redaction hook before either.
 import { appendFile } from 'node:fs/promises';
 import { redact } from '@agentic/connector-core';
+import type { AuditStore } from './registry.js';
 
 export type AuditOutcome = 'ok' | 'error' | 'denied' | 'timeout' | 'offline' | 'approval_denied';
 export type AuditRecord = {
@@ -16,22 +18,27 @@ export type AuditRecord = {
 export type RedactArguments = (tool: string, args: unknown) => unknown;
 export const defaultRedaction: RedactArguments = (_tool, args) => redact(args);
 export function createGatewayAudit(
-  path: string | undefined,
-  redactArguments: RedactArguments = defaultRedaction,
-  sink?: (line: string) => void,
+  store: AuditStore,
+  {
+    file,
+    redactArguments = defaultRedaction,
+    sink,
+  }: { file?: string; redactArguments?: RedactArguments; sink?: (line: string) => void } = {},
 ) {
   let queue = Promise.resolve();
   const write = sink ?? ((line: string) => process.stdout.write(line + '\n'));
   return {
     record(entry: AuditRecord) {
-      const line = JSON.stringify({
-        ts: new Date().toISOString(),
-        type: 'tool_call',
-        ...entry,
-        arguments: redactArguments(entry.tool, entry.arguments),
-      });
+      const ts = new Date();
+      const stored = { ...entry, ts, arguments: redactArguments(entry.tool, entry.arguments) };
+      const line = JSON.stringify({ type: 'tool_call', ...stored, ts: ts.toISOString() });
       queue = queue
-        .then(() => (path ? appendFile(path, line + '\n', { mode: 0o600 }) : write(line)))
+        .then(async () => {
+          // A database hiccup must never fail the tool call; the JSON line still records it.
+          await store.insert(stored).catch(() => {});
+          if (file) await appendFile(file, line + '\n', { mode: 0o600 });
+          else write(line);
+        })
         .catch(() => {});
       return queue;
     },

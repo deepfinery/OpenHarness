@@ -9,7 +9,7 @@ COPY gateway/src gateway/src
 RUN cd gateway && npm ci --no-audit --no-fund && npm run build
 
 FROM node:22-alpine
-ENV NODE_ENV=production PORT=8090 GATEWAY_DATA_DIR=/data
+ENV NODE_ENV=production PORT=8090
 WORKDIR /opt/agentic-gateway
 COPY --from=build /src/gateway/package.json gateway/
 COPY --from=build /src/gateway/dist gateway/dist
@@ -18,7 +18,7 @@ COPY --from=build /src/gateway/node_modules gateway/node_modules
 RUN rm -rf gateway/node_modules/@agentic/connector-core && mkdir -p gateway/node_modules/@agentic/connector-core
 COPY --from=build /src/connector-core/package.json gateway/node_modules/@agentic/connector-core/package.json
 COPY --from=build /src/connector-core/dist gateway/node_modules/@agentic/connector-core/dist
-RUN mkdir -p /data && chown -R node:node /data /opt/agentic-gateway
+RUN chown -R node:node /opt/agentic-gateway
 USER node
 EXPOSE 8090
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 CMD node -e "fetch('http://127.0.0.1:8090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

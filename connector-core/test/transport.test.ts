@@ -113,6 +113,40 @@ test('client transport: hello on open, MCP after welcome, resume and backoff on 
   assert.deepEqual(states.at(-1), 'stopped');
   mock.timers.reset();
 });
+test('client transport keeps retrying when failed attempts report only an error (Node 22 WebSocket)', async () => {
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  FakeSocket.instances = [];
+  const t = new WebSocketClientTransport({
+    url: 'wss://gateway.test/connect',
+    identity,
+    token: 'dv_0123456789abcdef',
+    WebSocketImpl: FakeSocket as any,
+    random: () => 0,
+  });
+  await t.start();
+  // Three refused attempts in a row: Node emits `error` and never `close` for these.
+  for (let i = 0; i < 3; i++) {
+    const s = FakeSocket.instances[i];
+    s.readyState = 3;
+    s.emit('error', {});
+    assert.equal(t.state, 'disconnected', `attempt ${i + 1} is settled by the error alone`);
+    mock.timers.tick(60_000);
+    assert.equal(FakeSocket.instances.length, i + 2, `attempt ${i + 2} is scheduled`);
+  }
+  // An attempt that hangs without any event is ended by the handshake timeout and retried.
+  const hanging = FakeSocket.instances[3];
+  mock.timers.tick(10_000);
+  assert.equal(t.state, 'disconnected');
+  hanging.emit('close', { code: 1006, reason: '' });
+  mock.timers.tick(60_000);
+  assert.equal(FakeSocket.instances.length, 5, 'a late close event does not double-schedule');
+  const live = FakeSocket.instances[4];
+  live.open();
+  live.receive(welcome);
+  assert.equal(t.state, 'connected');
+  await t.close();
+  mock.timers.reset();
+});
 test('client transport refuses insecure URLs and credentials in the URL', () => {
   assert.throws(
     () =>

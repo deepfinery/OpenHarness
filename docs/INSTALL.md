@@ -30,10 +30,11 @@ For machines elsewhere, put the gateway port behind TLS and set `GATEWAY_PUBLIC_
 
 ### Standalone
 
-`gateway/compose.yaml` runs the gateway with Caddy on another host:
+`gateway/compose.yaml` runs the gateway with Caddy and its own MongoDB on another host:
 
 ```sh
 GATEWAY_PUBLIC_URL=wss://gateway.example.com \
+GATEWAY_MONGO_PASSWORD=$(openssl rand -hex 24) \
 GATEWAY_API_TOKENS=orchestrator:$(openssl rand -hex 32) \
 GATEWAY_ADMIN_TOKEN=$(openssl rand -hex 32) \
 docker compose -f gateway/compose.yaml up --build -d
@@ -44,20 +45,22 @@ Point the orchestrator at it with `GATEWAY_URL=https://gateway.example.com`, `GA
 
 Gateway settings (environment):
 
-| Variable                            | Default               | Purpose                                                                          |
-| ----------------------------------- | --------------------- | -------------------------------------------------------------------------------- |
-| `GATEWAY_API_TOKENS`                | —                     | `name:token,…` bearer tokens orchestrators use; `name` appears in the audit      |
-| `GATEWAY_ADMIN_TOKEN`               | —                     | Bearer token for `/admin/*` (enrollment); unset disables the admin API           |
-| `GATEWAY_PUBLIC_URL`                | `ws://localhost:8090` | Address machines dial; also shown in the studio                                  |
-| `GATEWAY_ALLOW_INSECURE_WS`         | `false`               | Accept sockets without TLS (development only)                                    |
-| `GATEWAY_TOOL_TIMEOUT_SECONDS`      | `120`                 | Per tool call; `GATEWAY_TOOL_TIMEOUTS=run_command=600,…` overrides               |
-| `GATEWAY_APPROVAL_TOOLS`            | —                     | Tools that need an approval decision (`GATEWAY_APPROVAL_PROVIDER=noop\|webhook`) |
-| `GATEWAY_APPROVAL_URL`              | —                     | Webhook that receives the pending call and answers `approved`/`denied`           |
-| `GATEWAY_AUDIT_FILE`                | stdout                | JSON lines, one per tool call                                                    |
-| `GATEWAY_DATA_DIR` / `DATABASE_URL` | `./data`              | SQLite file; Postgres via `DATABASE_URL` is reserved for a later release         |
-| `GATEWAY_HEARTBEAT_SECONDS`         | `30`                  | Ping interval; two misses mark a machine offline                                 |
+| Variable                       | Default               | Purpose                                                                          |
+| ------------------------------ | --------------------- | -------------------------------------------------------------------------------- |
+| `GATEWAY_API_TOKENS`           | —                     | `name:token,…` bearer tokens orchestrators use; `name` appears in the audit      |
+| `GATEWAY_ADMIN_TOKEN`          | —                     | Bearer token for `/admin/*` (enrollment); unset disables the admin API           |
+| `GATEWAY_PUBLIC_URL`           | `ws://localhost:8090` | Address machines dial; also shown in the studio                                  |
+| `GATEWAY_ALLOW_INSECURE_WS`    | `false`               | Accept sockets without TLS (development only)                                    |
+| `GATEWAY_TOOL_TIMEOUT_SECONDS` | `120`                 | Per tool call; `GATEWAY_TOOL_TIMEOUTS=run_command=600,…` overrides               |
+| `GATEWAY_APPROVAL_TOOLS`       | —                     | Tools that need an approval decision (`GATEWAY_APPROVAL_PROVIDER=noop\|webhook`) |
+| `GATEWAY_APPROVAL_URL`         | —                     | Webhook that receives the pending call and answers `approved`/`denied`           |
+| `GATEWAY_AUDIT_FILE`           | stdout                | JSON-line copy of each audit entry (the record itself is stored in MongoDB)      |
+| `GATEWAY_MONGODB_URI`          | —                     | MongoDB for the device registry and audit trail (the bundled stack sets it)      |
+| `GATEWAY_MONGODB_DATABASE`     | `agentic_gateway`     | Database name, separate from the orchestrator's                                  |
+| `GATEWAY_AUDIT_RETENTION_DAYS` | `90`                  | Audit entries older than this are deleted automatically; `0` keeps them forever  |
+| `GATEWAY_HEARTBEAT_SECONDS`    | `30`                  | Ping interval; two misses mark a machine offline                                 |
 
-CLI (works on the data directory even when the server is down):
+CLI (talks to MongoDB directly, so it works while the gateway server is down):
 
 ```sh
 docker compose exec gateway node gateway/dist/cli.js list

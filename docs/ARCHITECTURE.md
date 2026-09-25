@@ -35,7 +35,7 @@ flowchart LR
   subgraph edge["Gateway host (only public IP)"]
     P["Caddy<br/>TLS · reverse proxy"]
     G["gateway<br/>WS hub · device registry · per-device MCP endpoints · fleet endpoint · audit · approvals"]
-    DB[("SQLite (default)<br/>or Postgres")]
+    DB[("MongoDB<br/>database agentic_gateway")]
   end
   subgraph orch["Orchestrator (this repo)"]
     R["runner / api<br/>connectMcp → StreamableHTTPClientTransport"]
@@ -119,25 +119,21 @@ timeouts are the SDK's `RequestOptions.timeout` (default 120 s, per-tool overrid
 | `POST /admin/devices`, `GET /admin/devices`, `DELETE /admin/devices/{id}`, `PUT /admin/devices/{id}/tools` | Enrollment and allow-list management; admin bearer token. The CLI (`gateway enroll …`) uses the same code path locally. |
 | `GET /healthz`, `GET /readyz`                                                                              | Liveness (process up) and readiness (database reachable).                                                               |
 
-### Registry
+### Registry and storage
 
-```sql
-devices(
-  device_id     TEXT PRIMARY KEY,   -- [a-z0-9][a-z0-9-]{0,62}
-  token_hash    TEXT NOT NULL,      -- argon2id
-  platform      TEXT NOT NULL,      -- linux | windows | chrome
-  allowed_tools TEXT NOT NULL,      -- JSON array, empty by default
-  owner         TEXT NOT NULL,
-  created_at    TEXT NOT NULL,
-  last_seen     TEXT,
-  disabled      INTEGER NOT NULL DEFAULT 0
-)
-```
+The gateway persists two things, both in **MongoDB** — the stack's existing instance, in a separate
+database (`GATEWAY_MONGODB_DATABASE`, default `agentic_gateway`):
 
-SQLite through Node's built-in `node:sqlite` (no native dependency, file under `GATEWAY_DATA_DIR`);
-`DATABASE_URL=postgres://…` selects the Postgres backend behind the same repository interface.
-Connection state (online, session, capabilities) lives in memory; `last_seen` is persisted on connect,
-on every heartbeat minute and on disconnect.
+| Collection   | Contents                                                                                                                                                                                              |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `devices`    | `_id` = device id, `name`, `token_hash` (argon2id), `platform`, `allowed_tools` (empty by default), `owner` (tenant), `created_at`, `last_seen`, `disabled`                                           |
+| `tool_calls` | The audit trail: `ts`, `identity`, `device_id`, `tool`, redacted `arguments`, `duration_ms`, `outcome`, `error`. A TTL index removes entries after `GATEWAY_AUDIT_RETENTION_DAYS` (90; 0 keeps them). |
+
+All persistence goes through two interfaces in `gateway/src/registry.ts` — `Registry` and `AuditStore` —
+with the MongoDB implementation in `gateway/src/mongoStorage.ts` and an in-memory one used by the tests.
+Moving the gateway to another database means writing one more implementation of each; nothing else in the
+gateway imports the driver. Live connection state (online, session, capabilities, cached tool lists)
+stays in memory; `last_seen` is written at connect, about once a minute while online, and at disconnect.
 
 ### Cross-cutting concerns
 

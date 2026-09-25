@@ -196,6 +196,22 @@ test(
       (await ok('/runs', { workflowId: workflow.id, input: 'use tool please', deviceId })).id,
     );
     assert.equal(denied.status, 'succeeded', denied.error);
+    // The registry lives in MongoDB: after a gateway restart the machine is still enrolled and reconnects on its own.
+    await compose('restart', 'gateway');
+    await waitFor(
+      async () => {
+        const r = await request('/devices');
+        return r.status === 200 && r.data.machines.find((x: any) => x.device_id === deviceId)?.online
+          ? true
+          : undefined;
+      },
+      90_000,
+      'the connector to reconnect after a gateway restart',
+    );
+    const again = await waitRun(
+      (await ok('/runs', { workflowId: workflow.id, input: 'Please run uname on the machine', deviceId })).id,
+    );
+    assert.equal(again.status, 'succeeded', again.error);
     // A machine that is not enrolled cannot be chosen.
     assert.equal(
       (await request('/runs', 'POST', { workflowId: workflow.id, input: 'x', deviceId: 'nope-123' })).status,

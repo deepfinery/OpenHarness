@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { deviceIdPattern, platforms, type Logger } from '@agentic/connector-core';
 import { approvalTools, toolTimeouts, type GatewayConfig } from './config.js';
 import type { DeviceHub } from './hub.js';
-import type { Registry } from './registry.js';
+import { DuplicateDeviceError, type Registry } from './registry.js';
 import type { GatewayAudit } from './audit.js';
 import type { ApprovalProvider } from './approval.js';
 import { createDeviceServer } from './deviceServer.js';
@@ -221,6 +221,8 @@ export function createHttpApp(deps: HttpDeps) {
 
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof HttpError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof DuplicateDeviceError)
+      return res.status(409).json({ error: 'device id already exists' });
     if (error instanceof z.ZodError)
       return res
         .status(400)
