@@ -1,7 +1,7 @@
 {
-  "name": "@agentic/connector-linux",
+  "name": "@openharness/connector-linux",
   "version": "0.1.0",
-  "description": "Agentic device connector for Linux hosts and containers: an MCP server that dials out to the gateway.",
+  "description": "OpenHarness device connector for Linux hosts and containers: an MCP server that dials out to the gateway.",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "node": ">=22.13"
   },
   "bin": {
-    "agentic-connector": "./dist/main.js"
+    "openharness-connector": "./dist/main.js"
   },
   "exports": {
     ".": {
@@ -30,7 +30,7 @@
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@agentic/connector-core": "file:../connector-core",
+    "@openharness/connector-core": "file:../connector-core",
     "@modelcontextprotocol/sdk": "1.30.1",
     "zod": "3.25.76"
   },

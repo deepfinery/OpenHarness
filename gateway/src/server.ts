@@ -1,7 +1,7 @@
 // Assembles registry, hub, HTTP app and WebSocket upgrade handling into one startable gateway.
 import { createServer, type Server as HttpServer } from 'node:http';
 import { WebSocketServer } from 'ws';
-import { SUBPROTOCOL, createLogger, type Logger } from '@agentic/connector-core';
+import { LEGACY_SUBPROTOCOLS, SUBPROTOCOL, createLogger, type Logger } from '@openharness/connector-core';
 import type { GatewayConfig } from './config.js';
 import { createStorage, type Registry, type Storage } from './registry.js';
 import { DeviceHub } from './hub.js';
@@ -49,14 +49,15 @@ export async function startGateway(
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: 4 * 1024 * 1024,
-    handleProtocols: (protocols) => (protocols.has(SUBPROTOCOL) ? SUBPROTOCOL : false),
+    handleProtocols: (protocols) =>
+      protocols.has(SUBPROTOCOL) ? SUBPROTOCOL : (LEGACY_SUBPROTOCOLS.find((p) => protocols.has(p)) ?? false),
   });
   server.on('upgrade', (request, socket, head) => {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
     const offered = String(request.headers['sec-websocket-protocol'] ?? '')
       .split(',')
       .map((s) => s.trim());
-    if (path !== '/connect' || !offered.includes(SUBPROTOCOL)) {
+    if (path !== '/connect' || ![SUBPROTOCOL, ...LEGACY_SUBPROTOCOLS].some((p) => offered.includes(p))) {
       socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;

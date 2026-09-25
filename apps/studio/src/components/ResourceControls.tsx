@@ -75,7 +75,11 @@ export function McpControl({
   // The OAuth popup posts back when the provider redirects to the callback; finish with discovery.
   useEffect(() => {
     const listener = (event: MessageEvent) => {
-      if (event.origin !== location.origin || event.data?.type !== 'agentic-oauth' || !event.data.connection)
+      if (
+        event.origin !== location.origin ||
+        event.data?.type !== 'openharness-oauth' ||
+        !event.data.connection
+      )
         return;
       void action(async () => {
         await send(`/connections/${event.data.connection}/discover`, {});
@@ -137,7 +141,11 @@ export function McpControl({
             className="text-button"
             disabled={busy}
             onClick={() => {
-              const popup = window.open('about:blank', 'agentic-mcp-authorization', 'width=620,height=740');
+              const popup = window.open(
+                'about:blank',
+                'openharness-mcp-authorization',
+                'width=620,height=740',
+              );
               void action(async () => {
                 try {
                   const result = await send(`/connections/${connection.id}/oauth`);

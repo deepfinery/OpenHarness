@@ -352,7 +352,7 @@ app.post('/api/settings/email/test', requireAdmin, async (req, res) => {
   res.json(
     await sendEmail(req.principal!.tenantId, {
       to: body.to,
-      subject: 'Agentic Orchestration test email',
+      subject: 'OpenHarness test email',
       text: `This message confirms that outgoing email is configured for your workspace.\n\nSent from ${config.PUBLIC_URL}`,
     }),
   );

@@ -318,62 +318,118 @@ td {
   white-space: nowrap;
 }
 
-/* Knowledge as a notebook */
-.kb-shell {
-  display: grid;
-  grid-template-columns: 210px 300px minmax(0, 1fr);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: #fff;
-  height: calc(100vh - 190px);
-  min-height: 520px;
-  overflow: hidden;
-}
-.kb-shell.dragging {
+/* Knowledge: the same shell as the playground — a collapsible panel of base cards, then files and the editor. */
+.kb-workspace.dragging .kb-main {
   outline: 2px dashed var(--blue);
-  outline-offset: -2px;
+  outline-offset: -6px;
 }
-.kb-list {
-  border-right: 1px solid var(--border);
-  padding: 10px 8px;
+.kb-cards {
   overflow: auto;
-  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 2px;
 }
-.kb-list > button {
+.kb-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--border-soft, var(--border));
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.kb-card:hover {
+  border-color: #c9d6e2;
+  box-shadow: 0 2px 8px #1a29390d;
+}
+.kb-card:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+.kb-card.active {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-bg);
+}
+.kb-card-top {
   display: flex;
   align-items: center;
-  gap: 9px;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  border-radius: 8px;
-  padding: 9px 10px;
-  margin-bottom: 2px;
-  font-size: 13px;
-  color: var(--ink);
-  text-align: left;
+  gap: 8px;
+  padding-right: 52px;
 }
-.kb-list > button > span {
-  flex: 1;
-  min-width: 0;
+.kb-card-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--teal-bg);
+  color: var(--teal);
+}
+.kb-card.active .kb-card-icon {
+  background: var(--blue-bg);
+  color: var(--blue-ink);
+}
+.kb-card strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.kb-list > button:hover {
-  background: #eef2f6;
-}
-.kb-list > button.active {
-  background: var(--blue-bg);
-  color: var(--blue-ink);
-  font-weight: 600;
-}
-.kb-list > .kb-list-add {
+.kb-card p {
+  font-size: 12px;
+  line-height: 1.45;
   color: var(--slate);
-  margin-top: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.kb-card small {
+  font-size: 11px;
+  color: var(--faint);
+}
+.kb-card-actions {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.kb-card:hover .kb-card-actions,
+.kb-card:focus-within .kb-card-actions,
+.kb-card.active .kb-card-actions {
+  opacity: 1;
+}
+.kb-card-actions .icon-button {
+  width: 24px;
+  height: 24px;
+}
+.kb-main {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+  background: #fff;
+}
+.topbar-action {
+  padding: 7px 12px;
+  font-size: 13px;
 }
 .kb-files {
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--border-soft, var(--border));
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -388,7 +444,6 @@ td {
 .kb-files-title {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 8px;
 }
 .kb-files-title h3 {
@@ -590,35 +645,20 @@ td {
   border-color: #cfe6f4;
 }
 @media (max-width: 1100px) {
-  .kb-shell {
-    grid-template-columns: 180px 260px minmax(0, 1fr);
+  .kb-main {
+    grid-template-columns: 220px minmax(0, 1fr);
   }
 }
 @media (max-width: 900px) {
-  .kb-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto minmax(0, 1fr);
-    height: auto;
-    min-height: 0;
-  }
-  .kb-list {
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .kb-list > button {
-    width: auto;
-    white-space: nowrap;
+  /* The base list becomes an overlay like the playground's conversations; files sit above the editor. */
+  .kb-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
   }
   .kb-files {
     border-right: 0;
-    border-bottom: 1px solid var(--border);
-    max-height: 300px;
-  }
-  .kb-editor {
-    min-height: 420px;
+    border-bottom: 1px solid var(--border-soft, var(--border));
+    max-height: 280px;
   }
   .toolbox {
     width: 168px;
@@ -863,5 +903,15 @@ td {
 @media (max-width: 900px) {
   .platform-picker {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  /* Top-bar actions shrink to their icon on phones so the breadcrumb keeps its room. */
+  .topbar-action span {
+    display: none;
+  }
+  .topbar-action {
+    padding: 7px 9px;
   }
 }

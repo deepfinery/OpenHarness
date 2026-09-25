@@ -16,7 +16,7 @@ const codes = new Map();
 let tokenVersion = 1;
 let currentAccess = 'test-oauth-access-1';
 function mcpServer() {
-  const server = new McpServer({ name: 'agentic-test-tools', version: '1.0.0' });
+  const server = new McpServer({ name: 'openharness-test-tools', version: '1.0.0' });
   server.registerTool(
     'lookup',
     {
@@ -126,7 +126,9 @@ app.get('/.well-known/oauth-authorization-server', (_req, res) =>
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
   }),
 );
-app.post('/register', (req, res) => res.status(201).json({ ...req.body, client_id: 'agentic-test-client' }));
+app.post('/register', (req, res) =>
+  res.status(201).json({ ...req.body, client_id: 'openharness-test-client' }),
+);
 app.get('/authorize', (req, res) => {
   const code = randomUUID();
   codes.set(code, { challenge: req.query.code_challenge, redirect: req.query.redirect_uri });

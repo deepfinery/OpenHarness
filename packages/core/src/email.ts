@@ -99,7 +99,7 @@ export async function sendEmail(ownerId: string, message: OutgoingEmail) {
   if (!from && config.SMTP_TRANSPORT !== 'json') throw new Error('Set a From address in Settings → Email');
   const transport = transportFor(resolved);
   const info = await transport.sendMail({
-    from: from || 'agentic@localhost',
+    from: from || 'openharness@localhost',
     to: recipients.join(', '),
     subject: message.subject.slice(0, 998),
     text: message.text.slice(0, 200000),

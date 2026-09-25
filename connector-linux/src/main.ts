@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// CLI: `agentic-connector --config /etc/agentic-connector/config.json` dials the gateway;
-// `agentic-connector --stdio` serves MCP on stdin/stdout for MCP Inspector and local testing.
+// CLI: `openharness-connector --config /etc/openharness-connector/config.json` dials the gateway;
+// `openharness-connector --stdio` serves MCP on stdin/stdout for MCP Inspector and local testing.
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { WebSocketClientTransport, createLogger, loadConnectorConfig } from '@agentic/connector-core';
+import { WebSocketClientTransport, createLogger, loadConnectorConfig } from '@openharness/connector-core';
 import { connectorVersion, createConnectorServer, linuxToolNames } from './index.js';
 
 function parseArgs(argv: string[]) {
@@ -22,7 +22,7 @@ async function main() {
   // Some launchers (MCP Inspector, IDE configs) cannot pass flags reliably; the environment works everywhere.
   if (/^(1|true|yes)$/i.test(process.env.CONNECTOR_STDIO ?? '')) args.stdio = true;
   if (args.help) {
-    process.stdout.write(`agentic-connector ${connectorVersion}
+    process.stdout.write(`openharness-connector ${connectorVersion}
   --config <file>   JSON config (default: $CONNECTOR_CONFIG, else environment only)
   --stdio           serve MCP over stdio instead of dialing the gateway (MCP Inspector); or CONNECTOR_STDIO=1
   --print-config    show the effective configuration (token redacted) and exit

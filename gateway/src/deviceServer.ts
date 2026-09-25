@@ -7,7 +7,7 @@ import {
   McpError,
   ErrorCode,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { Logger } from '@agentic/connector-core';
+import type { Logger } from '@openharness/connector-core';
 import type { DeviceHub } from './hub.js';
 import { HubError } from './hub.js';
 import type { Registry } from './registry.js';
@@ -32,7 +32,7 @@ export type DeviceServerDeps = {
 };
 export function createDeviceServer(deviceId: string, identity: string, deps: DeviceServerDeps) {
   const server = new Server(
-    { name: 'agentic-gateway', version: '0.1.0' },
+    { name: 'openharness-gateway', version: '0.1.0' },
     { capabilities: { tools: { listChanged: true } } },
   );
   const allowed = async () => {

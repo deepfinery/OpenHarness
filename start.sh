@@ -23,6 +23,11 @@ GATEWAY_ADMIN_TOKEN=$(openssl rand -hex 32)
 EOF
   echo 'Created .env with unique credentials. Keep a backup of this file with your data.'
 fi
+# Installations from before the OpenHarness rename keep their Compose project, and with it their data volumes.
+if ! grep -q '^COMPOSE_PROJECT_NAME=' .env && docker volume inspect agentic-orchestration_mongodb >/dev/null 2>&1; then
+  echo 'COMPOSE_PROJECT_NAME=agentic-orchestration' >> .env
+  echo 'Kept the existing Compose project name so your data volumes stay attached.'
+fi
 # Installations created before the device gateway existed get its credentials appended, never rewritten.
 if ! grep -q '^GATEWAY_API_TOKEN=' .env; then
   command -v openssl >/dev/null 2>&1 || { echo 'OpenSSL is required to generate gateway credentials.' >&2; exit 1; }
@@ -40,5 +45,5 @@ if [ "${1:-}" = '--configure-only' ]; then
   exit 0
 fi
 docker compose up --build -d --wait --wait-timeout 240
-echo 'Studio is ready at the PUBLIC_URL in .env (default http://localhost:8088).'
+echo 'OpenHarness is ready at the PUBLIC_URL in .env (default http://localhost:8088).'
 echo 'For first-time setup, copy SETUP_TOKEN from .env into the account creation form.'

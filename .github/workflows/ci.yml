@@ -1,4 +1,4 @@
-name: Test Agentic Orchestration
+name: Test OpenHarness
 on:
   push:
   pull_request:

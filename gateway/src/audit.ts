@@ -1,7 +1,7 @@
 // Gateway audit: every tool call is stored (AuditStore) and mirrored as one JSON line for log pipelines.
 // Arguments pass through a redaction hook before either.
 import { appendFile } from 'node:fs/promises';
-import { redact } from '@agentic/connector-core';
+import { redact } from '@openharness/connector-core';
 import type { AuditStore } from './registry.js';
 
 export type AuditOutcome = 'ok' | 'error' | 'denied' | 'timeout' | 'offline' | 'approval_denied';

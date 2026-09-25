@@ -1,7 +1,7 @@
 {
-  "name": "@agentic/connector-core",
+  "name": "@openharness/connector-core",
   "version": "0.1.0",
-  "description": "Shared library for agentic device connectors and the gateway: WebSocket MCP transports, framing, reconnect, policy and audit.",
+  "description": "Shared library for OpenHarness device connectors and the gateway: WebSocket MCP transports, framing, reconnect, policy and audit.",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",

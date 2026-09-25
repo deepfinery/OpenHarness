@@ -39,7 +39,7 @@ export class StoredOAuthProvider implements OAuthClientProvider {
   }
   get clientMetadata() {
     return {
-      client_name: 'Agentic Orchestration',
+      client_name: 'OpenHarness',
       redirect_uris: [this.redirectUrl],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
@@ -177,7 +177,7 @@ export async function connectMcp(connection: ConnectionRecord, signal?: AbortSig
     connection.transport === 'sse'
       ? new SSEClientTransport(new URL(connection.url), options)
       : new StreamableHTTPClientTransport(new URL(connection.url), options);
-  const client = new Client({ name: 'agentic-orchestration', version: '0.1.0' }, { capabilities: {} });
+  const client = new Client({ name: 'openharness', version: '0.1.0' }, { capabilities: {} });
   try {
     await client.connect(transport, { timeout: 30000, signal });
   } catch (error) {

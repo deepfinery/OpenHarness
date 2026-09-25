@@ -6,7 +6,7 @@ handshake is plain MCP (JSON-RPC 2.0); the protocol adds only connection setup, 
 ## 1. Transport
 
 - WebSocket over TLS. Devices connect to `wss://<gateway>/connect` with subprotocol
-  `agentic-mcp.v1`. The gateway rejects the upgrade when the subprotocol is missing (HTTP 400) and
+  `openharness-mcp.v1`. The gateway also accepts the pre-rename `agentic-mcp.v1` from older connectors. It rejects the upgrade when the subprotocol is missing (HTTP 400) and
   plain `ws://` is accepted only when `GATEWAY_ALLOW_INSECURE_WS=true` (local development).
 - Frames are UTF-8 **text** frames, each containing exactly one JSON object. Binary frames close the
   connection with `4008`. Maximum frame size is 4 MiB; larger frames close with `1009`.
@@ -141,7 +141,7 @@ connector that deduplicates on it can make replays harmless.
   end a session; `Mcp-Session-Id` as issued by the gateway; sessions idle for 30 min are evicted.
 - `Authorization: Bearer <orchestrator token>` on every request; missing or wrong → HTTP 401 with
   `{"error":"unauthorized"}` before any MCP parsing.
-- `initialize` is answered by the gateway with `serverInfo: { name: "agentic-gateway", version }`,
+- `initialize` is answered by the gateway with `serverInfo: { name: "openharness-gateway", version }`,
   `capabilities: { tools: { listChanged: true } }` plus the device's own declared capabilities when it
   is online.
 - `tools/list` returns the device's tools filtered by `allowed_tools`. When the device is offline and a
@@ -195,7 +195,7 @@ itself is negotiated by the SDK in `initialize`, independently of this number.
 ```text
 device → gateway   {"type":"hello","protocol_version":1,"device_id":"laptop-1","platform":"linux","hostname":"laptop-1.lan","token":"dv_…","connector_version":"0.1.0","capabilities":["run_command","read_file"]}
 gateway → device   {"type":"welcome","session_id":"sess_01J…","heartbeat_seconds":30,"resumed":false,"server_time":"2026-09-25T10:00:00Z"}
-gateway → device   {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"agentic-gateway","version":"0.1.0"}}}
+gateway → device   {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"openharness-gateway","version":"0.1.0"}}}
 device → gateway   {"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"connector-linux","version":"0.1.0"}}}
 gateway → device   {"jsonrpc":"2.0","method":"notifications/initialized"}
 gateway → device   {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}

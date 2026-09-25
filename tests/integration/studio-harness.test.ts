@@ -48,7 +48,10 @@ async function waitRun(id: string) {
   throw new Error('Run did not finish');
 }
 async function account(workspace: 'current' | 'new') {
-  const credentials = { email: `${workspace}-${suffix}@agentic.test`, password: 'Harness-test-password-42' };
+  const credentials = {
+    email: `${workspace}-${suffix}@openharness.test`,
+    password: 'Harness-test-password-42',
+  };
   const user = await ok('/users', { ...credentials, workspace, name: `${workspace} teammate` });
   const response = await request('/auth/login', 'POST', credentials, '');
   assert.equal(response.status, 200);
@@ -58,7 +61,7 @@ before(async () => {
   const login = await request(
     '/auth/login',
     'POST',
-    { email: 'admin@agentic.test', password: 'Integration-test-password-42' },
+    { email: 'admin@openharness.test', password: 'Integration-test-password-42' },
     '',
   );
   assert.equal(login.status, 200, 'Run stack.test.ts first to bootstrap the isolated stack');

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { connectorConfigSchema } from '@agentic/connector-core';
+import { connectorConfigSchema } from '@openharness/connector-core';
 import { createConnectorServer, linuxToolNames } from '../src/index.js';
 
 async function connectedClient(overrides: Record<string, unknown> = {}) {

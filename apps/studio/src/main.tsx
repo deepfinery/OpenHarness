@@ -13,6 +13,7 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  Plus,
   Plug,
   Search,
   Settings2,
@@ -59,7 +60,7 @@ function Auth({ needsSetup, onLogin }: { needsSetup: boolean; onLogin: (u: User)
             <GitBranch size={23} />
           </div>
           <span>
-            agentic<span className="brand-period">.</span>
+            openharness<span className="brand-period">.</span>
           </span>
         </div>
         <div className="auth-story-content">
@@ -93,7 +94,7 @@ function Auth({ needsSetup, onLogin }: { needsSetup: boolean; onLogin: (u: User)
       </aside>
       <main className="auth-form-side">
         <div className="auth-form">
-          <span className="eyebrow">AGENTIC ORCHESTRATION</span>
+          <span className="eyebrow">OPENHARNESS</span>
           <h2>{needsSetup ? 'Make yourself at home.' : 'Welcome back.'}</h2>
           <p>
             {needsSetup
@@ -323,7 +324,7 @@ function App() {
             <GitBranch size={23} />
           </div>
           <span>
-            agentic<span className="brand-period">.</span>
+            openharness<span className="brand-period">.</span>
           </span>
         </button>
         <div className="workspace-switch">
@@ -421,6 +422,16 @@ function App() {
             )}
           </div>
           <div className="topbar-right">
+            {page === 'knowledge' && (
+              <Button
+                className="topbar-action"
+                aria-label="New knowledge base"
+                onClick={() => edit('knowledge')}
+              >
+                <Plus size={15} />
+                <span>New knowledge base</span>
+              </Button>
+            )}
             <span className={`system-status ${healthy ? '' : 'unhealthy'}`}>
               <i />
               {healthy ? 'Online' : 'Connecting…'}
@@ -444,6 +455,8 @@ function App() {
             deviceId={machine}
             onDeviceChange={setMachine}
           />
+        ) : page === 'knowledge' ? (
+          <KnowledgePage {...props} />
         ) : (
           <main className="page-content">
             {page === 'skills' ? (
@@ -458,8 +471,6 @@ function App() {
               />
             ) : page === 'connections' ? (
               <ConnectionsPage {...props} />
-            ) : page === 'knowledge' ? (
-              <KnowledgePage {...props} />
             ) : page === 'executions' ? (
               <RunsPage />
             ) : page === 'integrations' ? (
@@ -520,7 +531,7 @@ const oauthReturn = new URLSearchParams(location.search);
 if (oauthReturn.get('authorized') === '1' && window.opener && window.opener !== window) {
   try {
     window.opener.postMessage(
-      { type: 'agentic-oauth', connection: oauthReturn.get('connection') },
+      { type: 'openharness-oauth', connection: oauthReturn.get('connection') },
       location.origin,
     );
   } finally {

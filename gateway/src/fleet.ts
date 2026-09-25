@@ -36,7 +36,7 @@ export function createFleetServer({
   registry: Registry;
   publicUrl: string;
 }) {
-  const server = new McpServer({ name: 'agentic-gateway-fleet', version: '0.1.0' });
+  const server = new McpServer({ name: 'openharness-gateway-fleet', version: '0.1.0' });
   server.registerTool(
     'list_devices',
     {

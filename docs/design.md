@@ -112,7 +112,9 @@ API exposes the run through `GET /runs/:id/stream` as server-sent events.
 ## Storage and portability
 
 MongoDB is the only database. The orchestrator uses the `agentic` database (`MONGODB_DATABASE`); the device
-gateway uses its own `agentic_gateway` database on the same server. Weaviate holds knowledge vectors and
+gateway uses its own `agentic_gateway` database on the same server. (These names, the MongoDB/RabbitMQ user
+`agentic`, the queue names and the session cookie predate the OpenHarness rename and are kept so existing
+installations keep their data and sessions.) Weaviate holds knowledge vectors and
 RabbitMQ holds queue messages, but neither is a system of record: runs, documents and settings live in MongoDB.
 
 Moving to PostgreSQL later:

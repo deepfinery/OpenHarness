@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 
 const base = process.env.TEST_BASE_URL ?? 'http://localhost:8088';
 const fixture = process.env.TEST_FIXTURE_URL ?? 'http://localhost:19090';
-const admin = { email: 'admin@agentic.test', password: 'Integration-test-password-42' };
+const admin = { email: 'admin@openharness.test', password: 'Integration-test-password-42' };
 let cookie = '';
 let otherCookie = '';
 let provider: any;
@@ -411,7 +411,7 @@ test('file upload, background indexing, Weaviate retrieval and grounded agent re
   );
 });
 test('internal accounts cannot read or bind another account’s data, files or runs', async () => {
-  const email = `member-${suffix}@agentic.test`;
+  const email = `member-${suffix}@openharness.test`;
   const password = 'Another-test-password-42';
   const user = await ok('/users', { name: 'Other User', email, password, workspace: 'new' });
   const loggedIn = await request('/auth/login', { method: 'POST', body: { email, password }, auth: '' });

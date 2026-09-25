@@ -640,7 +640,7 @@ export function EmailSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
           </div>
           <Field
             label="From address"
-            hint="Must be a sender your provider has verified, for example reports@yourcompany.com or “Agentic <reports@yourcompany.com>”."
+            hint="Must be a sender your provider has verified, for example reports@yourcompany.com or “OpenHarness <reports@yourcompany.com>”."
           >
             <input
               aria-label="From address"

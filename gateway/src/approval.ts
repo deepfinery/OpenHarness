@@ -1,5 +1,5 @@
 // Human approval before selected tools are forwarded. `noop` allows; `webhook` asks a URL and waits for a decision.
-import type { Logger } from '@agentic/connector-core';
+import type { Logger } from '@openharness/connector-core';
 
 export type ApprovalRequest = { device_id: string; tool: string; arguments: unknown; identity: string };
 export type Decision = 'approved' | 'denied';

@@ -5,6 +5,8 @@ import {
   FileText,
   LoaderCircle,
   MessageSquareText,
+  PanelLeftClose,
+  PanelLeftOpen,
   PenLine,
   Plus,
   RefreshCw,
@@ -13,7 +15,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { api, errorMessage, send, timestamp, type Data, type Entity } from '../api';
-import { Button, Empty, ErrorNotice, IconButton, Modal, PageTitle, Status } from './ui';
+import { Button, Empty, ErrorNotice, IconButton, Modal, Status } from './ui';
 
 type PageProps = {
   data: Data;
@@ -39,13 +41,19 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [showList, setShowList] = useState(() => typeof window === 'undefined' || window.innerWidth > 900);
+  const knownIds = useRef(new Set(data.knowledge.map((k) => k.id)));
   const file = useRef<HTMLInputElement>(null);
   const titleInput = useRef<HTMLInputElement>(null);
   const kb = data.knowledge.find((k) => k.id === selected);
   const provider = data.providers.find((p) => p.id === kb?.providerId);
   const current = documents.find((d) => d.id === openId);
   useEffect(() => {
-    if (!data.knowledge.some((k) => k.id === selected)) setSelected(data.knowledge[0]?.id ?? '');
+    // A base created from the top bar appears in the list: open it.
+    const added = data.knowledge.find((k) => !knownIds.current.has(k.id));
+    knownIds.current = new Set(data.knowledge.map((k) => k.id));
+    if (added) setSelected(added.id);
+    else if (!data.knowledge.some((k) => k.id === selected)) setSelected(data.knowledge[0]?.id ?? '');
   }, [data.knowledge]);
   async function load() {
     if (!selected) return setDocuments([]);
@@ -158,31 +166,24 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
   const indexing = documents.filter((d) => ['queued', 'indexing'].includes(d.status)).length;
   return (
     <>
-      <PageTitle
-        title="Knowledge"
-        action={
-          <Button onClick={() => edit('knowledge')}>
-            <Plus size={17} />
-            New knowledge base
-          </Button>
-        }
-      />
-      <ErrorNotice error={error} />
       {!data.knowledge.length ? (
-        <Empty
-          icon={<BookOpen size={30} />}
-          title="No knowledge bases yet"
-          text="Create one, then write notes or upload files. Agents search it while they work."
-          action={
-            <Button onClick={() => edit('knowledge')}>
-              <Plus size={16} />
-              Create knowledge base
-            </Button>
-          }
-        />
+        <main className="page-content">
+          <ErrorNotice error={error} />
+          <Empty
+            icon={<BookOpen size={30} />}
+            title="No knowledge bases yet"
+            text="Create one, then write notes or upload files. Agents search it while they work."
+            action={
+              <Button onClick={() => edit('knowledge')}>
+                <Plus size={16} />
+                New knowledge base
+              </Button>
+            }
+          />
+        </main>
       ) : (
         <div
-          className={`kb-shell ${dragging ? 'dragging' : ''}`}
+          className={`playground kb-workspace trace-hidden ${showList ? '' : 'conversations-hidden'} ${dragging ? 'dragging' : ''}`}
           onDragOver={(e) => {
             if (!e.dataTransfer.types.includes('Files')) return;
             e.preventDefault();
@@ -198,231 +199,273 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
             void upload(e.dataTransfer.files);
           }}
         >
-          <aside className="kb-list" aria-label="Knowledge bases">
-            {data.knowledge.map((k) => (
-              <button
-                type="button"
-                key={k.id}
-                className={selected === k.id ? 'active' : ''}
-                onClick={() => setSelected(k.id)}
-              >
-                <BookOpen size={16} />
-                <span>{k.name}</span>
-              </button>
-            ))}
-            <button type="button" className="kb-list-add" onClick={() => edit('knowledge')}>
-              <Plus size={15} />
-              <span>New knowledge base</span>
-            </button>
-          </aside>
-          <section className="kb-files" aria-label="Documents">
-            <div className="kb-files-head">
-              <div className="kb-files-title">
-                <div>
-                  <h3>{kb?.name}</h3>
-                  <small>
-                    {documents.length} {documents.length === 1 ? 'file' : 'files'}
-                    {indexing ? ` · ${indexing} indexing` : ''}
-                    {provider ? ` · ${provider.embeddingModel}` : ' · embedding provider missing'}
-                  </small>
-                </div>
-                <div className="row-actions">
-                  <IconButton title="Knowledge base settings" onClick={() => kb && edit('knowledge', kb)}>
-                    <Settings2 size={16} />
-                  </IconButton>
-                  <IconButton
-                    title="Delete knowledge base"
+          <aside className="conversation-list kb-panel" aria-label="Knowledge bases">
+            <div className="conversation-list-head">
+              <span className="eyebrow">Knowledge bases</span>
+              <IconButton title="Hide knowledge bases" onClick={() => setShowList(false)}>
+                <PanelLeftClose size={16} />
+              </IconButton>
+            </div>
+            <div className="kb-cards">
+              {data.knowledge.map((k) => {
+                const embedding = data.providers.find((p) => p.id === k.providerId)?.embeddingModel;
+                const count = k.id === selected ? documents.length : (k.documentCount ?? 0);
+                return (
+                  <div
+                    key={k.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selected === k.id}
+                    className={`kb-card ${selected === k.id ? 'active' : ''}`}
                     onClick={() => {
-                      if (kb && confirm(`Delete “${kb.name}” and all of its files?`))
-                        void act(async () => {
-                          await api(`/knowledge/${kb.id}`, { method: 'DELETE' });
-                          await refresh();
-                        });
+                      setSelected(k.id);
+                      if (window.innerWidth <= 900) setShowList(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelected(k.id);
+                      }
                     }}
                   >
-                    <Trash2 size={16} />
-                  </IconButton>
-                </div>
-              </div>
-              <div className="kb-files-actions">
-                <Button onClick={newNote}>
-                  <PenLine size={14} />
-                  New note
-                </Button>
-                <Button
-                  variant="secondary"
-                  disabled={busy === 'upload'}
-                  onClick={() => file.current?.click()}
-                >
-                  {busy === 'upload' ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}
-                  Upload
-                </Button>
-                <Button variant="secondary" disabled={!ready} onClick={() => setAsking(true)}>
-                  <MessageSquareText size={14} />
-                  Ask
-                </Button>
-              </div>
-              <input
-                aria-label="Filter documents"
-                className="kb-filter"
-                placeholder="Filter…"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              />
-              <input
-                ref={file}
-                type="file"
-                hidden
-                multiple
-                accept=".txt,.md,.csv,.json,.yaml,.yml,.pdf,.docx"
-                onChange={(e) => void upload(e.target.files)}
-              />
-            </div>
-            <div className="kb-file-list">
-              {!documents.length && (
-                <p className="kb-files-empty">
-                  Nothing here yet. Write a note or drop files anywhere on this panel.
-                </p>
-              )}
-              {shown.map((d) => (
-                <button
-                  type="button"
-                  key={d.id}
-                  className={`kb-file ${openId === d.id ? 'active' : ''}`}
-                  onClick={() => void openDocument(d)}
-                >
-                  {d.kind === 'note' ? <PenLine size={15} /> : <FileText size={15} />}
-                  <span>
-                    <strong>{displayName(d)}</strong>
+                    <div className="kb-card-top">
+                      <span className="kb-card-icon">
+                        <BookOpen size={15} />
+                      </span>
+                      <strong>{k.name}</strong>
+                    </div>
+                    {k.description && <p>{k.description}</p>}
                     <small>
-                      {d.status === 'ready'
-                        ? `${d.chunks ?? 0} passages`
-                        : d.status === 'failed'
-                          ? 'Indexing failed'
-                          : d.status}
-                      {' · '}
-                      {timestamp(d.updatedAt ?? d.createdAt)}
+                      {count} {count === 1 ? 'file' : 'files'}
+                      {embedding ? ` · ${embedding}` : ''}
                     </small>
-                  </span>
-                  <i className={`dot ${d.status}`} />
-                </button>
-              ))}
-            </div>
-          </section>
-          <section className="kb-editor" aria-label="Editor">
-            {note ? (
-              <>
-                <div className="kb-editor-head">
-                  <input
-                    ref={titleInput}
-                    // A new note opens with the title focused; no delayed focus that could steal typing.
-                    autoFocus={!note.id}
-                    aria-label="Note title"
-                    className="kb-title"
-                    placeholder="Untitled note"
-                    value={note.title}
-                    onChange={(e) => setNote({ ...note, title: e.target.value, dirty: true })}
-                  />
-                  {current && <Status status={current.status} />}
-                  <Button disabled={busy === 'save' || !note.dirty} onClick={() => void saveNote()}>
-                    {busy === 'save' ? <LoaderCircle className="spin" size={14} /> : null}
-                    {note.dirty ? 'Save' : 'Saved'}
-                  </Button>
-                  {current && (
-                    <>
+                    <div className="kb-card-actions" onClick={(e) => e.stopPropagation()}>
+                      <IconButton title={`Settings for ${k.name}`} onClick={() => edit('knowledge', k)}>
+                        <Settings2 size={14} />
+                      </IconButton>
                       <IconButton
-                        title="Reindex"
-                        disabled={!['ready', 'failed'].includes(current.status)}
-                        onClick={() =>
-                          void act(async () => send(`/documents/${current.id}/reindex`).then(load))
-                        }
+                        title={`Delete ${k.name}`}
+                        onClick={() => {
+                          if (confirm(`Delete “${k.name}” and all of its files?`))
+                            void act(async () => {
+                              await api(`/knowledge/${k.id}`, { method: 'DELETE' });
+                              await refresh();
+                            });
+                        }}
                       >
-                        <RefreshCw size={15} />
+                        <Trash2 size={14} />
                       </IconButton>
-                      <IconButton title="Delete note" onClick={() => void removeDocument(current)}>
-                        <Trash2 size={15} />
-                      </IconButton>
-                    </>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+          <div className="kb-main">
+            <section className="kb-files" aria-label="Documents">
+              <div className="kb-files-head">
+                <ErrorNotice error={error} />
+                <div className="kb-files-title">
+                  {!showList && (
+                    <IconButton title="Show knowledge bases" onClick={() => setShowList(true)}>
+                      <PanelLeftOpen size={16} />
+                    </IconButton>
                   )}
+                  <div>
+                    <h3>{kb?.name}</h3>
+                    <small>
+                      {documents.length} {documents.length === 1 ? 'file' : 'files'}
+                      {indexing ? ` · ${indexing} indexing` : ''}
+                      {provider ? ` · ${provider.embeddingModel}` : ' · embedding provider missing'}
+                    </small>
+                  </div>
                 </div>
-                <textarea
-                  aria-label="Note content"
-                  className="kb-note"
-                  placeholder="Write in Markdown. Saving re-indexes the note so agents can find it."
-                  value={note.content}
-                  spellCheck
-                  onChange={(e) => setNote({ ...note, content: e.target.value, dirty: true })}
-                  onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-                      e.preventDefault();
-                      void saveNote();
-                    }
-                  }}
-                />
-                <div className="kb-editor-foot">
-                  <span>
-                    {note.content.trim() ? `${note.content.trim().split(/\s+/).length} words` : 'Empty'}
-                  </span>
-                  {current?.error && <span className="error-text">{current.error}</span>}
-                  <span className="grow" />
-                  <span>{note.dirty ? 'Unsaved changes · ⌘S to save' : 'Indexed on save'}</span>
-                </div>
-              </>
-            ) : preview && current ? (
-              <>
-                <div className="kb-editor-head">
-                  <FileText size={18} />
-                  <h3 className="kb-title-static">{current.filename}</h3>
-                  <Status status={current.status} />
-                  <a className="icon-button" href={`/api/documents/${current.id}/download`} title="Download">
-                    <Download size={15} />
-                  </a>
-                  <IconButton
-                    title="Reindex"
-                    disabled={!['ready', 'failed'].includes(current.status)}
-                    onClick={() => void act(async () => send(`/documents/${current.id}/reindex`).then(load))}
-                  >
-                    <RefreshCw size={15} />
-                  </IconButton>
-                  <IconButton title="Delete document" onClick={() => void removeDocument(current)}>
-                    <Trash2 size={15} />
-                  </IconButton>
-                </div>
-                <div className="kb-preview">
-                  <ErrorNotice error={preview.error ?? current.error} />
-                  <p className="kb-meta">
-                    {Math.max(1, Math.round(current.size / 1024))} KB · {current.chunks ?? 0} passages · added{' '}
-                    {timestamp(current.createdAt)}
-                  </p>
-                  {preview.content ? (
-                    <pre>{preview.content.slice(0, 20000)}</pre>
-                  ) : (
-                    <p className="field-help">
-                      Preview is not available for this file type. Download to view.
-                    </p>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="kb-empty">
-                <PenLine size={26} />
-                <h3>{documents.length ? 'Pick a file' : 'Start writing'}</h3>
-                <p>
-                  Notes and uploads are indexed with {provider?.embeddingModel ?? 'your embedding model'}.
-                </p>
-                <div className="row-actions">
+                <div className="kb-files-actions">
                   <Button onClick={newNote}>
                     <PenLine size={14} />
                     New note
                   </Button>
-                  <Button variant="secondary" onClick={() => file.current?.click()}>
-                    <Upload size={14} />
-                    Upload files
+                  <Button
+                    variant="secondary"
+                    disabled={busy === 'upload'}
+                    onClick={() => file.current?.click()}
+                  >
+                    {busy === 'upload' ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}
+                    Upload
+                  </Button>
+                  <Button variant="secondary" disabled={!ready} onClick={() => setAsking(true)}>
+                    <MessageSquareText size={14} />
+                    Ask
                   </Button>
                 </div>
+                <input
+                  aria-label="Filter documents"
+                  className="kb-filter"
+                  placeholder="Filter…"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                />
+                <input
+                  ref={file}
+                  type="file"
+                  hidden
+                  multiple
+                  accept=".txt,.md,.csv,.json,.yaml,.yml,.pdf,.docx"
+                  onChange={(e) => void upload(e.target.files)}
+                />
               </div>
-            )}
-          </section>
+              <div className="kb-file-list">
+                {!documents.length && (
+                  <p className="kb-files-empty">
+                    Nothing here yet. Write a note or drop files anywhere on this panel.
+                  </p>
+                )}
+                {shown.map((d) => (
+                  <button
+                    type="button"
+                    key={d.id}
+                    className={`kb-file ${openId === d.id ? 'active' : ''}`}
+                    onClick={() => void openDocument(d)}
+                  >
+                    {d.kind === 'note' ? <PenLine size={15} /> : <FileText size={15} />}
+                    <span>
+                      <strong>{displayName(d)}</strong>
+                      <small>
+                        {d.status === 'ready'
+                          ? `${d.chunks ?? 0} passages`
+                          : d.status === 'failed'
+                            ? 'Indexing failed'
+                            : d.status}
+                        {' · '}
+                        {timestamp(d.updatedAt ?? d.createdAt)}
+                      </small>
+                    </span>
+                    <i className={`dot ${d.status}`} />
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="kb-editor" aria-label="Editor">
+              {note ? (
+                <>
+                  <div className="kb-editor-head">
+                    <input
+                      ref={titleInput}
+                      // A new note opens with the title focused; no delayed focus that could steal typing.
+                      autoFocus={!note.id}
+                      aria-label="Note title"
+                      className="kb-title"
+                      placeholder="Untitled note"
+                      value={note.title}
+                      onChange={(e) => setNote({ ...note, title: e.target.value, dirty: true })}
+                    />
+                    {current && <Status status={current.status} />}
+                    <Button disabled={busy === 'save' || !note.dirty} onClick={() => void saveNote()}>
+                      {busy === 'save' ? <LoaderCircle className="spin" size={14} /> : null}
+                      {note.dirty ? 'Save' : 'Saved'}
+                    </Button>
+                    {current && (
+                      <>
+                        <IconButton
+                          title="Reindex"
+                          disabled={!['ready', 'failed'].includes(current.status)}
+                          onClick={() =>
+                            void act(async () => send(`/documents/${current.id}/reindex`).then(load))
+                          }
+                        >
+                          <RefreshCw size={15} />
+                        </IconButton>
+                        <IconButton title="Delete note" onClick={() => void removeDocument(current)}>
+                          <Trash2 size={15} />
+                        </IconButton>
+                      </>
+                    )}
+                  </div>
+                  <textarea
+                    aria-label="Note content"
+                    className="kb-note"
+                    placeholder="Write in Markdown. Saving re-indexes the note so agents can find it."
+                    value={note.content}
+                    spellCheck
+                    onChange={(e) => setNote({ ...note, content: e.target.value, dirty: true })}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+                        e.preventDefault();
+                        void saveNote();
+                      }
+                    }}
+                  />
+                  <div className="kb-editor-foot">
+                    <span>
+                      {note.content.trim() ? `${note.content.trim().split(/\s+/).length} words` : 'Empty'}
+                    </span>
+                    {current?.error && <span className="error-text">{current.error}</span>}
+                    <span className="grow" />
+                    <span>{note.dirty ? 'Unsaved changes · ⌘S to save' : 'Indexed on save'}</span>
+                  </div>
+                </>
+              ) : preview && current ? (
+                <>
+                  <div className="kb-editor-head">
+                    <FileText size={18} />
+                    <h3 className="kb-title-static">{current.filename}</h3>
+                    <Status status={current.status} />
+                    <a
+                      className="icon-button"
+                      href={`/api/documents/${current.id}/download`}
+                      title="Download"
+                    >
+                      <Download size={15} />
+                    </a>
+                    <IconButton
+                      title="Reindex"
+                      disabled={!['ready', 'failed'].includes(current.status)}
+                      onClick={() =>
+                        void act(async () => send(`/documents/${current.id}/reindex`).then(load))
+                      }
+                    >
+                      <RefreshCw size={15} />
+                    </IconButton>
+                    <IconButton title="Delete document" onClick={() => void removeDocument(current)}>
+                      <Trash2 size={15} />
+                    </IconButton>
+                  </div>
+                  <div className="kb-preview">
+                    <ErrorNotice error={preview.error ?? current.error} />
+                    <p className="kb-meta">
+                      {Math.max(1, Math.round(current.size / 1024))} KB · {current.chunks ?? 0} passages ·
+                      added {timestamp(current.createdAt)}
+                    </p>
+                    {preview.content ? (
+                      <pre>{preview.content.slice(0, 20000)}</pre>
+                    ) : (
+                      <p className="field-help">
+                        Preview is not available for this file type. Download to view.
+                      </p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="kb-empty">
+                  <PenLine size={26} />
+                  <h3>{documents.length ? 'Pick a file' : 'Start writing'}</h3>
+                  <p>
+                    Notes and uploads are indexed with {provider?.embeddingModel ?? 'your embedding model'}.
+                  </p>
+                  <div className="row-actions">
+                    <Button onClick={newNote}>
+                      <PenLine size={14} />
+                      New note
+                    </Button>
+                    <Button variant="secondary" onClick={() => file.current?.click()}>
+                      <Upload size={14} />
+                      Upload files
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
         </div>
       )}
       {asking && kb && (

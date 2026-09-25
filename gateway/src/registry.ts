@@ -1,6 +1,6 @@
 // Storage contracts for the gateway. Everything the gateway persists goes through these two interfaces, so
 // swapping MongoDB for another database (for example PostgreSQL) means adding one implementation of each.
-import type { Platform } from '@agentic/connector-core';
+import type { Platform } from '@openharness/connector-core';
 
 export type DeviceRecord = {
   device_id: string;

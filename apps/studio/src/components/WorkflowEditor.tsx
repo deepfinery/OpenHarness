@@ -102,7 +102,7 @@ const labels = {
   mcp: 'MCP tools',
   knowledge: 'Knowledge',
 };
-const MIME = 'application/agentic-node';
+const MIME = 'application/openharness-node';
 const stepTypes: StepType[] = ['agent', 'condition', 'parallel', 'tool', 'email', 'finish'];
 const stepHints: Record<StepType, string> = {
   agent: 'Reasons and acts',

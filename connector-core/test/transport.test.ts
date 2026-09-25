@@ -70,7 +70,7 @@ test('client transport: hello on open, MCP after welcome, resume and backoff on 
   t.onmessage = (m) => received.push(m);
   await t.start();
   const s1 = FakeSocket.instances[0];
-  assert.deepEqual(s1.protocols, ['agentic-mcp.v1']);
+  assert.deepEqual(s1.protocols, ['openharness-mcp.v1']);
   await assert.rejects(t.send({ jsonrpc: '2.0', method: 'x' } as any), /not connected/);
   s1.open();
   const hello = JSON.parse(s1.sent[0]);

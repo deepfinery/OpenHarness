@@ -8,7 +8,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpError } from '@modelcontextprotocol/sdk/types.js';
-import { WebSocketClientTransport, silentLogger } from '@agentic/connector-core';
+import { WebSocketClientTransport, silentLogger } from '@openharness/connector-core';
 import { gatewayConfigSchema } from '../src/config.js';
 import { startGateway, type Gateway } from '../src/server.js';
 import { memoryStorage } from '../src/registry.js';

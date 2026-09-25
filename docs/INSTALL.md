@@ -89,13 +89,13 @@ npm --prefix connector-linux ci && npm --prefix connector-linux run build
 sudo GATEWAY_URL=wss://gateway.example.com/connect DEVICE_ID=box-1 DEVICE_TOKEN=dv_… sh connector-linux/install.sh
 ```
 
-The script creates the `agentic-connector` system user, installs to `/opt/agentic-connector`, writes the
-token to `/etc/agentic-connector/token` (mode 600) and the config to `/etc/agentic-connector/config.json`,
-and enables the hardened `agentic-connector` systemd unit (`ProtectSystem=strict`, `NoNewPrivileges=yes`,
-`ReadWritePaths=/var/lib/agentic-connector`, no capabilities). The work directory the agent may read and
-write is `/var/lib/agentic-connector/work`; the command allow-list starts with read-mostly programs (`ls`,
+The script creates the `openharness-connector` system user, installs to `/opt/openharness-connector`, writes the
+token to `/etc/openharness-connector/token` (mode 600) and the config to `/etc/openharness-connector/config.json`,
+and enables the hardened `openharness-connector` systemd unit (`ProtectSystem=strict`, `NoNewPrivileges=yes`,
+`ReadWritePaths=/var/lib/openharness-connector`, no capabilities). The work directory the agent may read and
+write is `/var/lib/openharness-connector/work`; the command allow-list starts with read-mostly programs (`ls`,
 `cat`, `grep`, `df`, `systemctl`, `journalctl`, `git`, `docker`, …) and `rm`, `dd`, `sudo`, `shutdown` are
-denied. Edit `config.json` (see `connector-linux/config.example.json`) and `systemctl restart agentic-connector`.
+denied. Edit `config.json` (see `connector-linux/config.example.json`) and `systemctl restart openharness-connector`.
 
 Firewall: only outbound 443 to the gateway is needed. To pin it, uncomment `IPAddressAllow` in the unit.
 
@@ -106,10 +106,10 @@ Verify locally without a gateway: `CONNECTOR_STDIO=1 WORK_DIR=$PWD npx @modelcon
 Any Docker host, including the orchestrator's own:
 
 ```sh
-docker build -f connector-linux/Dockerfile -t agentic-connector-linux .
-docker run -d --name agentic-box-1 --restart unless-stopped \
+docker build -f connector-linux/Dockerfile -t openharness-connector-linux .
+docker run -d --name openharness-box-1 --restart unless-stopped \
   -e GATEWAY_URL=wss://gateway.example.com/connect -e DEVICE_ID=box-1 -e DEVICE_TOKEN=dv_… \
-  -v "$PWD/machine-work:/work" agentic-connector-linux
+  -v "$PWD/machine-work:/work" openharness-connector-linux
 ```
 
 The image runs as the `node` user with `/work` as the work directory and `ALLOW_COMMANDS=ls,cat,grep,find,head,tail,wc,df,du,uname,uptime,ps,env,echo,date,sh`.
@@ -143,11 +143,11 @@ enrollment so the tokens and allow-lists are in place. Notes that apply when the
 
 ## 7. Troubleshooting
 
-| Symptom                                 | Check                                                                                                                                                                                      |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Machine stays **offline** after install | `journalctl -u agentic-connector -f` (or `docker logs`). Close code 4001 = wrong token or not enrolled; 4003 = disabled or platform mismatch; TLS errors = `GATEWAY_URL` must be `wss://`. |
-| Online but **no tools**                 | Click **Sync** on the Machines page; the connector's `ALLOW_COMMANDS` does not affect the tool list, the machine's allowed tools in the studio do.                                         |
-| `tool not allowed`                      | Add the tool in the machine's **Tools** dialog (gateway allow-list).                                                                                                                       |
-| `command is not on the allow-list`      | Add the program to `allow_commands` in the connector config (host) or `ALLOW_COMMANDS` (container).                                                                                        |
-| `device timeout`                        | Raise `GATEWAY_TOOL_TIMEOUTS=run_command=600` or the connector's `command_timeout_seconds`.                                                                                                |
-| Studio says the gateway is unreachable  | `docker compose ps gateway`, `GATEWAY_URL` from the api container, `GATEWAY_ADMIN_TOKEN` matches.                                                                                          |
+| Symptom                                 | Check                                                                                                                                                                                          |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Machine stays **offline** after install | `journalctl -u openharness-connector -f` (or `docker logs`). Close code 4001 = wrong token or not enrolled; 4003 = disabled or platform mismatch; TLS errors = `GATEWAY_URL` must be `wss://`. |
+| Online but **no tools**                 | Click **Sync** on the Machines page; the connector's `ALLOW_COMMANDS` does not affect the tool list, the machine's allowed tools in the studio do.                                             |
+| `tool not allowed`                      | Add the tool in the machine's **Tools** dialog (gateway allow-list).                                                                                                                           |
+| `command is not on the allow-list`      | Add the program to `allow_commands` in the connector config (host) or `ALLOW_COMMANDS` (container).                                                                                            |
+| `device timeout`                        | Raise `GATEWAY_TOOL_TIMEOUTS=run_command=600` or the connector's `command_timeout_seconds`.                                                                                                    |
+| Studio says the gateway is unreachable  | `docker compose ps gateway`, `GATEWAY_URL` from the api container, `GATEWAY_ADMIN_TOKEN` matches.                                                                                              |

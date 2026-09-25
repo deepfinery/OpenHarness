@@ -601,7 +601,7 @@ export function EmbedChat({ id }: { id: string }) {
         </div>
         <div>
           <strong>{name}</strong>
-          <small>Powered by Agentic</small>
+          <small>Powered by OpenHarness</small>
         </div>
       </header>
       <div className="embed-messages">

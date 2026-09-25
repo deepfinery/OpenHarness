@@ -14,7 +14,7 @@ import {
   type HelloFrame,
   type Logger,
   type Platform,
-} from '@agentic/connector-core';
+} from '@openharness/connector-core';
 import type { Registry } from './registry.js';
 import { verifyDeviceToken } from './tokens.js';
 
@@ -193,7 +193,7 @@ export class DeviceHub {
       session.missedPings = 0;
     };
     transport.onerror = (error) => log.warn('device transport error', { error: error.message });
-    const client = new Client({ name: 'agentic-gateway', version: '0.1.0' }, { capabilities: {} });
+    const client = new Client({ name: 'openharness-gateway', version: '0.1.0' }, { capabilities: {} });
     client.setNotificationHandler(
       // The connector tells us when its tool list changes; refresh the cache and let orchestrator sessions know.
       (await import('@modelcontextprotocol/sdk/types.js')).ToolListChangedNotificationSchema,

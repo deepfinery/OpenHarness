@@ -32,7 +32,7 @@ async function waitRun(id: string) {
   throw new Error('Run did not finish');
 }
 const stats = async () => (await (await fetch(`${fixture}/stats`)).json()) as any;
-const admin = { email: 'admin@agentic.test', password: 'Integration-test-password-42' };
+const admin = { email: 'admin@openharness.test', password: 'Integration-test-password-42' };
 before(async () => {
   // This file sorts before stack.test.ts, so it may be the first to touch a fresh stack.
   const status = await (await fetch(base + '/api/auth/status')).json();

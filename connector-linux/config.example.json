@@ -2,8 +2,8 @@
   "gateway_url": "wss://gateway.example.com/connect",
   "device_id": "laptop-1",
   "platform": "linux",
-  "token_file": "/etc/agentic-connector/token",
-  "work_dir": "/var/lib/agentic-connector/work",
+  "token_file": "/etc/openharness-connector/token",
+  "work_dir": "/var/lib/openharness-connector/work",
   "allow_commands": [
     "ls",
     "cat",
@@ -27,6 +27,6 @@
   "max_output_bytes": 200000,
   "command_timeout_seconds": 60,
   "read_only": false,
-  "audit_file": "/var/lib/agentic-connector/audit.jsonl",
+  "audit_file": "/var/lib/openharness-connector/audit.jsonl",
   "log_level": "info"
 }

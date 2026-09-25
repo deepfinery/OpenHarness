@@ -114,15 +114,22 @@ const definitions = {
 for (const [kind, schema] of Object.entries(definitions)) {
   const records = () => collection<Resource>(kind);
   resources.get(`/${kind}`, async (req, res) => {
-    res.json(
-      (
-        await records()
-          .find({ ownerId: req.principal!.tenantId })
-          .sort({ createdAt: -1 })
-          .limit(500)
-          .toArray()
-      ).map(publicResource),
+    const ownerId = req.principal!.tenantId;
+    const list = (await records().find({ ownerId }).sort({ createdAt: -1 }).limit(500).toArray()).map(
+      publicResource,
     );
+    if (kind === 'knowledge' && list.length) {
+      // File counts for the knowledge-base cards, in one grouped query.
+      const counts = await collection<KnowledgeDocument>('documents')
+        .aggregate<{ _id: string; n: number }>([
+          { $match: { ownerId, status: { $ne: 'deleting' } } },
+          { $group: { _id: '$knowledgeBaseId', n: { $sum: 1 } } },
+        ])
+        .toArray();
+      const byId = new Map(counts.map((c) => [c._id, c.n]));
+      for (const k of list) (k as Record<string, unknown>).documentCount = byId.get(k.id) ?? 0;
+    }
+    res.json(list);
   });
   resources.get(`/${kind}/:id`, async (req, res) => {
     const record = await records().findOne({ _id: String(req.params.id), ownerId: req.principal!.tenantId });

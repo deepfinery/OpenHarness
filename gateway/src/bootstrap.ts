@@ -1,6 +1,6 @@
 // Pre-enrolled devices from the environment (tests, demos, fleets provisioned by configuration management).
 import { z } from 'zod';
-import { deviceIdPattern, platforms, type Logger } from '@agentic/connector-core';
+import { deviceIdPattern, platforms, type Logger } from '@openharness/connector-core';
 import type { Registry } from './registry.js';
 import { hashDeviceToken } from './tokens.js';
 

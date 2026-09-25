@@ -1,4 +1,5 @@
-name: agentic-orchestration
+# Existing installations keep their original project (and so their volumes) through COMPOSE_PROJECT_NAME in .env.
+name: openharness
 
 x-app-environment: &app-environment
   NODE_ENV: production
@@ -35,7 +36,7 @@ services:
 
   api:
     build: .
-    image: agentic-orchestration:local
+    image: openharness:local
     init: true
     environment: *app-environment
     ports: ['${STUDIO_BIND:-127.0.0.1}:${STUDIO_PORT:-8088}:8088']
@@ -63,7 +64,7 @@ services:
       start_period: 30s
 
   runner:
-    image: agentic-orchestration:local
+    image: openharness:local
     pull_policy: never
     command: ['node', 'dist/apps/runner/src/worker.js']
     init: true
@@ -85,7 +86,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "const fs=require('fs');process.exit(Date.now()-Number(fs.readFileSync('/tmp/agentic-worker-heartbeat','utf8'))<20000?0:1)",
+          "const fs=require('fs');process.exit(Date.now()-Number(fs.readFileSync('/tmp/openharness-worker-heartbeat','utf8'))<20000?0:1)",
         ]
       interval: 15s
       timeout: 5s
@@ -94,7 +95,7 @@ services:
 
   gateway:
     build: { context: ., dockerfile: gateway/Dockerfile }
-    image: agentic-gateway:local
+    image: openharness-gateway:local
     init: true
     environment:
       PORT: 8090

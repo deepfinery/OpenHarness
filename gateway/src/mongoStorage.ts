@@ -92,7 +92,7 @@ export async function connectMongoStorage(
   database: string,
   retentionDays: number,
 ): Promise<Storage> {
-  const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10_000, appName: 'agentic-gateway' });
+  const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10_000, appName: 'openharness-gateway' });
   await client.connect();
   const db = client.db(database);
   const devices = db.collection<DeviceDoc>('devices');

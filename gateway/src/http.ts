@@ -4,7 +4,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { deviceIdPattern, platforms, type Logger } from '@agentic/connector-core';
+import { deviceIdPattern, platforms, type Logger } from '@openharness/connector-core';
 import { approvalTools, toolTimeouts, type GatewayConfig } from './config.js';
 import type { DeviceHub } from './hub.js';
 import { DuplicateDeviceError, type Registry } from './registry.js';

@@ -7,7 +7,7 @@ import { safeError } from '../../../packages/core/src/security.js';
 
 await connectDatabase();
 const server = app.listen(config.PORT, '0.0.0.0', () =>
-  console.log(`Agentic studio listening on port ${config.PORT}`),
+  console.log(`OpenHarness studio listening on port ${config.PORT}`),
 );
 let dispatching = false;
 async function tick() {

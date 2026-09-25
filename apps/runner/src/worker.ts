@@ -181,11 +181,11 @@ const consumer = await channel.consume(JOB_QUEUE, (msg) => {
   void task.finally(() => tasks.delete(task));
 });
 const health = setInterval(
-  () => void writeFile('/tmp/agentic-worker-heartbeat', String(Date.now())).catch(() => {}),
+  () => void writeFile('/tmp/openharness-worker-heartbeat', String(Date.now())).catch(() => {}),
   5000,
 );
-await writeFile('/tmp/agentic-worker-heartbeat', String(Date.now()));
-console.log('Agentic runner is ready');
+await writeFile('/tmp/openharness-worker-heartbeat', String(Date.now()));
+console.log('OpenHarness runner is ready');
 async function shutdown() {
   if (stopping) return;
   stopping = true;

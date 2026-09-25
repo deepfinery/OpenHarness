@@ -1,4 +1,4 @@
-# Agentic Orchestration
+# OpenHarness
 
 A self-hosted studio for AI agents, MCP tools, and knowledge. Build agents from templates, wire them into visual multi-agent workflows, watch every step stream in the playground, and expose the result through an API, a conversation, a webhook, an email, or an embedded chat — all on your own infrastructure.
 

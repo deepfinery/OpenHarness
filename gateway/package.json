@@ -1,5 +1,5 @@
 {
-  "name": "@agentic/gateway",
+  "name": "@openharness/gateway",
   "version": "0.1.0",
   "description": "Device gateway: devices dial out over WebSocket; the orchestrator reaches each one as a Streamable HTTP MCP server.",
   "license": "Apache-2.0",
@@ -9,7 +9,7 @@
     "node": ">=22.13"
   },
   "bin": {
-    "agentic-gateway": "./dist/cli.js"
+    "openharness-gateway": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -19,7 +19,7 @@
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@agentic/connector-core": "file:../connector-core",
+    "@openharness/connector-core": "file:../connector-core",
     "@modelcontextprotocol/sdk": "1.30.1",
     "@node-rs/argon2": "2.2.1",
     "express": "5.1.0",

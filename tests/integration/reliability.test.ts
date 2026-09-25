@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { makeStarter } from '../../packages/core/src/starters.js';
 
 const enabled = process.env.TEST_FAULT_INJECTION === 'true';
-const project = process.env.TEST_COMPOSE_PROJECT ?? 'agentic-orchestration-test';
+const project = process.env.TEST_COMPOSE_PROJECT ?? 'openharness-test';
 const base = process.env.TEST_BASE_URL ?? 'http://localhost:8088';
 const fixture = process.env.TEST_FIXTURE_URL ?? 'http://localhost:19090';
 const command = promisify(execFile);
@@ -18,8 +18,8 @@ let providerId = '';
 let connectionId = '';
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function compose(...args: string[]) {
-  if (!project.startsWith('agentic-test-') && project !== 'agentic-orchestration-test')
-    throw new Error('Fault injection is restricted to isolated agentic test projects');
+  if (!project.startsWith('openharness-test-') && project !== 'openharness-test')
+    throw new Error('Fault injection is restricted to isolated OpenHarness test projects');
   await command(
     'docker',
     ['compose', '-p', project, '-f', 'compose.yaml', '-f', 'tests/compose.test.yaml', ...args],
@@ -48,7 +48,7 @@ async function until<T>(get: () => Promise<T>, check: (v: T) => boolean, timeout
 }
 before(async () => {
   if (!enabled) return;
-  const admin = { email: 'admin@agentic.test', password: 'Integration-test-password-42' };
+  const admin = { email: 'admin@openharness.test', password: 'Integration-test-password-42' };
   const status = await request('/auth/status');
   if (status.needsSetup) {
     const setupToken = (await readFile('.env', 'utf8'))

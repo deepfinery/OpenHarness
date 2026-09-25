@@ -1,11 +1,11 @@
 # Standalone deployment of the gateway with Caddy in front. From the repository root:
 #   GATEWAY_MONGO_PASSWORD=$(openssl rand -hex 24) GATEWAY_API_TOKENS=orchestrator:$(openssl rand -hex 32) \
 #   GATEWAY_ADMIN_TOKEN=$(openssl rand -hex 32) docker compose -f gateway/compose.yaml up --build -d
-name: agentic-gateway
+name: openharness-gateway
 services:
   gateway:
     build: { context: .., dockerfile: gateway/Dockerfile }
-    image: agentic-gateway:local
+    image: openharness-gateway:local
     init: true
     environment:
       GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-wss://gateway.example.com}

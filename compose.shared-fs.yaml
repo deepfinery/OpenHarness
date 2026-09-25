@@ -1,4 +1,4 @@
-# Example: FILES_PATH=/mnt/agentic docker compose -f compose.yaml -f compose.shared-fs.yaml up -d
+# Example: FILES_PATH=/mnt/openharness docker compose -f compose.yaml -f compose.shared-fs.yaml up -d
 # Mount the same host/NFS directory into the API and every runner. UID 1000 must be able to write.
 volumes:
   files:

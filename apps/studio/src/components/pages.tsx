@@ -267,14 +267,14 @@ export function ConnectionsPage({ data, edit, act, refresh }: PageProps) {
       void finish(params.get('connection'));
     }
     const listener = (event: MessageEvent) => {
-      if (event.origin === location.origin && event.data?.type === 'agentic-oauth')
+      if (event.origin === location.origin && event.data?.type === 'openharness-oauth')
         void finish(event.data.connection);
     };
     addEventListener('message', listener);
     return () => removeEventListener('message', listener);
   }, []);
   function authorize(c: Entity) {
-    const popup = window.open('about:blank', 'agentic-mcp-authorization', 'width=640,height=760');
+    const popup = window.open('about:blank', 'openharness-mcp-authorization', 'width=640,height=760');
     perform(c.id, async () => {
       try {
         const result = await send(`/connections/${c.id}/oauth`);

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Operator CLI working directly on the registry, so devices can be enrolled before the gateway runs.
-//   agentic-gateway enroll --id laptop-1 --platform linux [--name "Laptop"] [--owner team] [--allow run_command,read_file]
-//   agentic-gateway list | allow <id> tool,tool | disable <id> | enable <id> | remove <id> | rotate <id>
+//   openharness-gateway enroll --id laptop-1 --platform linux [--name "Laptop"] [--owner team] [--allow run_command,read_file]
+//   openharness-gateway list | allow <id> tool,tool | disable <id> | enable <id> | remove <id> | rotate <id>
 import { loadConfig } from './config.js';
 import { createStorage } from './registry.js';
 import { generateDeviceToken, hashDeviceToken } from './tokens.js';
-import { deviceIdPattern, platforms } from '@agentic/connector-core';
+import { deviceIdPattern, platforms } from '@openharness/connector-core';
 
 function flags(argv: string[]) {
   const out: Record<string, string> = {};
@@ -85,7 +85,7 @@ try {
     }
     default:
       print(
-        'usage: agentic-gateway enroll --id <id> --platform linux|windows|chrome [--name n] [--owner o] [--allow t1,t2] | list [--owner o] | allow <id> t1,t2 | disable <id> | enable <id> | remove <id> | rotate <id>',
+        'usage: openharness-gateway enroll --id <id> --platform linux|windows|chrome [--name n] [--owner o] [--allow t1,t2] | list [--owner o] | allow <id> t1,t2 | disable <id> | enable <id> | remove <id> | rotate <id>',
       );
       process.exitCode = command ? 1 : 0;
   }

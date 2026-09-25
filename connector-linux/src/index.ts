@@ -1,6 +1,6 @@
 // Programmatic entry point: build a connector server without starting a transport (used by tests and the CLI).
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { Policy, createAuditLog, type ConnectorConfig } from '@agentic/connector-core';
+import { Policy, createAuditLog, type ConnectorConfig } from '@openharness/connector-core';
 import { linuxToolNames, registerLinuxTools } from './tools.js';
 
 export { linuxToolNames, registerLinuxTools };
@@ -18,7 +18,7 @@ export async function createConnectorServer(config: ConnectorConfig) {
   });
   const audit = createAuditLog(config.audit_file);
   const server = new McpServer(
-    { name: 'agentic-connector-linux', version: connectorVersion },
+    { name: 'openharness-connector-linux', version: connectorVersion },
     { capabilities: { tools: { listChanged: true } } },
   );
   registerLinuxTools(server, { policy, audit, hostname: config.hostname });

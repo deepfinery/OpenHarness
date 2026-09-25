@@ -6,7 +6,7 @@ let sessionCookies: Awaited<
 test.beforeAll(async ({ request }) => {
   const response = await request.post('/api/auth/login', {
     headers: { Origin: process.env.TEST_BASE_URL ?? 'http://localhost:8088' },
-    data: { email: 'admin@agentic.test', password: 'Integration-test-password-42' },
+    data: { email: 'admin@openharness.test', password: 'Integration-test-password-42' },
   });
   expect(response.status()).toBe(200);
   sessionCookies = (await request.storageState()).cookies;
@@ -48,7 +48,7 @@ test('trimmed navigation, providers, agents and connections load without browser
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
   }
   await page.getByRole('button', { name: 'My profile', exact: true }).click();
-  await expect(page.getByLabel('Profile email')).toHaveValue('admin@agentic.test');
+  await expect(page.getByLabel('Profile email')).toHaveValue('admin@openharness.test');
   await expect(page.locator('nav')).not.toContainText(/Customers|Billing|Reports|Website|Wizard|Portal/);
   expect(errors).toEqual([]);
 });
@@ -296,7 +296,7 @@ test('workspace admin adds a teammate who can open and edit shared workflows', a
   await page.getByRole('button', { name: 'Team & workspace', exact: true }).click();
   await page.getByRole('button', { name: 'Add teammate', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Add a teammate' });
-  const email = `browser-teammate-${Date.now()}@agentic.test`;
+  const email = `browser-teammate-${Date.now()}@openharness.test`;
   await dialog.getByLabel('New account name').fill('Browser teammate');
   await dialog.getByLabel('New account email').fill(email);
   await dialog.getByLabel('New account password').fill('Browser-teammate-password-42');

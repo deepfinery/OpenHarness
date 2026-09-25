@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { JSONRPCMessageSchema, type JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 export const PROTOCOL_VERSION = 1 as const;
-export const SUBPROTOCOL = 'agentic-mcp.v1';
+export const SUBPROTOCOL = 'openharness-mcp.v1';
+/** Accepted from connectors built before the rename; never offered by current ones. */
+export const LEGACY_SUBPROTOCOLS = ['agentic-mcp.v1'];
 export const MAX_FRAME_BYTES = 4 * 1024 * 1024;
 export const HANDSHAKE_TIMEOUT_MS = 10_000;
 export const DEFAULT_HEARTBEAT_SECONDS = 30;

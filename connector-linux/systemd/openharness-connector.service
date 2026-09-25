@@ -1,14 +1,14 @@
 [Unit]
-Description=Agentic device connector (MCP over outbound WebSocket)
+Description=OpenHarness device connector (MCP over outbound WebSocket)
 Documentation=https://github.com/deepfinery/orchestrator/blob/main/docs/INSTALL.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=agentic-connector
-Group=agentic-connector
-ExecStart=/usr/bin/node /opt/agentic-connector/connector-linux/dist/main.js --config /etc/agentic-connector/config.json
+User=openharness-connector
+Group=openharness-connector
+ExecStart=/usr/bin/node /opt/openharness-connector/connector-linux/dist/main.js --config /etc/openharness-connector/config.json
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
@@ -25,8 +25,8 @@ RestrictSUIDSGID=true
 RestrictRealtime=true
 LockPersonality=true
 MemoryDenyWriteExecute=false
-ReadWritePaths=/var/lib/agentic-connector
-ReadOnlyPaths=/etc/agentic-connector
+ReadWritePaths=/var/lib/openharness-connector
+ReadOnlyPaths=/etc/openharness-connector
 CapabilityBoundingSet=
 AmbientCapabilities=
 SystemCallArchitectures=native

@@ -97,7 +97,7 @@ The gateway does not invent an RPC layer. It is an MCP **client** towards each d
   keeps the client for the life of the socket.
 - Towards the orchestrator: one SDK `Server` + `StreamableHTTPServerTransport` per device endpoint
   session. Its request handlers forward to the device client:
-  - `initialize` is answered by the gateway (server info `agentic-gateway`, capabilities `tools`,
+  - `initialize` is answered by the gateway (server info `openharness-gateway`, capabilities `tools`,
     `listChanged`), so the endpoint exists even while the device is offline.
   - `tools/list` → `deviceClient.listTools()` filtered by the device's `allowed_tools`.
   - `tools/call` → allow-list check → approval hook → `deviceClient.callTool(params, { timeout })`.
@@ -111,13 +111,13 @@ timeouts are the SDK's `RequestOptions.timeout` (default 120 s, per-tool overrid
 
 ### HTTP surface
 
-| Path                                                                                                       | Purpose                                                                                                                 |
-| ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `GET /connect`                                                                                             | WebSocket upgrade for devices (subprotocol `agentic-mcp.v1`). Authentication is the first frame, never a query string.  |
-| `POST/GET/DELETE /mcp/{device_id}`                                                                         | Streamable HTTP MCP endpoint for one device. Requires `Authorization: Bearer <orchestrator token>`.                     |
-| `POST/GET/DELETE /mcp/fleet`                                                                               | Streamable HTTP MCP endpoint with `list_devices` and `device_status` tools.                                             |
-| `POST /admin/devices`, `GET /admin/devices`, `DELETE /admin/devices/{id}`, `PUT /admin/devices/{id}/tools` | Enrollment and allow-list management; admin bearer token. The CLI (`gateway enroll …`) uses the same code path locally. |
-| `GET /healthz`, `GET /readyz`                                                                              | Liveness (process up) and readiness (database reachable).                                                               |
+| Path                                                                                                       | Purpose                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `GET /connect`                                                                                             | WebSocket upgrade for devices (subprotocol `openharness-mcp.v1`). Authentication is the first frame, never a query string. |
+| `POST/GET/DELETE /mcp/{device_id}`                                                                         | Streamable HTTP MCP endpoint for one device. Requires `Authorization: Bearer <orchestrator token>`.                        |
+| `POST/GET/DELETE /mcp/fleet`                                                                               | Streamable HTTP MCP endpoint with `list_devices` and `device_status` tools.                                                |
+| `POST /admin/devices`, `GET /admin/devices`, `DELETE /admin/devices/{id}`, `PUT /admin/devices/{id}/tools` | Enrollment and allow-list management; admin bearer token. The CLI (`gateway enroll …`) uses the same code path locally.    |
+| `GET /healthz`, `GET /readyz`                                                                              | Liveness (process up) and readiness (database reachable).                                                                  |
 
 ### Registry and storage
 

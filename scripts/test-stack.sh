@@ -2,7 +2,7 @@
 set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 ./start.sh --configure-only
-export TEST_COMPOSE_PROJECT="agentic-test-$$"
+export TEST_COMPOSE_PROJECT="openharness-test-$$"
 export STUDIO_PORT="${TEST_PORT:-18088}"
 export PUBLIC_URL="http://localhost:$STUDIO_PORT"
 export TEST_BASE_URL="$PUBLIC_URL"
