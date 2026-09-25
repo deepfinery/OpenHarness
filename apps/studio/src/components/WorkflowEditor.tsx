@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Background,
   ConnectionMode,
@@ -76,6 +77,8 @@ type FlowData = {
   detail: string;
   attached: number;
   warning?: string;
+  /** The agent a toolbox item being dragged would attach to. */
+  dropTarget?: boolean;
   onOpen: (id: string) => void;
 } & Record<string, unknown>;
 const icons = {
@@ -102,7 +105,6 @@ const labels = {
   mcp: 'MCP tools',
   knowledge: 'Knowledge',
 };
-const MIME = 'application/openharness-node';
 const stepTypes: StepType[] = ['agent', 'condition', 'parallel', 'tool', 'email', 'finish'];
 const stepHints: Record<StepType, string> = {
   agent: 'Reasons and acts',
@@ -114,19 +116,13 @@ const stepHints: Record<StepType, string> = {
 };
 
 function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
-  const [over, setOver] = useState(0);
   const n = data.item,
     Icon = icons[n.type],
     resource = n.type === 'mcp' || n.type === 'knowledge',
     finish = n.type === 'finish' || n.type === 'output';
-  // Agents accept tools and knowledge dropped straight from the toolbox.
-  const dragging = (e: DragEvent) => n.type === 'agent' && e.dataTransfer.types.includes(MIME);
   return (
     <div
-      className={`flow-card harness-card kind-${n.type} ${selected ? 'selected' : ''} ${data.warning ? 'needs-config' : ''} ${over > 0 ? 'drop-target' : ''}`}
-      onDragEnter={(e) => dragging(e) && setOver((v) => v + 1)}
-      onDragLeave={(e) => dragging(e) && setOver((v) => Math.max(0, v - 1))}
-      onDrop={() => setOver(0)}
+      className={`flow-card harness-card kind-${n.type} ${selected ? 'selected' : ''} ${data.warning ? 'needs-config' : ''} ${data.dropTarget ? 'drop-target' : ''}`}
       onDoubleClick={() => data.onOpen(n.id)}
     >
       {!resource && n.type !== 'start' && (
@@ -260,6 +256,8 @@ function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
 }
 const nodeTypes = { studio: GraphCard };
 const newId = (type: string) => `${type}_${crypto.randomUUID().slice(0, 8)}`;
+/** When the last toolbox drag ended, so the click that can follow a release is not taken as "add". */
+let lastDragEnd = 0;
 
 function ToolItem({
   payload,
@@ -268,6 +266,7 @@ function ToolItem({
   icon: Icon,
   className = '',
   onAdd,
+  onDragStart,
 }: {
   payload: Payload;
   label: string;
@@ -275,19 +274,18 @@ function ToolItem({
   icon: typeof Bot;
   className?: string;
   onAdd: () => void;
+  onDragStart: (payload: Payload, label: string, e: React.PointerEvent) => void;
 }) {
   return (
     <button
       type="button"
       className={`tool-item ${className}`}
-      draggable
       aria-label={`Add ${label}`}
-      title="Click to add, or drag onto the canvas"
-      onDragStart={(e) => {
-        e.dataTransfer.setData(MIME, JSON.stringify(payload));
-        e.dataTransfer.effectAllowed = 'copy';
+      title="Click to add, or drag onto the canvas or an agent"
+      onPointerDown={(e) => onDragStart(payload, label, e)}
+      onClick={() => {
+        if (Date.now() - lastDragEnd > 300) onAdd();
       }}
-      onClick={onAdd}
     >
       <span className="node-icon">
         <Icon size={16} />
@@ -332,6 +330,18 @@ export function WorkflowEditor({
   const [invalidArguments, setInvalidArguments] = useState<Record<string, boolean>>({}),
     [dirty, setDirty] = useState(false);
   const [flow, setFlow] = useState<ReactFlowInstance<Node<FlowData>> | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  /**
+   * Toolbox items are dragged with pointer events rather than native HTML5 drag and drop, which Safari cancels on
+   * this canvas and touch screens do not support. A press that barely moves is left to the click handler.
+   */
+  const [drag, setDrag] = useState<{
+    label: string;
+    x: number;
+    y: number;
+    overCanvas: boolean;
+    agentId?: string;
+  } | null>(null);
   const [measurements, setMeasurements] = useState<Record<string, { width: number; height: number }>>({});
   const [publicUrl, setPublicUrl] = useState(location.origin);
   const undo = useRef<Workflow[]>([]),
@@ -478,10 +488,17 @@ export function WorkflowEditor({
           position: n.position ?? { x: 60 + i * 300, y: 150 },
           selected: n.id === selected,
           measured: measurements[n.id],
-          data: { item: n, detail, attached: count, warning, onOpen: openSettings },
+          data: {
+            item: n,
+            detail,
+            attached: count,
+            warning,
+            dropTarget: n.id === drag?.agentId,
+            onOpen: openSettings,
+          },
         };
       }),
-    [form, data, selected, measurements],
+    [form, data, selected, measurements, drag?.agentId],
   );
   function patch(id: string, values: Record<string, unknown>) {
     change((f) => ({
@@ -526,6 +543,58 @@ export function WorkflowEditor({
         point.y <= n.position.y + size.height
       );
     });
+  }
+  /** Where a pointer at these screen coordinates would drop: onto the canvas, and onto which agent card. */
+  function dropPoint(x: number, y: number) {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const inside = Boolean(rect && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
+    const position = inside ? flow?.screenToFlowPosition({ x, y }) : undefined;
+    return { position, agent: position ? agentAt(position) : undefined };
+  }
+  function beginDrag(payload: Payload, label: string, e: React.PointerEvent) {
+    if (e.button !== 0 || !e.isPrimary) return;
+    const start = { x: e.clientX, y: e.clientY };
+    const resource = payload.type === 'mcp' || payload.type === 'knowledge';
+    let moved = false;
+    const finish = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', finish);
+      window.removeEventListener('keydown', onKey);
+      document.body.classList.remove('dragging-tool');
+      setDrag(null);
+    };
+    const onMove = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 5) return;
+      if (!moved) document.body.classList.add('dragging-tool');
+      moved = true;
+      ev.preventDefault();
+      const point = dropPoint(ev.clientX, ev.clientY);
+      setDrag({
+        label,
+        x: ev.clientX,
+        y: ev.clientY,
+        overCanvas: Boolean(point.position),
+        agentId: resource ? point.agent?.id : undefined,
+      });
+    };
+    const onUp = (ev: PointerEvent) => {
+      finish();
+      // A press that barely moved is a click; the item's click handler adds it.
+      if (!moved) return;
+      lastDragEnd = Date.now();
+      const point = dropPoint(ev.clientX, ev.clientY);
+      // Released outside the canvas: nothing is added.
+      if (!point.position) return;
+      add(payload, resource && point.agent ? undefined : point.position, point.agent?.id);
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') finish();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', finish);
+    window.addEventListener('keydown', onKey);
   }
   function add(payload: Payload, position?: { x: number; y: number }, anchorId?: string): string {
     let f = form;
@@ -794,6 +863,20 @@ export function WorkflowEditor({
       aria-label="Workflow editor"
       data-history={historyVersion}
     >
+      {drag &&
+        createPortal(
+          <div className="drag-ghost" style={{ left: drag.x + 14, top: drag.y + 14 }} aria-hidden="true">
+            {drag.label}
+            <small>
+              {drag.agentId
+                ? 'Attach to this agent'
+                : drag.overCanvas
+                  ? 'Drop on the canvas'
+                  : 'Drag onto the canvas'}
+            </small>
+          </div>,
+          document.body,
+        )}
       <header className="workflow-header">
         <IconButton title="Close workflow editor" onClick={onClose}>
           <X size={20} />
@@ -904,6 +987,7 @@ export function WorkflowEditor({
                 hint={stepHints[type]}
                 icon={icons[type]}
                 onAdd={() => add({ type })}
+                onDragStart={beginDrag}
               />
             ))}
           </div>
@@ -930,6 +1014,7 @@ export function WorkflowEditor({
                   hint={c.tools?.length ? `${c.tools.length} tools` : 'No tools discovered'}
                   icon={Plug}
                   onAdd={() => add({ type: 'mcp', connectionId: c.id })}
+                  onDragStart={beginDrag}
                 />
               ))
             ) : (
@@ -950,6 +1035,7 @@ export function WorkflowEditor({
                     hint={`${c.platform ?? 'machine'} · ${machine?.online ? 'online' : 'offline'} · ${c.tools?.length ?? 0} tools`}
                     icon={Laptop}
                     onAdd={() => add({ type: 'mcp', connectionId: c.id })}
+                    onDragStart={beginDrag}
                   />
                 );
               })}
@@ -978,6 +1064,7 @@ export function WorkflowEditor({
                   hint="Documents & notes"
                   icon={BookOpen}
                   onAdd={() => add({ type: 'knowledge', knowledgeBaseId: k.id })}
+                  onDragStart={beginDrag}
                 />
               ))
             ) : (
@@ -997,28 +1084,7 @@ export function WorkflowEditor({
             spellCheck={false}
           />
         ) : (
-          <div
-            className="flow-canvas"
-            onDragOver={(e) => {
-              if (!e.dataTransfer.types.includes(MIME)) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = 'copy';
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              let payload: Payload | undefined;
-              try {
-                payload = JSON.parse(e.dataTransfer.getData(MIME));
-              } catch {
-                return;
-              }
-              if (!payload?.type) return;
-              const position = flow?.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-              const target = position ? agentAt(position) : undefined;
-              const resource = payload.type === 'mcp' || payload.type === 'knowledge';
-              add(payload, resource && target ? undefined : position, target?.id);
-            }}
-          >
+          <div ref={canvasRef} className={`flow-canvas ${drag?.overCanvas ? 'drop-active' : ''}`}>
             <ReactFlow
               nodes={nodes}
               edges={edges}
