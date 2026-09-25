@@ -274,7 +274,7 @@ function ToolItem({
   icon: typeof Bot;
   className?: string;
   onAdd: () => void;
-  onDragStart: (payload: Payload, label: string, e: React.PointerEvent) => void;
+  onDragStart: (payload: Payload, label: string, e: React.PointerEvent<HTMLButtonElement>) => void;
 }) {
   return (
     <button
@@ -531,73 +531,100 @@ export function WorkflowEditor({
   function connect(c: Connection) {
     safely(() => change((f) => connectGraph(f, c)));
   }
-  /** The agent card under a canvas point, so a toolbox item can be dropped straight onto it. */
-  function agentAt(point: { x: number; y: number }) {
-    return form.nodes.find((n) => {
-      if (n.type !== 'agent' || !n.position) return false;
-      const size = measurements[n.id] ?? { width: 250, height: 200 };
-      return (
-        point.x >= n.position.x &&
-        point.x <= n.position.x + size.width &&
-        point.y >= n.position.y &&
-        point.y <= n.position.y + size.height
-      );
-    });
-  }
-  /** Where a pointer at these screen coordinates would drop: onto the canvas, and onto which agent card. */
+  /**
+   * What is under the pointer: the canvas, and the agent card if there is one. It asks the browser which elements
+   * are at that point rather than converting coordinates, so it does not depend on the React Flow instance or on
+   * the cards' stored positions. The drag label has pointer-events: none, so it never gets in the way.
+   */
   function dropPoint(x: number, y: number) {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    const inside = Boolean(rect && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
-    const position = inside ? flow?.screenToFlowPosition({ x, y }) : undefined;
-    return { position, agent: position ? agentAt(position) : undefined };
+    const canvas = canvasRef.current;
+    const stack = document.elementsFromPoint(x, y);
+    const overCanvas = Boolean(canvas && stack.some((el) => canvas.contains(el)));
+    const card = overCanvas
+      ? stack.map((el) => el.closest<HTMLElement>('.react-flow__node')).find(Boolean)
+      : undefined;
+    const agentId = card?.dataset.id;
+    const agent = agentId
+      ? formRef.current.nodes.find((n) => n.id === agentId && n.type === 'agent')
+      : undefined;
+    const position = overCanvas && flow ? flow.screenToFlowPosition({ x, y }) : undefined;
+    return { overCanvas, position, agentId: agent?.id };
   }
-  function beginDrag(payload: Payload, label: string, e: React.PointerEvent) {
+  function beginDrag(payload: Payload, label: string, e: React.PointerEvent<HTMLButtonElement>) {
     if (e.button !== 0 || !e.isPrimary) return;
+    const item = e.currentTarget;
+    const pointerId = e.pointerId;
     const start = { x: e.clientX, y: e.clientY };
     const resource = payload.type === 'mcp' || payload.type === 'knowledge';
     let moved = false;
+    let done = false;
+    // What the label last promised; the release does exactly that.
+    let target: ReturnType<typeof dropPoint> = { overCanvas: false, position: undefined, agentId: undefined };
+    // Capturing the pointer makes the browser deliver the release to this item wherever it happens.
+    try {
+      item.setPointerCapture(pointerId);
+    } catch {}
     const finish = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', finish);
-      window.removeEventListener('keydown', onKey);
+      if (done) return;
+      done = true;
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', finish, true);
+      window.removeEventListener('keydown', onKey, true);
+      item.removeEventListener('lostpointercapture', onLost);
+      try {
+        if (item.hasPointerCapture(pointerId)) item.releasePointerCapture(pointerId);
+      } catch {}
       document.body.classList.remove('dragging-tool');
       setDrag(null);
     };
     const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
       if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 5) return;
       if (!moved) document.body.classList.add('dragging-tool');
       moved = true;
       ev.preventDefault();
-      const point = dropPoint(ev.clientX, ev.clientY);
+      target = dropPoint(ev.clientX, ev.clientY);
       setDrag({
         label,
         x: ev.clientX,
         y: ev.clientY,
-        overCanvas: Boolean(point.position),
-        agentId: resource ? point.agent?.id : undefined,
+        overCanvas: target.overCanvas,
+        agentId: resource ? target.agentId : undefined,
       });
     };
     const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
       finish();
       // A press that barely moved is a click; the item's click handler adds it.
       if (!moved) return;
       lastDragEnd = Date.now();
-      const point = dropPoint(ev.clientX, ev.clientY);
+      const at = dropPoint(ev.clientX, ev.clientY);
+      const drop = at.overCanvas ? at : target;
       // Released outside the canvas: nothing is added.
-      if (!point.position) return;
-      add(payload, resource && point.agent ? undefined : point.position, point.agent?.id);
+      if (!drop.overCanvas) return;
+      try {
+        add(payload, resource && drop.agentId ? undefined : drop.position, drop.agentId);
+      } catch (error) {
+        console.error('Could not add the dropped item', error);
+        setError(errorMessage(error));
+      }
+    };
+    const onLost = () => {
+      // Capture ends right after the release; give the pointerup a moment to arrive first.
+      setTimeout(finish, 0);
     };
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') finish();
     };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', finish);
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', finish, true);
+    window.addEventListener('keydown', onKey, true);
+    item.addEventListener('lostpointercapture', onLost);
   }
   function add(payload: Payload, position?: { x: number; y: number }, anchorId?: string): string {
-    let f = form;
+    let f = formRef.current;
     const type = payload.type;
     if (type === 'mcp' || type === 'knowledge') {
       let anchor =
