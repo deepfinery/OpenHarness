@@ -4959,6 +4959,39 @@ td strong {
 .playground {
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr) 330px;
+  grid-template-rows: minmax(0, 1fr);
+}
+/* Grid items default to min-height:auto, which would let a long chat push the composer out of view. */
+.playground > *,
+.playground-main,
+.chat-scroll,
+.conversation-list,
+.trace-panel {
+  min-height: 0;
+  min-width: 0;
+}
+.playground-main {
+  display: flex;
+  flex-direction: column;
+}
+.chat-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+.chat-compose {
+  flex-shrink: 0;
+}
+.trace-panel {
+  overflow-y: auto;
+}
+.playground.trace-hidden {
+  grid-template-columns: 250px minmax(0, 1fr);
+}
+.playground.trace-hidden.conversations-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+.playground.trace-hidden .trace-panel {
+  display: none;
 }
 .playground.conversations-hidden {
   grid-template-columns: minmax(0, 1fr) 330px;
@@ -5055,6 +5088,11 @@ td strong {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.playground-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .chat-divider {
   display: flex;
@@ -5355,6 +5393,16 @@ details.advanced summary {
   gap: 10px;
   margin: 10px 0;
 }
+.node-inspector .pattern-options {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.node-inspector .pattern-option {
+  padding: 9px 11px;
+}
+.node-inspector .pattern-option span {
+  font-size: 11px;
+}
 .pattern-option {
   background: #fff;
   border: 1px solid var(--border);
@@ -5653,11 +5701,28 @@ details.advanced summary {
 }
 @media (max-width: 900px) {
   .playground,
-  .playground.conversations-hidden {
+  .playground.conversations-hidden,
+  .playground.trace-hidden {
     grid-template-columns: minmax(0, 1fr);
   }
   .conversation-list,
   .trace-panel {
+    position: fixed;
+    top: 59px;
+    bottom: 0;
+    z-index: 30;
+    width: min(360px, 92vw);
+    box-shadow: 0 0 40px #1a293933;
+  }
+  .conversation-list {
+    left: 0;
+  }
+  .trace-panel {
+    right: 0;
+    display: block;
+  }
+  .playground.conversations-hidden .conversation-list,
+  .playground.trace-hidden .trace-panel {
     display: none;
   }
   .explainer-grid,

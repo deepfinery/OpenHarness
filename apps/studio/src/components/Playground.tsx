@@ -101,7 +101,9 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string>();
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [showConversations, setShowConversations] = useState(true);
+  const narrow = typeof window !== 'undefined' && window.innerWidth <= 900;
+  const [showConversations, setShowConversations] = useState(!narrow);
+  const [showTrace, setShowTrace] = useState(!narrow);
   const [input, setInput] = useState('');
   const [run, setRun] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -217,7 +219,9 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
   const streaming = busy && typeof run?.partial === 'string' && run.partial.length > 0;
   const shown = inspected ?? run;
   return (
-    <div className={`playground ${showConversations ? '' : 'conversations-hidden'}`}>
+    <div
+      className={`playground ${showConversations ? '' : 'conversations-hidden'} ${showTrace ? '' : 'trace-hidden'}`}
+    >
       <aside className="conversation-list">
         <div className="conversation-list-head">
           <span className="eyebrow">Conversations</span>
@@ -295,11 +299,19 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
               </select>
             </div>
           </div>
-          {current?.type === 'agent' &&
-            (current as Entity).pattern &&
-            (current as Entity).pattern !== 'react' && (
-              <span className="status next">{String((current as Entity).pattern).replace('-', ' ')}</span>
-            )}
+          <div className="playground-toolbar-right">
+            {current?.type === 'agent' &&
+              (current as Entity).pattern &&
+              (current as Entity).pattern !== 'react' && (
+                <span className="status next">{String((current as Entity).pattern).replace('-', ' ')}</span>
+              )}
+            <IconButton
+              title={showTrace ? 'Hide trace panel' : 'Show trace panel'}
+              onClick={() => setShowTrace(!showTrace)}
+            >
+              <Terminal size={17} />
+            </IconButton>
+          </div>
         </div>
         <div className="chat-scroll">
           {!messages.length && !busy ? (

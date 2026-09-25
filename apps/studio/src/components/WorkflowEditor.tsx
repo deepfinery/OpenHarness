@@ -421,13 +421,16 @@ export function WorkflowEditor({
               position: pos,
             }
           : { id, name: 'Knowledge', type, knowledgeBaseId: data.knowledge[0]?.id ?? '', position: pos };
-      change({
+      const withResource = {
         ...f,
         resources: [...f.resources, r],
         bindings: [...f.bindings, { agentNodeId: anchor.id, resourceId: id }],
-      });
+      };
+      // A palette click has no position of its own: re-run the layout so the card gets clear space.
+      change(position ? withResource : autoPlace(withResource));
       select(id);
       selectEdge('');
+      reveal(id);
       return;
     }
     const id = newId(type),
@@ -456,15 +459,27 @@ export function WorkflowEditor({
               : type === 'email'
                 ? { ...base, type, to: '', subject: 'Report: {{input}}', body: '{{last}}' }
                 : { ...base, type: 'finish', template: '{{last}}' };
-    change(type === 'finish' ? { ...f, nodes: [...f.nodes, n] } : insertStep(f, n, selected));
+    const inserted = type === 'finish' ? { ...f, nodes: [...f.nodes, n] } : insertStep(f, n, selected);
+    change(position ? inserted : autoPlace(inserted));
     select(id);
     selectEdge('');
+    reveal(id);
   }
-  function arrange() {
-    const items = [...form.nodes, ...form.resources];
+  /** New cards are placed to the right of the selection, often outside the viewport; bring them into view. */
+  function reveal(id: string) {
+    setTimeout(() => {
+      if (!flow?.getNode(id)) return;
+      void flow.fitView({ padding: 0.16, duration: 250, maxZoom: 1 });
+    }, 60);
+  }
+  /** Lay out every card with the shared layout engine so nothing ever lands on top of another card. */
+  function autoPlace(f: Workflow): Workflow {
+    const items: GraphItem[] = [...f.nodes, ...f.resources];
     const links = [
-      ...edges.filter((e) => e.id.startsWith('flow:')).map((e) => ({ from: e.source, to: e.target })),
-      ...form.bindings.map((b) => ({ from: b.agentNodeId, to: b.resourceId, label: 'tool' })),
+      ...graphEdges(f)
+        .filter((e) => e.id.startsWith('flow:'))
+        .map((e) => ({ from: e.source, to: e.target })),
+      ...f.bindings.map((b) => ({ from: b.agentNodeId, to: b.resourceId, label: 'tool' })),
     ];
     const placed = layoutWorkflow(
       items.map((n) => ({ id: n.id, x: n.position?.x ?? 0, y: n.position?.y ?? 0 })),
@@ -481,15 +496,18 @@ export function WorkflowEditor({
           height: i.type === 'agent' ? 205 : 155,
         };
       },
-      form.startAt,
+      f.startAt,
     );
     const positions = new Map(placed.map((n) => [n.id, { x: n.x, y: n.y }]));
-    change((f) => ({
+    return {
       ...f,
       nodes: f.nodes.map((n) => ({ ...n, position: positions.get(n.id) })),
       resources: f.resources.map((n) => ({ ...n, position: positions.get(n.id) })),
-    }));
-    setTimeout(() => void flow?.fitView({ padding: 0.16, duration: 250 }), 100);
+    };
+  }
+  function arrange() {
+    change((f) => autoPlace(f));
+    setTimeout(() => void flow?.fitView({ padding: 0.16, duration: 250, maxZoom: 1 }), 100);
   }
   function remove(id: string) {
     safely(() => {
@@ -875,7 +893,7 @@ export function WorkflowEditor({
                   }, false);
               }}
               fitView
-              fitViewOptions={{ padding: 0.16 }}
+              fitViewOptions={{ padding: 0.16, maxZoom: 1 }}
               minZoom={0.2}
               maxZoom={1.7}
               deleteKeyCode={null}
