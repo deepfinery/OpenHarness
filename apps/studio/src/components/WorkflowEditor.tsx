@@ -260,6 +260,22 @@ const nodeTypes = { studio: GraphCard };
  * Card ids. crypto.randomUUID exists only in secure contexts (HTTPS or localhost), and the studio is often opened
  * over plain HTTP on a LAN address, so ids come from getRandomValues, which is available everywhere.
  */
+/** A validation problem in words, naming the card it belongs to. */
+function describeIssue(issue: { path: PropertyKey[]; message: string }, form?: Workflow) {
+  const [list, index, field] = issue.path;
+  const item =
+    form && typeof index === 'number'
+      ? list === 'resources'
+        ? form.resources[index]
+        : list === 'nodes'
+          ? form.nodes[index]
+          : undefined
+      : undefined;
+  if (!item) return issue.path.length ? `${issue.path.join('.')}: ${issue.message}` : issue.message;
+  if (item.type === 'mcp' && field === 'tools')
+    return `"${item.name}" has no tools selected. Double-click the card and choose at least one tool, or remove it.`;
+  return `"${item.name}"${field ? ` (${String(field)})` : ''}: ${issue.message}`;
+}
 const newId = (type: string) => {
   const bytes = new Uint8Array(4);
   crypto.getRandomValues(bytes);
@@ -677,6 +693,7 @@ export function WorkflowEditor({
           tools: (connection?.tools ?? []).slice(0, 100).map((t: { name: string }) => t.name),
           position: pos,
         };
+        if (r.connectionId && !r.tools.length) void discoverInto(id, r.connectionId, r.name);
       } else {
         const kb = data.knowledge.find((k) => k.id === payload.knowledgeBaseId) ?? data.knowledge[0];
         r = { id, name: kb?.name ?? 'Knowledge', type, knowledgeBaseId: kb?.id ?? '', position: pos };
@@ -725,6 +742,44 @@ export function WorkflowEditor({
     selectEdge('');
     reveal(id);
     return id;
+  }
+  /**
+   * A server whose tools were never discovered, or a machine that has not synced yet, would make an MCP card with
+   * no tools, which cannot be saved. Discover them right away and grant them all, as for any other new card.
+   */
+  async function discoverInto(resourceId: string, connectionId: string, name: string) {
+    try {
+      const tools = await api<{ name: string }[]>(`/connections/${connectionId}/discover`, {
+        method: 'POST',
+        body: '{}',
+      });
+      const names = tools.slice(0, 100).map((t) => t.name);
+      if (!names.length) {
+        setError(`"${name}" reports no tools. Check the server, or remove the card before saving.`);
+        return;
+      }
+      change(
+        (f) => ({
+          ...f,
+          resources: f.resources.map((r) =>
+            r.id === resourceId && r.type === 'mcp' && !r.tools.length ? { ...r, tools: names } : r,
+          ),
+        }),
+        false,
+      );
+      void onSaved();
+    } catch (e) {
+      setError(
+        `Could not load the tools of "${name}": ${errorMessage(e)
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(
+            0,
+            200,
+          )}. Make sure it is connected (and online, for a machine), then choose tools in the card's settings.`,
+      );
+    }
   }
   /** A new agent card that only a Parallel step runs; it stays beside the execution path. */
   function addMember(parallelId: string) {
@@ -820,7 +875,7 @@ export function WorkflowEditor({
         throw new Error(
           parsed.error.issues
             .slice(0, 5)
-            .map((i) => i.message)
+            .map((i) => describeIssue(i, tab === 'yaml' ? undefined : form))
             .join(' · '),
         );
       const result = await api<Entity>(`/workflows${value ? `/${value.id}` : ''}`, {

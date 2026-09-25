@@ -104,3 +104,58 @@ test('a knowledge base dragged onto an existing agent is bound to it and saved',
   expect(saved.bindings).toEqual([{ agentNodeId: 'assistant', resourceId: resource.id }]);
   expect(errors).toEqual([]);
 });
+
+test('an MCP server whose tools were never discovered gets them when it is dropped onto an agent', async ({
+  page,
+}) => {
+  const tag = `${test.info().project.name}-${Date.now().toString(36)}`;
+  await signIn(page.request);
+  const provider = await api(page.request, '/providers', 'POST', {
+    name: `Fresh model ${tag}`,
+    kind: 'openai-compatible',
+    baseUrl: 'http://fixtures:9090/v1',
+    model: 'test-chat',
+  });
+  // Added but never discovered, so the studio has no tool list for it yet.
+  const server = await api(page.request, '/connections', 'POST', {
+    name: `Fresh server ${tag}`,
+    url: 'http://fixtures:9090/mcp',
+  });
+  const workflow = await api(page.request, '/workflows', 'POST', {
+    name: `Fresh flow ${tag}`,
+    startAt: 'start',
+    nodes: [
+      { id: 'start', name: 'Start', type: 'start', next: 'assistant', position: { x: 50, y: 140 } },
+      {
+        id: 'assistant',
+        name: 'Assistant',
+        type: 'agent',
+        prompt: '{{input}}',
+        next: 'finish',
+        position: { x: 340, y: 110 },
+        config: { name: 'Assistant', providerId: provider.id, systemPrompt: 'Answer.' },
+      },
+      { id: 'finish', name: 'Finish', type: 'finish', template: '{{last}}', position: { x: 770, y: 140 } },
+    ],
+  });
+  await page.goto('/workflows');
+  await page
+    .locator('.workflow-card')
+    .filter({ has: page.locator('.card-name', { hasText: workflow.name }) })
+    .getByRole('button', { name: /open/i })
+    .click();
+  const agent = page.locator('.harness-card.kind-agent');
+  await expect(agent).toBeVisible();
+  const target = (await agent.boundingBox())!;
+  await dragTo(page, `button[aria-label="Add ${server.name}"]`, {
+    x: target.x + target.width / 2,
+    y: target.y + target.height / 2,
+  });
+  await page.mouse.up();
+  await expect(page.locator('.harness-card.kind-mcp', { hasText: server.name })).toContainText('5 tools');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Workflow editor' })).toHaveCount(0);
+  const saved = await api(page.request, `/workflows/${workflow.id}`);
+  expect(saved.resources[0].tools.length).toBeGreaterThan(0);
+  expect(saved.bindings).toEqual([{ agentNodeId: 'assistant', resourceId: saved.resources[0].id }]);
+});
