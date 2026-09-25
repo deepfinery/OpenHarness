@@ -7,6 +7,7 @@ import {
   Check,
   GitBranch,
   GitFork,
+  Laptop,
   Mail,
   Plug,
   Route,
@@ -23,6 +24,7 @@ const starterIcons: Record<StarterKind, typeof Bot> = {
   team: GitFork,
   router: Route,
   notify: Mail,
+  machine: Laptop,
   blank: GitBranch,
 };
 export function WorkflowStarter({
@@ -43,6 +45,10 @@ export function WorkflowStarter({
     [knowledgeBaseId, setKnowledge] = useState(data.knowledge[0]?.id ?? ''),
     [connectionId, setConnection] = useState(data.connections[0]?.id ?? ''),
     [tools, setTools] = useState<string[]>([]),
+    [machineId, setMachineId] = useState(
+      (data.machines.find((m) => m.online && m.connectionId && m.tools.length) ?? data.machines[0])
+        ?.device_id ?? '',
+    ),
     [error, setError] = useState('');
   const recipe = starterRecipes.find((r) => r.id === kind)!;
   useEffect(() => {
@@ -50,7 +56,12 @@ export function WorkflowStarter({
   }, [data.providers]);
   function open() {
     try {
-      onChoose(makeStarter({ kind, name, providerId, knowledgeBaseId, connectionId, tools }));
+      const chosen = data.machines.find((m) => m.device_id === machineId);
+      const machine =
+        kind === 'machine' && chosen?.connectionId
+          ? { connectionId: chosen.connectionId, name: chosen.name, tools: chosen.tools.map((t) => t.name) }
+          : undefined;
+      onChoose(makeStarter({ kind, name, providerId, knowledgeBaseId, connectionId, tools, machine }));
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -130,6 +141,38 @@ export function WorkflowStarter({
                   setTools(t);
                 }}
               />
+            )}
+            {kind === 'machine' && (
+              <>
+                <Field
+                  label="Machine"
+                  hint="Its tools are attached to the agent. In a chat you can still pick another machine."
+                >
+                  <select
+                    aria-label="Starter machine"
+                    value={machineId}
+                    onChange={(e) => setMachineId(e.target.value)}
+                  >
+                    <option value="">Choose in each chat</option>
+                    {data.machines
+                      .filter((m) => m.connectionId && !m.disabled)
+                      .map((m) => (
+                        <option key={m.device_id} value={m.device_id} disabled={!m.tools.length}>
+                          {m.name} · {m.platform} · {m.online ? 'online' : 'offline'}
+                          {m.tools.length ? ` · ${m.tools.length} tools` : ' · no tools yet'}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+                <div className="notice">
+                  <Laptop size={16} />
+                  <span>
+                    {data.machines.length
+                      ? 'After saving, open the Playground, pick this workflow and ask, for example, “list the files in the work directory”, “run uname -a” or “how much disk space is free?”. Commands run only if the machine’s allow-list permits them.'
+                      : 'No machines yet. Enroll one on the Machines page, then choose it here or in the Playground.'}
+                  </span>
+                </div>
+              </>
             )}
             {kind === 'notify' && (
               <div className="notice">

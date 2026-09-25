@@ -36,6 +36,27 @@ test('every starter has an explicit Start and Finish and usable resource binding
   assert.throws(() => makeStarter({ kind: 'mcp', providerId }));
   assert.throws(() => makeStarter({ kind: 'research', providerId }));
   assert.throws(() => makeStarter({ kind: 'notify', providerId }));
+  const operator = makeStarter({
+    kind: 'machine',
+    providerId,
+    machine: { connectionId, name: 'Build box', tools: ['run_command', 'list_dir'] },
+  });
+  assert.deepEqual(operator.bindings, [{ agentNodeId: 'operator', resourceId: 'machine' }]);
+  assert.deepEqual(operator.resources[0], {
+    id: 'machine',
+    name: 'Build box',
+    type: 'mcp',
+    connectionId,
+    tools: ['run_command', 'list_dir'],
+    position: { x: 365, y: 425 },
+  });
+  assert.match(
+    operator.nodes.find((n) => n.id === 'operator')!.config!.systemPrompt,
+    /run_command with argv/,
+  );
+  assert.throws(() =>
+    makeStarter({ kind: 'machine', providerId, machine: { connectionId, name: 'Offline', tools: [] } }),
+  );
   const team = makeStarter({ kind: 'team', ...options });
   assert.deepEqual(
     team.nodes.filter((n) => n.type === 'agent').map((n) => n.config?.pattern),
