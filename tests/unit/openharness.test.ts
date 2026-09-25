@@ -242,3 +242,86 @@ test('the rest of the final answer is sent once, whatever was already streamed',
   // After a resume only the streamed length is known.
   assert.equal(unsentOutput('Hello world', undefined, 6), 'world');
 });
+
+const oaf = await import('../../apps/api/src/openharness/oaf.js');
+const { default: JSZip } = await import('jszip');
+
+test('AGENTS.md frontmatter and instructions parse and render back', () => {
+  const text = oaf.renderMarkdown(
+    { name: 'Researcher', vendorKey: 'acme', tags: ['a', 'b'] },
+    '# Purpose\n\nResearch things.',
+  );
+  const parsed = oaf.parseMarkdown(text);
+  assert.deepEqual(parsed.frontmatter, { name: 'Researcher', vendorKey: 'acme', tags: ['a', 'b'] });
+  assert.equal(parsed.body, '# Purpose\n\nResearch things.');
+  assert.deepEqual(oaf.parseMarkdown('Just instructions').frontmatter, {});
+  assert.throws(
+    () => oaf.parseMarkdown('---\nname: [unclosed\n---\nx'),
+    (e: any) => e.code === 'INVALID_MANIFEST',
+  );
+  assert.throws(
+    () => oaf.parseMarkdown('---\n- a list\n---\nx'),
+    (e: any) => e.code === 'INVALID_MANIFEST',
+  );
+  assert.equal(oaf.kebab('Research & Review Team!'), 'research-review-team');
+  assert.equal(oaf.kebab('***'), 'agent');
+});
+
+test('bundle paths cannot escape the package root', () => {
+  assert.equal(oaf.safePath('./skills/a/SKILL.md'), 'skills/a/SKILL.md');
+  assert.equal(oaf.safePath('skills\\a\\SKILL.md'), 'skills/a/SKILL.md');
+  for (const bad of ['../evil.md', 'skills/../../x.md', '/etc/passwd', ''])
+    assert.throws(
+      () => oaf.safePath(bad),
+      (e: any) => e.code === 'INVALID_BUNDLE',
+      bad,
+    );
+});
+
+test('zip bundles round-trip, and AGENTS.md may sit in one agent folder', async () => {
+  const files = new Map([
+    ['AGENTS.md', oaf.renderMarkdown({ name: 'A' }, 'Hi')],
+    ['skills/x/SKILL.md', oaf.skillMarkdown({ name: 'x', description: 'd', instructions: 'Do x.' })],
+    ['assets/logo.png', 'binary'],
+  ]);
+  const bundle = await oaf.readZip(await oaf.writeZip(files));
+  assert.equal(oaf.parseMarkdown(bundle.agentsMd).frontmatter.name, 'A');
+  assert.ok(bundle.files.has('skills/x/SKILL.md'));
+  assert.ok(!bundle.files.has('assets/logo.png'), 'only text files are extracted');
+  const nested = oaf.fromFiles(
+    new Map([
+      ['PACKAGE.yaml', 'format: oaf-package'],
+      ['my-agent/AGENTS.md', 'Hello'],
+      ['my-agent/skills/y/SKILL.md', 'y'],
+    ]),
+  );
+  assert.equal(nested.agentsMd, 'Hello');
+  assert.ok(nested.files.has('skills/y/SKILL.md'));
+  assert.throws(
+    () =>
+      oaf.fromFiles(
+        new Map([
+          ['a/AGENTS.md', '1'],
+          ['b/AGENTS.md', '2'],
+        ]),
+      ),
+    (e: any) => e.code === 'INVALID_BUNDLE',
+  );
+  await assert.rejects(oaf.readZip(Buffer.from('not a zip')), (e: any) => e.code === 'INVALID_BUNDLE');
+  // JSZip refuses to write "../" names, so the entry is renamed in the raw bytes.
+  const traversal = new JSZip();
+  traversal.file('AGENTS.md', 'x');
+  traversal.file('zz/escape.md', 'x');
+  const raw = await traversal.generateAsync({ type: 'nodebuffer' });
+  const patched = Buffer.from(raw.toString('latin1').replaceAll('zz/escape.md', '../escape.md'), 'latin1');
+  await assert.rejects(
+    oaf.readZip(patched),
+    (e: any) => e.code === 'INVALID_BUNDLE' && /Unsafe path/.test(e.message),
+  );
+  const crowded = new JSZip();
+  for (let i = 0; i < 501; i++) crowded.file(`f${i}.md`, 'x');
+  await assert.rejects(
+    oaf.readZip(await crowded.generateAsync({ type: 'nodebuffer' })),
+    (e: any) => e.status === 413,
+  );
+});

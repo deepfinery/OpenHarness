@@ -2,9 +2,11 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { config } from '../../../../packages/core/src/config.js';
 import { optionalAuth, requireAuth } from './access.js';
 import { errorHandler, notFound, OhError } from './errors.js';
+import { agentOperations } from './agents.js';
 import { executionOperations } from './execution.js';
 import { harnessOperations } from './harness.js';
 import { OperationRegistry } from './operations.js';
+import { toolOperations } from './tools.js';
 
 /**
  * The Open Harness API adapter (https://github.com/jeffrschneider/OpenHarness). It is mounted at
@@ -13,7 +15,12 @@ import { OperationRegistry } from './operations.js';
  */
 export function openHarnessRegistry() {
   const registry = new OperationRegistry();
-  registry.register(...harnessOperations(registry), ...executionOperations(registry));
+  registry.register(
+    ...harnessOperations(registry),
+    ...agentOperations(registry),
+    ...toolOperations(registry),
+    ...executionOperations(registry),
+  );
   return registry;
 }
 export const registry = openHarnessRegistry();

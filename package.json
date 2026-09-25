@@ -33,6 +33,7 @@
     "cookie-parser": "^1.4.7",
     "express": "^5.1.0",
     "helmet": "^8.1.0",
+    "jszip": "^3.10.2",
     "lucide-react": "^0.468.0",
     "mammoth": "^1.11.0",
     "mongodb": "^6.20.0",

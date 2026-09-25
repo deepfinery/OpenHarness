@@ -89,13 +89,70 @@ Event ids have the form `<run events>.<text characters>`. Reconnect to `GET /exe
 remain available for one hour after an execution finishes; after that the endpoint answers 410 and the result stays
 readable. `GET /executions/{id}/tool-calls` lists every call with its input, output, status and timing.
 
+## Agents
+
+An agent is a workflow. The spec's agent view is built from the workflow and its entry agent, which is the first
+agent reached from Start. The mapping is:
+
+- **Identity.** `vendorKey`, `agentKey`, `version`, `author`, `license` and `tags` are stored on the workflow as
+  `identity`. When absent, they are derived from the workspace and workflow names.
+- **Configuration.** `config.model`, `config.system_prompt` and `config.tools_access` describe the entry agent.
+  `PATCH` changes that agent. `tools_access.allow` and `deny` narrow its bound MCP tools, and patterns may end in
+  `*`.
+- **References.** `skills` and `mcp_servers` list every skill and MCP connection the workflow uses.
+
+`POST /agents` accepts `multipart/form-data`, with a `metadata` JSON field and `files` whose names are package paths
+such as `AGENTS.md` or `skills/<name>/SKILL.md`. It also accepts JSON:
+`{ "metadata": {...}, "files": [{ "path", "content" }] }`. The manifest follows the
+[Open Agent Format](https://openagentformat.com) and is resolved like this:
+
+| Manifest field                                                                       | Becomes                                                                                |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Markdown body                                                                        | The agent's instructions.                                                              |
+| `model`                                                                              | The provider whose model or name matches, else the workspace default (with a warning). |
+| `skills` and `skills/*/SKILL.md`                                                     | Workspace skills with the same name, else new skills created from the bundle.          |
+| `mcpServers[].server`                                                                | The workspace MCP connection with that name. `config.tools.allowed` narrows its tools. |
+| `packs`, `weblets`, `agents`, `orchestration`, `memory`, `temperature`, `max_tokens` | Ignored, with a warning.                                                               |
+
+Agent names are unique. `DELETE` answers 409 while the agent has queued or running executions. `clone` copies the
+workflow under `new_name`, with any schedule disabled.
+
+**Export** returns `<agentKey>.zip` with these files:
+
+- `AGENTS.md`, with OAF frontmatter and the entry agent's instructions;
+- `skills/<name>/SKILL.md` for every skill;
+- `mcp-configs/<server>/config.yaml` with URL and transport only, since credentials are never exported;
+- `PACKAGE.yaml`.
+
+The complete workflow travels in `harnessConfig.openharness`, with every workspace reference described by name.
+Multi-agent workflows therefore survive a round trip.
+
+**Import** takes the zip as the `bundle` field. `merge_strategy` decides what happens when an agent with the same
+vendor and agent key, or the same name, exists: `fail` answers 409 with its ID, `skip` returns it, and `overwrite`
+replaces its definition in place. `rename_to` imports a copy under a new name and key. References are resolved by
+name in this workspace. Anything missing is left out and listed in `warnings`. Bundles are limited to 500 files and
+50 MB extracted; only text files are read, and paths that escape the package are refused.
+
+## Tools
+
+`GET /tools` lists `builtin.load_skill` and every discovered tool of the enabled MCP connections, machines
+included, as `mcp.<connectionId>.<tool>`, with `source_id` and `input_schema`. `x-openharness` carries the server
+name, the machine ID and MCP annotations. `POST /tools/{id}/invoke` calls one tool outside any run. It uses the same
+MCP client, schema validation and machine gateway policy as agents, needs manage access (a workspace key or a studio
+session), is rate limited, and is recorded in `tool_invocations`. `/invoke/stream` sends `progress`, `output`,
+`error` and `done` events.
+
+Custom tools are not registered through this API, because external tools are served over MCP here: `POST /tools`
+answers 501. Built-in and MCP tools cannot be unregistered (409).
+
 ## Support
 
 | Domain                                                                   | Status    | Notes                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------------------------------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Harness registry                                                         | Supported | List, get, capabilities, health and validate-credentials. The registry is read-only (register, update and unregister return 501) because one installation serves one harness. `validate-credentials` tests a model API key against the workspace default provider. `store: true` saves it and needs a workspace key or a studio session. |
+| Agents                                                                   | Supported | Create (multipart or JSON), list, get, update, delete, clone, and OAF export and import with merge strategies.                                                                                                                                                                                                                           |
+| Tools                                                                    | Supported | List, get, invoke and invoke/stream for MCP and built-in tools. Registering custom tools returns 501; serve them over MCP.                                                                                                                                                                                                               |
 | Execution                                                                | Supported | Execute, stream, list, get, attach with `Last-Event-ID`, cancel, result and tool calls. Artifacts and input come with issue #7.                                                                                                                                                                                                          |
 | Models                                                                   | Supported | Multiple providers, and a per-execution `model` switch.                                                                                                                                                                                                                                                                                  |
-| Agents, tools                                                            | Planned   | Issues #3 and #4.                                                                                                                                                                                                                                                                                                                        |
 | Skills, MCP servers, sessions, memory, subagents, files, hooks, planning | Planned   | See the roadmap issue #26.                                                                                                                                                                                                                                                                                                               |
 | Conformance and diagnostics                                              | Planned   | Issue #16.                                                                                                                                                                                                                                                                                                                               |

@@ -52,7 +52,7 @@ async function assertOwned(name: string, ownerId: string, id: string) {
   if (!(await collection<Resource>(name).findOne({ _id: id, ownerId })))
     throw new HttpError(400, `Referenced ${name} resource is unavailable`);
 }
-async function validateReferences(kind: string, ownerId: string, body: any) {
+export async function validateReferences(kind: string, ownerId: string, body: any) {
   if (kind === 'connections' && body.kind === 'device')
     throw new HttpError(400, 'Machines are managed on the Machines page, not as manual connections');
   if (kind === 'agents') {
