@@ -26,6 +26,8 @@ async function signIn(request: APIRequestContext) {
   await api(request, '/auth/setup', 'POST', { ...admin, name: 'Test Administrator', setupToken });
 }
 async function dragTo(page: Page, from: string, to: { x: number; y: number }) {
+  // The toolbox scrolls when a workspace has many connections and knowledge bases.
+  await page.locator(from).scrollIntoViewIfNeeded();
   const box = (await page.locator(from).boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
