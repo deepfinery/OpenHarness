@@ -8,6 +8,10 @@ const s = z.object({
   RABBITMQ_URL: z.string().default('amqp://localhost'),
   WEAVIATE_URL: z.string().url().default('http://localhost:8080'),
   WEAVIATE_API_KEY: z.string().default(''),
+  // Vector store for new knowledge bases. Existing bases keep the store they were created on.
+  VECTOR_STORE: z.enum(['weaviate', 'qdrant']).default('weaviate'),
+  QDRANT_URL: z.string().default(''),
+  QDRANT_API_KEY: z.string().default(''),
   DATA_DIR: z.string().default('./data'),
   ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/, 'ENCRYPTION_KEY must be 32 random bytes in hex'),
   SETUP_TOKEN: z.string().min(32),

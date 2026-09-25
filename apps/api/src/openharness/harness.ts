@@ -8,6 +8,7 @@ import { gatewayConfigured } from '../../../../packages/core/src/devices.js';
 import { chat, ownedProvider } from '../../../../packages/core/src/llm.js';
 import { queueChannel, JOB_QUEUE } from '../../../../packages/core/src/queue.js';
 import { encrypt, safeError, validateRemoteUrl } from '../../../../packages/core/src/security.js';
+import { configuredVectorStores, vectorStore } from '../../../../packages/core/src/vectorstores/index.js';
 import { rateLimit, type User } from '../auth.js';
 import { defaultProviderId } from '../tenant.js';
 import { requireAccess } from './access.js';
@@ -121,7 +122,10 @@ export function harnessOperations(registry: OperationRegistry): Operation[] {
         const checks = await Promise.all([
           check('database', () => db.command({ ping: 1 })),
           check('queue', async () => (await queueChannel()).checkQueue(JOB_QUEUE)),
-          check('vector_store', () => ready(`${config.WEAVIATE_URL}/v1/.well-known/ready`)),
+          check('vector_store', () => vectorStore().health()),
+          ...configuredVectorStores()
+            .filter((kind) => kind !== config.VECTOR_STORE)
+            .map((kind) => check(`vector_store:${kind}`, () => vectorStore(kind).health())),
           ...(gatewayConfigured()
             ? [check('device_gateway', () => ready(`${config.GATEWAY_URL.replace(/\/$/, '')}/healthz`))]
             : []),

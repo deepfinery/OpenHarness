@@ -9,6 +9,7 @@ import { collection, db } from '../../../packages/core/src/db.js';
 import { hash, HttpError, passwordHash, safeError } from '../../../packages/core/src/security.js';
 import { queueChannel, JOB_QUEUE } from '../../../packages/core/src/queue.js';
 import { createRun, requestCancel, terminalStatuses } from '../../../packages/core/src/runs.js';
+import { configuredVectorStores, vectorStore } from '../../../packages/core/src/vectorstores/index.js';
 import { runSchema, type Run } from '../../../packages/core/src/schema.js';
 import { finishOAuth } from '../../../packages/core/src/mcp.js';
 import {
@@ -99,11 +100,7 @@ app.get('/api/health', async (_req, res) => {
   try {
     await db.command({ ping: 1 });
     await (await queueChannel()).checkQueue(JOB_QUEUE);
-    const v = await fetch(`${config.WEAVIATE_URL}/v1/.well-known/ready`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!v.ok) throw new Error('Vector storage unavailable');
-    await v.body?.cancel();
+    await vectorStore().health(AbortSignal.timeout(5000));
     res.json({ status: 'ready' });
   } catch {
     res.status(503).json({ status: 'starting' });
@@ -129,6 +126,7 @@ app.get('/api/config', requireSession, (_req, res) =>
     publicUrl: config.PUBLIC_URL,
     maxUploadMB: config.MAX_UPLOAD_MB,
     openHarness: { basePath: config.OPENHARNESS_BASE_PATH, harnessId: config.OPENHARNESS_HARNESS_ID },
+    vectorStores: { available: configuredVectorStores(), default: config.VECTOR_STORE },
   }),
 );
 app.get('/api/tenant', requireSession, async (req, res) =>
