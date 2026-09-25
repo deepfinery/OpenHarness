@@ -20,6 +20,8 @@ export const providerSchema = z.object({
   outputTokenParameter: z.enum(['max_tokens', 'max_completion_tokens']).default('max_tokens'),
   maxOutputTokens: z.number().int().min(128).max(32768).default(4096),
   streaming: z.boolean().default(true),
+  // Prompt + output budget in tokens. Learned automatically from the provider's first context-length error.
+  contextWindow: z.number().int().min(2048).max(4000000).default(128000),
 });
 export const connectionSchema = z.object({
   name,
@@ -71,6 +73,13 @@ export const agentSchema = z.object({
   timeoutSeconds: z.number().int().min(10).max(900).default(300),
   pattern: z.enum(agentPatterns).default('react'),
   patternConfig: patternConfigSchema.default({}),
+  /** Loop and token budget preset; `auto` picks a level per request. `low` is the pre-release name of `light`. */
+  effort: z.preprocess(
+    (v) => (v === 'low' ? 'light' : v),
+    z.enum(['light', 'medium', 'high', 'extra-high', 'max', 'auto']).default('medium'),
+  ),
+  /** Total tokens (prompt + completion) per run; defaults to the effort preset. */
+  tokenBudget: z.number().int().min(1000).max(50_000_000).optional(),
   enabled: z.boolean().default(true),
 });
 export const emailSettingsSchema = z.object({
@@ -129,7 +138,10 @@ export const nodeSchema = z.discriminatedUnion('type', [
   z.object({
     ...baseNode,
     type: z.literal('parallel'),
-    agentIds: z.array(id).min(1).max(8),
+    /** Agent cards from this workflow that run together. */
+    agentNodeIds: z.array(z.string().min(1).max(64)).max(8).default([]),
+    /** Saved agents (legacy); new workflows reference agent cards instead. */
+    agentIds: z.array(id).max(8).default([]),
     prompt: z.string().max(32000).default('{{input}}'),
     next,
   }),
@@ -144,6 +156,27 @@ export const nodeSchema = z.discriminatedUnion('type', [
   z.object({ ...baseNode, type: z.literal('output'), template: z.string().max(32000).default('{{last}}') }),
 ]);
 export const resumePolicies = ['safe', 'always', 'never'] as const;
+const validTimeZone = (tz: string) => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+};
+/** Periodic runs: every N minutes, or daily/weekly at a wall-clock time in the chosen time zone. */
+export const scheduleSchema = z.object({
+  enabled: z.boolean().default(false),
+  everyMinutes: z.number().int().min(1).max(525600),
+  input: z.string().max(32000).default('Run the scheduled task.'),
+  at: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM')
+    .optional(),
+  weekday: z.number().int().min(0).max(6).optional(),
+  timezone: z.string().max(64).refine(validTimeZone, 'Unknown time zone').optional(),
+});
+export type Schedule = z.infer<typeof scheduleSchema>;
 export const workflowSchema = z
   .object({
     name,
@@ -158,18 +191,24 @@ export const workflowSchema = z
       .default([]),
     maxSteps: z.number().int().min(1).max(500).default(100),
     resumePolicy: z.enum(resumePolicies).default('safe'),
-    schedule: z
-      .object({
-        enabled: z.boolean().default(false),
-        everyMinutes: z.number().int().min(1).max(525600),
-        input: z.string().max(32000).default('Run the scheduled task.'),
-      })
-      .optional(),
+    schedule: scheduleSchema.optional(),
   })
   .superRefine((w, ctx) => {
     const nodes = new Map(w.nodes.map((n) => [n.id, n]));
     const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
     if (nodes.size !== w.nodes.length) issue('Node IDs must be unique');
+    // Agent cards that a Parallel step runs may sit beside the execution path.
+    const members = new Set<string>();
+    for (const n of w.nodes)
+      if (n.type === 'parallel') {
+        if (!n.agentNodeIds.length && !n.agentIds.length)
+          issue(`Choose the agents that ${n.name} runs together`);
+        for (const m of n.agentNodeIds) {
+          if (nodes.get(m)?.type !== 'agent' || m === n.id)
+            issue(`${n.name} must run agent cards from this workflow`);
+          members.add(m);
+        }
+      }
     const resources = new Map(w.resources.map((r) => [r.id, r]));
     if (resources.size !== w.resources.length || w.resources.some((r) => nodes.has(r.id)))
       issue('Resource IDs must be unique');
@@ -209,6 +248,7 @@ export const workflowSchema = z
         walk(n.onTrue);
         walk(n.onFalse);
       } else if ('next' in n && n.next) walk(n.next);
+      if (n.type === 'parallel') for (const m of n.agentNodeIds) if (nodes.has(m)) visited.add(m);
       visiting.delete(nodeId);
       visited.add(nodeId);
     };
@@ -225,7 +265,8 @@ export const workflowSchema = z
           if (targets.some((t) => canFinish.has(t))) canFinish.add(n.id);
           if (i === 0 && targets.includes(w.startAt)) issue('Execution cannot return to Start');
         }
-      if (w.nodes.some((n) => !canFinish.has(n.id))) issue('Every execution step needs a path to Finish');
+      if (w.nodes.some((n) => !canFinish.has(n.id) && !(members.has(n.id) && !('next' in n && n.next))))
+        issue('Every execution step needs a path to Finish');
     }
   });
 export const knowledgeSchema = z.object({
@@ -295,6 +336,8 @@ export type KnowledgeDocument = Stored<{
   filename: string;
   storageKey: string;
   size: number;
+  /** Notes are written in the studio and stay editable; uploads are files. */
+  kind?: 'upload' | 'note';
   status: 'queued' | 'indexing' | 'ready' | 'failed' | 'deleting';
   chunks?: number;
   error?: string;

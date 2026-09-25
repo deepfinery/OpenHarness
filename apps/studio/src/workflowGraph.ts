@@ -6,8 +6,9 @@ import {
   type WorkflowNode,
   type WorkflowResource,
 } from '../../../packages/core/src/schema.js';
-import type { Data, Entity } from './api';
+import { defaultProviderId, type Data, type Entity } from './api';
 import { makeStarter } from '../../../packages/core/src/starters.js';
+import { effortPresets } from '../../../packages/core/src/patterns.js';
 
 export const isFinish = (n: WorkflowNode) => n.type === 'output' || n.type === 'finish';
 export function executionLinks(n: WorkflowNode): { target: string; port: string }[] {
@@ -34,6 +35,23 @@ export function graphEdges(form: Workflow): Edge[] {
           data: { kind: 'flow', port: l.port },
         })),
     ),
+    // A Parallel step runs the agent cards it points at; those cards need no place in the execution path.
+    ...form.nodes.flatMap((n) =>
+      n.type === 'parallel'
+        ? (n.agentNodeIds ?? [])
+            .filter((id) => form.nodes.some((t) => t.id === id))
+            .map((id) => ({
+              id: `member:${n.id}:${id}`,
+              source: n.id,
+              target: id,
+              sourceHandle: 'members',
+              targetHandle: 'in',
+              type: 'bezier',
+              label: 'Runs',
+              data: { kind: 'member' },
+            }))
+        : [],
+    ),
     ...(form.bindings ?? []).map((b) => ({
       id: `resource:${b.resourceId}:${b.agentNodeId}`,
       source: b.resourceId,
@@ -48,6 +66,21 @@ export function graphEdges(form: Workflow): Edge[] {
   ];
 }
 export function connectGraph(form: Workflow, c: Connection): Workflow {
+  if (c.sourceHandle === 'members' || c.targetHandle === 'members') {
+    const parallelId = c.sourceHandle === 'members' ? c.source : c.target;
+    const agentId = c.sourceHandle === 'members' ? c.target : c.source;
+    const parallel = form.nodes.find((n) => n.id === parallelId);
+    const agent = form.nodes.find((n) => n.id === agentId);
+    if (parallel?.type !== 'parallel' || agent?.type !== 'agent')
+      throw new Error('Connect the Runs port to an agent card.');
+    if (parallel.agentNodeIds.includes(agentId)) return form;
+    return {
+      ...form,
+      nodes: form.nodes.map((n) =>
+        n.id === parallel.id ? { ...parallel, agentNodeIds: [...parallel.agentNodeIds, agentId] } : n,
+      ),
+    };
+  }
   const resource = form.resources.find((r) => r.id === c.source || r.id === c.target);
   if (resource) {
     const agentId = resource.id === c.source ? c.target : c.source;
@@ -95,6 +128,15 @@ export function connectGraph(form: Workflow, c: Connection): Workflow {
   };
 }
 export function disconnectGraph(form: Workflow, edge: Edge): Workflow {
+  if (edge.id.startsWith('member:'))
+    return {
+      ...form,
+      nodes: form.nodes.map((n) =>
+        n.id === edge.source && n.type === 'parallel'
+          ? { ...n, agentNodeIds: n.agentNodeIds.filter((id) => id !== edge.target) }
+          : n,
+      ),
+    };
   if (edge.id.startsWith('resource:'))
     return {
       ...form,
@@ -114,19 +156,21 @@ export function disconnectGraph(form: Workflow, edge: Edge): Workflow {
   };
 }
 export function defaultAgent(data: Data): Agent {
+  const preset = effortPresets.medium;
   return {
     name: 'AI agent',
     description: '',
-    providerId: data.providers[0]?.id ?? '',
+    providerId: defaultProviderId(data),
     systemPrompt:
       'Handle the user’s request using your attached tools and knowledge. Check results, cite sources, and be clear about uncertainty.',
     connections: [],
     knowledgeBaseIds: [],
     enabled: true,
-    maxTurns: 12,
-    timeoutSeconds: 300,
+    maxTurns: preset.maxTurns,
+    timeoutSeconds: preset.timeoutSeconds,
     pattern: 'react',
-    patternConfig: { reflections: 1, iterations: 3, doneMarker: 'DONE', maxPlanSteps: 5 },
+    patternConfig: { ...preset.patternConfig },
+    effort: 'medium',
   };
 }
 /** Upgrade the editable graph without rewriting saved workflows until the user saves. */
@@ -138,6 +182,11 @@ export function editableWorkflow(value: Entity | Workflow | undefined, data: Dat
   f.bindings ??= [];
   f.maxSteps ??= 100;
   for (const n of f.nodes) if (n.type === 'output') (n as { type: string }).type = 'finish';
+  for (const n of f.nodes)
+    if (n.type === 'parallel') {
+      n.agentNodeIds ??= [];
+      n.agentIds ??= [];
+    }
   if (!f.nodes.some((n) => n.type === 'start')) {
     let startId = 'start';
     while (f.nodes.some((n) => n.id === startId)) startId += '_';
@@ -223,7 +272,9 @@ export function removeGraphNode(form: Workflow, id: string): Workflow {
             onTrue: v.onTrue === id ? (replacement ?? '') : v.onTrue,
             onFalse: v.onFalse === id ? (replacement ?? '') : v.onFalse,
           };
-        if ('next' in v && v.next === id) return { ...v, next: replacement };
+        if (v.type === 'parallel' && v.agentNodeIds.includes(id))
+          v = { ...v, agentNodeIds: v.agentNodeIds.filter((m) => m !== id) };
+        if ('next' in v && v.next === id) return { ...v, next: replacement } as WorkflowNode;
         return v;
       }),
     resources: form.resources.filter((r) => !removedResources.has(r.id)),

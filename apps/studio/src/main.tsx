@@ -20,23 +20,24 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { api, emptyData, errorMessage, send, type Data, type Entity, type User } from './api';
+import { api, collections, emptyData, errorMessage, send, type Data, type Entity, type User } from './api';
 import { Button, ErrorNotice } from './components/ui';
-import { AgentEditor, ConnectionEditor, KnowledgeEditor, ProviderEditor } from './components/editors';
+import { ConnectionEditor, KnowledgeEditor, ProviderEditor } from './components/editors';
 import { WorkflowStarter } from './components/WorkflowStarter';
 import type { Workflow } from '../../../packages/core/src/schema.js';
 import { WorkflowEditor } from './components/WorkflowEditor';
-import { AgentsPage, ConnectionsPage, KnowledgePage, RunsPage, WorkflowsPage } from './components/pages';
-import { EmbedChat, Playground } from './components/Playground';
+import { ConnectionsPage, RunsPage, WorkflowsPage } from './components/pages';
+import { KnowledgePage } from './components/KnowledgePage';
+import { EmbedChat, Playground, playgroundTargets } from './components/Playground';
 import { IntegrationsPage, SettingsPage } from './components/Settings';
 import './styles.css';
+import './refresh.css';
 
 const nav = [
   { id: 'workflows', label: 'Workflows', icon: GitBranch },
-  { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'playground', label: 'Playground', icon: MessageSquare },
   { id: 'connections', label: 'MCP connections', icon: Plug },
-  { id: 'knowledge', label: 'Knowledge bases', icon: BookOpen },
+  { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
   { id: 'executions', label: 'Executions', icon: Activity },
   { id: 'integrations', label: 'Integrations', icon: Code2 },
   { id: 'settings', label: 'Settings', icon: Settings2 },
@@ -57,17 +58,12 @@ function Auth({ needsSetup, onLogin }: { needsSetup: boolean; onLogin: (u: User)
           </span>
         </div>
         <div className="auth-story-content">
-          <div className="eyebrow">YOUR IDEAS. IN MOTION.</div>
           <h1>
-            A studio for agents
+            Agents that
             <br />
-            that get things done.
+            get things done.
           </h1>
-          <p>
-            Connect intelligence, tools, and knowledge.
-            <br />
-            Build on your terms. Run on your infrastructure.
-          </p>
+          <p>Models, MCP tools and your knowledge, orchestrated on your own infrastructure.</p>
           <div className="auth-flow">
             <div>
               <Bot size={30} />
@@ -201,10 +197,13 @@ function App() {
   const [healthy, setHealthy] = useState(false);
   const [sidebar, setSidebar] = useState(false);
   const refresh = useCallback(async () => {
-    const keys = Object.keys(emptyData) as (keyof Data)[];
-    const values = await Promise.all(keys.map((key) => api<Entity[]>(`/${key}`)));
-    setTenant(await api('/tenant'));
-    setData(Object.fromEntries(keys.map((key, i) => [key, values[i]])) as unknown as Data);
+    const values = await Promise.all(collections.map((key) => api<Entity[]>(`/${key}`)));
+    const workspace = await api('/tenant');
+    setTenant(workspace);
+    setData({
+      ...(Object.fromEntries(collections.map((key, i) => [key, values[i]])) as Omit<Data, 'defaults'>),
+      defaults: { providerId: workspace.defaultProviderId ?? '' },
+    });
   }, []);
   const act = useCallback(async (task: () => Promise<unknown>) => {
     setError('');
@@ -285,7 +284,6 @@ function App() {
     );
   const props = { data, refresh, edit, navigate, act };
   const editors: Record<string, React.ComponentType<any>> = {
-    agents: AgentEditor,
     providers: ProviderEditor,
     connections: ConnectionEditor,
     knowledge: KnowledgeEditor,
@@ -310,11 +308,11 @@ function App() {
           </div>
           <ChevronRight size={15} />
         </div>
-        <div className="nav-label">BUILD & ORCHESTRATE</div>
+        <div className="nav-label">Build</div>
         <nav>
           {nav.map((item, i) => (
             <React.Fragment key={item.id}>
-              {i === 6 && <div className="nav-label lower">WORKSPACE</div>}
+              {i === 5 && <div className="nav-label lower">Workspace</div>}
               <button
                 aria-label={item.label}
                 className={page === item.id ? 'active' : ''}
@@ -322,19 +320,11 @@ function App() {
               >
                 <item.icon size={18} />
                 <span>{item.label}</span>
-                {item.id === 'agents' && data.agents.length > 0 && <small>{data.agents.length}</small>}
               </button>
             </React.Fragment>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="self-hosted">
-            <span className="live-dot" />
-            <div>
-              <strong>Self hosted</strong>
-              <small>Your infrastructure. Your control.</small>
-            </div>
-          </div>
           <button className="sidebar-profile" onClick={() => navigate('settings')}>
             <span className="user-initial">{user.name[0]?.toUpperCase()}</span>
             <div>
@@ -365,14 +355,33 @@ function App() {
           <div className="breadcrumbs">
             <span>{tenant.name}</span>
             <ChevronRight size={13} />
-            <strong>{nav.find((n) => n.id === page)?.label ?? 'Workflows'}</strong>
+            {page === 'playground' ? (
+              // The playground's workflow selector lives here so the chat column starts at the very top.
+              <select
+                className="topbar-select"
+                aria-label="Playground agent or workflow"
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+              >
+                <option value="" disabled>
+                  Choose a workflow
+                </option>
+                {playgroundTargets(data).map((t) => (
+                  <option key={`${t.type}:${t.id}`} value={`${t.type}:${t.id}`}>
+                    {t.name}
+                    {t.type === 'agent' ? ' · saved agent' : ''}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <strong>{nav.find((n) => n.id === page)?.label ?? 'Workflows'}</strong>
+            )}
           </div>
           <div className="topbar-right">
             <span className={`system-status ${healthy ? '' : 'unhealthy'}`}>
               <i />
-              {healthy ? 'Services connected' : 'Checking services'}
+              {healthy ? 'Online' : 'Connecting…'}
             </span>
-            <span className="version">v0.2</span>
           </div>
         </header>
         {error && (
@@ -384,12 +393,10 @@ function App() {
           </div>
         )}
         {page === 'playground' ? (
-          <Playground key={target} data={data} initialTarget={target} />
+          <Playground key={target} data={data} target={target} onTargetChange={setTarget} />
         ) : (
           <main className="page-content">
-            {page === 'agents' ? (
-              <AgentsPage {...props} />
-            ) : page === 'connections' ? (
+            {page === 'connections' ? (
               <ConnectionsPage {...props} />
             ) : page === 'knowledge' ? (
               <KnowledgePage {...props} />
@@ -424,6 +431,7 @@ function App() {
           onClose={() => setEditor(null)}
           onSaved={refresh}
           onRun={(id) => navigate('playground', `workflow:${id}`)}
+          onNavigate={(next) => navigate(next)}
         />
       )}
     </div>

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { workflowSchema, agentSchema, connectionSchema } from '../../packages/core/src/schema.js';
 import { render, evaluateCondition } from '../../packages/core/src/templates.js';
 import { chunkText, sanitizeExtractedText } from '../../packages/core/src/chunking.js';
@@ -74,6 +75,128 @@ test('crashed runs resume only when the in-flight step cannot have acted externa
   assert.equal(resumeDecision(agentOnly(['lookup'])).resume, false);
 });
 
+test('context compaction fits a dialog under budget without separating tool calls from their results', async () => {
+  const { compactDialog, contextLimitFromError, dialogTokens, isContextLengthError } =
+    await import('../../packages/core/src/context.js');
+  const big = 'x'.repeat(20000);
+  const messages = [
+    { role: 'system' as const, content: 'Be helpful.' },
+    { role: 'user' as const, content: 'first question' },
+    {
+      role: 'assistant' as const,
+      content: '',
+      toolCalls: [{ id: 't1', name: 'lookup', arguments: { q: 1 } }],
+    },
+    { role: 'tool' as const, content: big, toolCallId: 't1', name: 'lookup' },
+    { role: 'assistant' as const, content: 'first answer' },
+    { role: 'user' as const, content: 'second question' },
+    {
+      role: 'assistant' as const,
+      content: '',
+      toolCalls: [{ id: 't2', name: 'lookup', arguments: { q: 2 } }],
+    },
+    { role: 'tool' as const, content: big, toolCallId: 't2', name: 'lookup' },
+    { role: 'user' as const, content: 'current question' },
+  ];
+  const untouched = compactDialog(messages, 1_000_000);
+  assert.equal(untouched.changed, false);
+  const level1 = compactDialog(messages, 7000, 1);
+  assert.equal(level1.changed, true);
+  assert.match(level1.messages[3].content, /truncated/);
+  assert.equal(level1.messages[7].content, big, 'the most recent tool result stays intact at level 1');
+  const level2 = compactDialog(messages, 3000, 2);
+  assert.equal(level2.messages[0].role, 'system');
+  assert.equal(level2.messages.at(-1)!.content, 'current question');
+  assert.ok(level2.messages.length < messages.length, 'older turns were dropped');
+  for (const [i, m] of level2.messages.entries())
+    if (m.role === 'tool')
+      assert.equal(
+        level2.messages[i - 1].toolCalls?.some((c) => c.id === m.toolCallId),
+        true,
+        'tool results follow their call',
+      );
+  assert.ok(dialogTokens(level2.messages) <= 3000);
+  const level3 = compactDialog(
+    [
+      { role: 'system' as const, content: 'k'.repeat(50000) },
+      { role: 'user' as const, content: 'q' },
+    ],
+    3000,
+    3,
+  );
+  assert.ok(dialogTokens(level3.messages) <= 3000);
+  assert.match(level3.messages[0].content, /trimmed/);
+  assert.equal(isContextLengthError("This model's maximum context length is 32768 tokens."), true);
+  assert.equal(isContextLengthError('Invalid API key'), false);
+  assert.equal(contextLimitFromError("This model's maximum context length is 32768 tokens. However"), 32768);
+  assert.equal(contextLimitFromError('prompt is too long'), undefined);
+});
+test('effort presets carry loop and token budgets, and auto resolves a level from the request', async () => {
+  const { budgetedAgent, effortPresets, resolveEffort } = await import('../../packages/core/src/patterns.js');
+  const { agentSchema } = await import('../../packages/core/src/schema.js');
+  const base = agentSchema.parse({ name: 'A', providerId: randomUUID(), systemPrompt: 'Help.' });
+  assert.equal(base.effort, 'medium');
+  assert.equal(
+    agentSchema.parse({ ...base, effort: 'low' }).effort,
+    'light',
+    'pre-release name maps to light',
+  );
+  assert.ok(effortPresets.light.tokenBudget < effortPresets.medium.tokenBudget);
+  assert.ok(effortPresets.high.maxTurns < effortPresets['extra-high'].maxTurns);
+  assert.ok(effortPresets['extra-high'].tokenBudget < effortPresets.max.tokenBudget);
+  const tools = [{ connectionId: randomUUID(), tools: ['search'] }];
+  assert.equal(resolveEffort({ effort: 'auto', pattern: 'react', connections: [] }, 'hi').level, 'light');
+  assert.equal(resolveEffort({ effort: 'auto', pattern: 'react', connections: tools }, 'hi').level, 'medium');
+  assert.equal(
+    resolveEffort({ effort: 'auto', pattern: 'react', connections: tools }, 'x'.repeat(2000)).level,
+    'high',
+  );
+  assert.equal(
+    resolveEffort({ effort: 'auto', pattern: 'plan-execute', connections: [] }, 'hi').level,
+    'medium',
+  );
+  assert.equal(resolveEffort({ effort: 'max', pattern: 'react', connections: [] }, 'hi').level, 'max');
+  const fixed = budgetedAgent({ ...base, effort: 'high', maxTurns: 7 }, 'hi');
+  assert.equal(fixed.maxTurns, 7, 'a fixed level keeps the stored (possibly overridden) limits');
+  assert.equal(fixed.tokenBudget, effortPresets.high.tokenBudget);
+  const auto = budgetedAgent({ ...base, effort: 'auto', connections: tools }, 'hi');
+  assert.equal(auto.maxTurns, effortPresets.medium.maxTurns, 'auto applies the resolved preset');
+  assert.equal(auto.resolvedEffort, 'medium');
+});
+test('schedules fire on fixed intervals or at a wall-clock time in the chosen time zone', async () => {
+  const { nextScheduledAt, describeSchedule } = await import('../../packages/core/src/schedule.js');
+  const from = new Date('2026-03-06T10:00:00Z'); // a Friday
+  assert.equal(
+    nextScheduledAt({ enabled: true, everyMinutes: 15, input: '' }, from).toISOString(),
+    '2026-03-06T10:15:00.000Z',
+  );
+  // Daily at 09:00 in Berlin (UTC+1 in March): already past today, so tomorrow 08:00Z.
+  const daily = nextScheduledAt(
+    { enabled: true, everyMinutes: 1440, input: '', at: '09:00', timezone: 'Europe/Berlin' },
+    from,
+  );
+  assert.equal(daily.toISOString(), '2026-03-07T08:00:00.000Z');
+  // Daily at 18:30 UTC: still ahead today.
+  assert.equal(
+    nextScheduledAt(
+      { enabled: true, everyMinutes: 1440, input: '', at: '18:30', timezone: 'UTC' },
+      from,
+    ).toISOString(),
+    '2026-03-06T18:30:00.000Z',
+  );
+  // Weekly on Monday at 07:00 New York (UTC-5 before DST starts on March 8): Monday 9 March 11:00Z.
+  const weekly = nextScheduledAt(
+    { enabled: true, everyMinutes: 10080, input: '', at: '07:00', weekday: 1, timezone: 'America/New_York' },
+    from,
+  );
+  assert.equal(weekly.toISOString(), '2026-03-09T11:00:00.000Z', 'DST change on the 8th is respected');
+  assert.equal(describeSchedule({ enabled: true, everyMinutes: 1, input: '' }), 'Every minute');
+  assert.equal(
+    describeSchedule({ enabled: true, everyMinutes: 1440, input: '', at: '09:00' }),
+    'Every day at 09:00',
+  );
+  assert.equal(describeSchedule(undefined), 'Off');
+});
 test('MCP tool argument validation catches enum and required-field mismatches before dispatch', () => {
   const schema = {
     type: 'object',

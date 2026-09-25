@@ -1,0 +1,710 @@
+/* Calmer type and the designer/knowledge layouts. Loaded after styles.css, so these rules win ties. */
+:root {
+  --teal: #2a9d8a;
+  --teal-bg: #e3f4f1;
+  --violet: #7e63a8;
+  --violet-bg: #f1ecf8;
+}
+.eyebrow,
+.nav-label,
+.trace-meta small,
+.workflow-name small,
+.flow-card-top small,
+.harness-card .flow-card-top small,
+.protocol-badge,
+th,
+.component-id,
+.start-label {
+  font-family: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--slate);
+}
+.nav-label {
+  color: var(--faint);
+  padding-bottom: 4px;
+}
+th {
+  color: var(--faint);
+  font-size: 12px;
+}
+td {
+  font-size: 13px;
+  color: var(--ink);
+}
+.status {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.page-title {
+  align-items: center;
+  margin-bottom: 20px;
+}
+.page-title h1 {
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.3px;
+}
+.page-title p {
+  font-size: 14px;
+  color: var(--slate);
+}
+.section-toolbar h2 {
+  font-size: 17px;
+}
+.section-toolbar p,
+.field-help,
+.notice {
+  font-size: 13px;
+}
+.sidebar nav button {
+  font-size: 14px;
+}
+.segmented button {
+  font-size: 13px;
+  padding: 6px 14px;
+}
+.empty h3 {
+  font-size: 17px;
+}
+.empty p {
+  font-size: 14px;
+}
+.workflow-name small {
+  color: var(--faint);
+  font-weight: 500;
+  letter-spacing: 0;
+  margin-top: 2px;
+}
+.flow-card-top small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--faint);
+  margin-bottom: 2px;
+}
+.flow-card-top strong,
+.harness-card .flow-card-top strong {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* Designer toolbox */
+.toolbox {
+  width: 208px;
+  flex-shrink: 0;
+  background: #fff;
+  border-right: 1px solid var(--border);
+  padding: 12px 10px 14px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.toolbox-group h4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--slate);
+  margin: 0 4px 6px;
+}
+.toolbox-group h4 .icon-button.small {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+.tool-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  cursor: grab;
+}
+.tool-item:hover {
+  background: #f3f7fb;
+  border-color: var(--border);
+}
+.tool-item:active {
+  cursor: grabbing;
+}
+.tool-item .node-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+.tool-item.mcp .node-icon {
+  background: var(--violet-bg);
+  color: var(--violet);
+  border-color: #e4dbf0;
+}
+.tool-item.knowledge .node-icon {
+  background: var(--teal-bg);
+  color: var(--teal);
+  border-color: #cfe9e4;
+}
+.tool-item > span:last-child {
+  min-width: 0;
+  flex: 1;
+}
+.tool-item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-item small {
+  display: block;
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 1px;
+}
+.toolbox-empty {
+  font-size: 12px;
+  color: var(--faint);
+  margin: 2px 6px;
+}
+.toolbox-hint {
+  margin-top: auto;
+  font-size: 12px;
+  color: var(--faint);
+  line-height: 1.5;
+  padding: 0 4px;
+}
+.canvas-selection {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 8px 6px 12px;
+  box-shadow: 0 6px 20px #1a293914;
+  font-size: 13px;
+  max-width: calc(100% - 200px);
+}
+.canvas-selection > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-right: 6px;
+}
+.canvas-selection small {
+  font-size: 11px;
+  color: var(--faint);
+}
+.canvas-selection strong {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+.canvas-selection .button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.card-gear {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  z-index: 2;
+}
+.flow-card:hover .card-gear,
+.flow-card.selected .card-gear {
+  opacity: 1;
+}
+.card-gear:hover {
+  background: var(--blue-bg);
+  color: var(--blue-ink);
+}
+.flow-card.drop-target {
+  outline: 2px dashed var(--blue);
+  outline-offset: 3px;
+  background: var(--blue-bg);
+}
+.harness-card.kind-parallel .node-icon {
+  background: #eef2f7;
+  color: #4d6a8a;
+}
+.agent-ports.members {
+  justify-content: center;
+}
+.harness-card .members-port {
+  background: #8a9bb0 !important;
+}
+.canvas-hint {
+  display: none;
+}
+
+/* Settings modals opened from the canvas */
+.node-settings .form-section {
+  margin-top: 8px;
+}
+.form-actions.between {
+  justify-content: space-between;
+}
+.binding-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.binding-row > button:first-child {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.binding-row > button:first-child:hover {
+  border-color: var(--blue);
+}
+.binding-row small {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 12px;
+}
+.effort-control {
+  display: flex;
+  width: 100%;
+}
+.effort-control button {
+  flex: 1;
+  text-align: center;
+}
+.schedule-fields .two-columns {
+  margin-top: 10px;
+}
+.schedule-next {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.workflow-header .button {
+  white-space: nowrap;
+}
+
+/* Knowledge as a notebook */
+.kb-shell {
+  display: grid;
+  grid-template-columns: 210px 300px minmax(0, 1fr);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  height: calc(100vh - 190px);
+  min-height: 520px;
+  overflow: hidden;
+}
+.kb-shell.dragging {
+  outline: 2px dashed var(--blue);
+  outline-offset: -2px;
+}
+.kb-list {
+  border-right: 1px solid var(--border);
+  padding: 10px 8px;
+  overflow: auto;
+  background: #f8fafc;
+}
+.kb-list > button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 9px 10px;
+  margin-bottom: 2px;
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+}
+.kb-list > button > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-list > button:hover {
+  background: #eef2f6;
+}
+.kb-list > button.active {
+  background: var(--blue-bg);
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+.kb-list > .kb-list-add {
+  color: var(--slate);
+  margin-top: 6px;
+}
+.kb-files {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.kb-files-head {
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.kb-files-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.kb-files-title h3 {
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.kb-files-title small {
+  display: block;
+  font-size: 12px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+.kb-files-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.kb-files-actions .button {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.kb-filter {
+  font-size: 13px;
+  padding: 7px 10px;
+}
+.kb-file-list {
+  overflow: auto;
+  flex: 1;
+  padding: 6px 0;
+}
+.kb-files-empty {
+  padding: 18px 16px;
+  font-size: 13px;
+  color: var(--faint);
+  line-height: 1.6;
+}
+.kb-file {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 8px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 14px;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: transparent;
+  text-align: left;
+  color: var(--slate);
+}
+.kb-file:hover {
+  background: #f6f9fc;
+}
+.kb-file.active {
+  background: #f1f6fb;
+  border-left-color: var(--blue);
+}
+.kb-file strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-file small {
+  display: block;
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+.kb-file .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #cfd8e2;
+}
+.kb-file .dot.ready {
+  background: var(--green);
+}
+.kb-file .dot.queued,
+.kb-file .dot.indexing {
+  background: var(--amber);
+}
+.kb-file .dot.failed {
+  background: var(--magenta);
+}
+.kb-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.kb-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 10px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.kb-title {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  font-size: 17px;
+  font-weight: 600;
+  padding: 4px 0;
+}
+.kb-title:focus {
+  box-shadow: none;
+}
+.kb-title-static {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-note {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none !important;
+  padding: 20px 24px;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--ink);
+  background: #fff;
+}
+.kb-editor-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--faint);
+}
+.kb-editor-foot .grow {
+  flex: 1;
+}
+.kb-preview {
+  padding: 18px 24px;
+  overflow: auto;
+}
+.kb-preview pre {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: transparent;
+}
+.kb-meta {
+  font-size: 12px;
+  color: var(--faint);
+  margin-bottom: 12px;
+}
+.kb-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--slate);
+  padding: 30px;
+  max-width: 360px;
+}
+.kb-empty > svg {
+  color: var(--faint);
+}
+.kb-empty h3 {
+  margin-top: 10px;
+  font-size: 17px;
+}
+.kb-empty p {
+  margin: 8px 0 16px;
+  font-size: 13px;
+}
+.kb-empty .row-actions {
+  justify-content: center;
+}
+.kb-ask {
+  display: flex;
+  gap: 8px;
+}
+.kb-ask input {
+  flex: 1;
+}
+.knowledge-results p {
+  font-size: 13px;
+}
+.provider-default {
+  background: var(--blue-bg);
+  color: var(--blue-ink);
+  border-color: #cfe6f4;
+}
+@media (max-width: 1100px) {
+  .kb-shell {
+    grid-template-columns: 180px 260px minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .kb-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    height: auto;
+    min-height: 0;
+  }
+  .kb-list {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .kb-list > button {
+    width: auto;
+    white-space: nowrap;
+  }
+  .kb-files {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    max-height: 300px;
+  }
+  .kb-editor {
+    min-height: 420px;
+  }
+  .toolbox {
+    width: 168px;
+  }
+  .tool-item small {
+    display: none;
+  }
+  .canvas-selection {
+    top: auto;
+    bottom: 12px;
+  }
+}
+
+/* Playground: the workflow selector sits in the top bar; panel toggles float over the chat. */
+.topbar-select {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 5px 28px 5px 8px;
+  border: 1px solid transparent;
+  background-color: transparent;
+  max-width: 380px;
+  min-width: 160px;
+}
+.topbar-select:hover,
+.topbar-select:focus {
+  border-color: var(--border);
+  background-color: #fff;
+}
+.playground-main {
+  position: relative;
+}
+.playground-float {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 3;
+  pointer-events: none;
+}
+.playground-float > * {
+  pointer-events: auto;
+}
+.playground-float .grow {
+  flex: 1;
+}
+.playground-float .icon-button {
+  background: #fff;
+  border: 1px solid var(--border);
+}
+.chat-scroll {
+  padding-top: 14px;
+}
+
+/* No more typewriter labels: the trace, status pills, port labels and chat names use the body font. */
+.trace-event small,
+.message-body > strong,
+.status,
+.harness-card .port-label,
+.trace-output summary,
+.chat-divider span,
+.compose-hint,
+.trace-meta small,
+.run-detail-head code {
+  font-family: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.trace-event small {
+  font-size: 11px;
+}
+.message-body > strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--slate);
+}
+.harness-card .port-label {
+  font-size: 10px;
+  font-weight: 600;
+}
+.breadcrumbs > span {
+  white-space: nowrap;
+}
+.chat-scroll {
+  padding-top: 48px;
+}

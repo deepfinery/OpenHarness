@@ -17,7 +17,16 @@ import {
   X,
 } from 'lucide-react';
 import { WebhooksPanel } from './WebhooksPanel';
-import { api, errorMessage, send, timestamp, type Data, type Entity, type User } from '../api';
+import {
+  api,
+  defaultProviderId,
+  errorMessage,
+  send,
+  timestamp,
+  type Data,
+  type Entity,
+  type User,
+} from '../api';
 import {
   Button,
   CopyButton,
@@ -69,11 +78,7 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
   }, [tab]);
   return (
     <>
-      <PageTitle
-        eyebrow="Make it yours"
-        title="Settings."
-        text="Model providers, outgoing email, your profile, and the shared workspace."
-      />
+      <PageTitle title="Settings" />
       <div className="tabs">
         <button className={tab === 'models' ? 'active' : ''} onClick={() => setTab('models')}>
           <Cpu size={16} />
@@ -99,47 +104,18 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
           <div className="section-toolbar">
             <div>
               <h2>Model providers</h2>
-              <p>
-                Each provider has one chat model and, optionally, one embedding model. Agents pick a provider
-                each.
-              </p>
+              <p>New agents start with the default provider. Each agent can pick another.</p>
             </div>
             <Button onClick={() => edit('providers')}>
               <Plus size={16} />
               Add provider
             </Button>
           </div>
-          <div className="explainer-grid">
-            <div className="explainer">
-              <span className="eyebrow">Chat model</span>
-              <strong>What agents think with</strong>
-              <p>
-                Reasoning, tool calls and answers. Choose it per agent, so a workflow can mix a fast model
-                with a careful one.
-              </p>
-            </div>
-            <div className="explainer">
-              <span className="eyebrow">Embedding model</span>
-              <strong>What knowledge bases search with</strong>
-              <p>
-                Turns documents and questions into vectors. A knowledge base is bound to one embedding
-                provider for life, so pick it deliberately.
-              </p>
-            </div>
-            <div className="explainer">
-              <span className="eyebrow">Testing</span>
-              <strong>Verify before you save</strong>
-              <p>
-                The provider form tests the chat and embedding models against the real endpoint and shows the
-                exact error if something is wrong.
-              </p>
-            </div>
-          </div>
           {!data.providers.length ? (
             <Empty
               icon={<Cpu size={30} />}
-              title="Bring your preferred model."
-              text="Choose OpenAI, Anthropic, Gemini, Ollama or any OpenAI-compatible server. Credentials stay encrypted on your server."
+              title="No model providers yet"
+              text="Add OpenAI, Anthropic, Gemini, Ollama or any OpenAI-compatible server. Keys are stored encrypted."
               action={
                 <Button onClick={() => edit('providers')}>
                   <Plus size={16} />
@@ -160,6 +136,7 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
                     </button>
                     <span>{p.baseUrl}</span>
                     <div className="tag-row">
+                      {p.id === defaultProviderId(data) && <span className="provider-default">Default</span>}
                       <span>{kindLabel[p.kind] ?? p.kind}</span>
                       <span>Chat · {p.model}</span>
                       <span className={p.embeddingModel ? '' : 'faint'}>
@@ -194,6 +171,19 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
                       {busy === p.id ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
                       Test
                     </Button>
+                    {user.role === 'admin' && p.id !== defaultProviderId(data) && (
+                      <Button
+                        variant="ghost"
+                        onClick={() =>
+                          void act(async () => {
+                            await send('/tenant', { defaultProviderId: p.id }, 'PUT');
+                            await refresh();
+                          })
+                        }
+                      >
+                        Make default
+                      </Button>
+                    )}
                     <IconButton title={`Edit ${p.name}`} onClick={() => edit('providers', p)}>
                       <Settings2 size={17} />
                     </IconButton>
@@ -301,11 +291,8 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
       {tab === 'users' && (
         <>
           <div className="settings-card workspace-settings">
-            <h2>Shared workspace</h2>
-            <p>
-              Members share workflows, agents, knowledge, model providers, and MCP connections. Administrators
-              also manage accounts and email settings. Saved credentials stay encrypted.
-            </p>
+            <h2>Workspace</h2>
+            <p>Members share workflows, knowledge, providers and connections. Admins manage accounts.</p>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -329,8 +316,7 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
           </div>
           <div className="section-toolbar">
             <div>
-              <h2>Studio accounts</h2>
-              <p>Everyone in the workspace shares its resources and run history.</p>
+              <h2>Accounts</h2>
             </div>
             <Button onClick={() => setAdding(true)}>
               <Plus size={16} />
@@ -548,10 +534,7 @@ export function EmailSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
       <div className="section-toolbar">
         <div>
           <h2>Outgoing email</h2>
-          <p>
-            Used by the Email step in workflows to send reports and notifications. One configuration per
-            workspace.
-          </p>
+          <p>Used by Email steps in workflows.</p>
         </div>
         {settings && (
           <span
@@ -769,10 +752,9 @@ export function EmailSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
           <div className="settings-card">
             <h3>Defaults from .env</h3>
             <p className="field-help">
-              Operators can preconfigure email for every workspace with <code>SMTP_HOST</code>,{' '}
-              <code>SMTP_PORT</code>, <code>SMTP_SECURE</code>, <code>SMTP_USER</code>,{' '}
-              <code>SMTP_PASSWORD</code> and <code>SMTP_FROM</code> in <code>.env</code>, then{' '}
-              <code>docker compose up -d api runner</code>. Settings saved here take precedence.
+              <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>,{' '}
+              <code>SMTP_PASSWORD</code> and <code>SMTP_FROM</code> preconfigure every workspace. Settings
+              saved here win.
             </p>
           </div>
         </div>
@@ -801,11 +783,11 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
       .catch(() => {});
   }, []);
   const targets = [
-    ...data.agents.map((a) => ({ ...a, type: 'agent' })),
     ...data.workflows.map((w) => ({ ...w, type: 'workflow' })),
+    ...data.agents.map((a) => ({ ...a, type: 'agent' })),
   ];
-  const exampleTarget = data.agents[0]
-    ? `"agentId": "${data.agents[0].id}"`
+  const exampleTarget = data.workflows[0]
+    ? `"workflowId": "${data.workflows[0].id}"`
     : `"workflowId": "YOUR_WORKFLOW_ID"`;
   const curl = `curl -X POST '${publicUrl}/api/runs' \\\n  -H 'Authorization: Bearer YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -H 'Idempotency-Key: unique-request-id' \\\n  -d '{${exampleTarget}, "input": "Hello"}'`;
   const chat = `curl -X POST '${publicUrl}/api/chat' \\\n  -H 'Authorization: Bearer YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{${exampleTarget}, "message": "Research this topic"}'\n\n# stream status, trace and the answer as it is written\ncurl -N '${publicUrl}/api/runs/RUN_ID/stream' -H 'Authorization: Bearer YOUR_API_KEY'`;
@@ -814,43 +796,27 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
       id: 'api',
       icon: <Code2 size={20} />,
       title: 'API key',
-      text: 'Run an agent or workflow from your own code and read the result. Scoped to one target.',
-      steps: [
-        'Create a key for one agent or workflow',
-        'POST /api/runs or /api/chat with the key',
-        'Poll /api/runs/:id or stream /api/runs/:id/stream',
-      ],
+      text: 'Run a workflow from your own code.',
+      steps: ['Create a key for one workflow', 'POST /api/runs', 'Poll or stream the run'],
     },
     {
       id: 'webhooks',
       icon: <Webhook size={20} />,
       title: 'Webhook',
-      text: 'Let another system start a workflow by sending JSON. Fields become template values.',
-      steps: [
-        'Create a webhook and pick the input field',
-        'POST JSON with the bearer secret',
-        'Poll the returned run with the same secret',
-      ],
+      text: 'Another system posts JSON to start a workflow.',
+      steps: ['Create a webhook', 'POST JSON with its secret', 'Poll the run with the same secret'],
     },
     {
       id: 'embed',
       icon: <Bot size={20} />,
       title: 'Embedded chat',
-      text: 'Put a conversation with one agent on your website. Visitors never see your studio.',
-      steps: [
-        'Create an embed for one target and your site’s origin',
-        'Paste the iframe snippet',
-        'Revoke the link at any time',
-      ],
+      text: 'A chat with one workflow on your website.',
+      steps: ['Create an embed for your site’s origin', 'Paste the iframe', 'Revoke any time'],
     },
   ];
   return (
     <>
-      <PageTitle
-        eyebrow="Built to connect"
-        title="Integrations."
-        text="Three ways to put your agents to work outside the studio. Every one of them is scoped, revocable, and queued through the same runner."
-      />
+      <PageTitle title="Integrations" />
       <div className="ways-grid">
         {ways.map((w) => (
           <button
@@ -877,12 +843,7 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
         <>
           <div className="section-toolbar">
             <div>
-              <h2>{tab === 'api' ? 'API keys' : 'Embedded conversations'}</h2>
-              <p>
-                {tab === 'api'
-                  ? 'Each key can run and read executions for exactly one agent or workflow.'
-                  : 'Each link grants one agent or workflow to the origins you allow, until it expires or you revoke it.'}
-              </p>
+              <h2>{tab === 'api' ? 'API keys' : 'Embeds'}</h2>
             </div>
             <Button
               onClick={() => {
@@ -953,20 +914,16 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
           {tab === 'api' ? (
             <div className="integration-guide">
               <div>
-                <div className="eyebrow">One-shot run</div>
-                <h2>Submit, then read the result.</h2>
+                <h2>Run</h2>
                 <p>
-                  <code>POST /api/runs</code> returns <code>202</code> with a run <code>id</code>. Poll{' '}
-                  <code>GET /api/runs/:id</code> until the status is terminal, or open{' '}
-                  <code>GET /api/runs/:id/stream</code> for server-sent events with the trace and the answer
-                  as it streams. A stable <code>Idempotency-Key</code> makes retries safe.
+                  <code>POST /api/runs</code> returns a run <code>id</code>. Poll{' '}
+                  <code>GET /api/runs/:id</code> or stream <code>GET /api/runs/:id/stream</code>. An{' '}
+                  <code>Idempotency-Key</code> makes retries safe.
                 </p>
-                <div className="eyebrow">Conversation</div>
-                <h2>Keep the history on the server.</h2>
+                <h2>Chat</h2>
                 <p>
-                  <code>POST /api/chat</code> with a target and <code>message</code> returns a run and a{' '}
-                  <code>conversationId</code>. Send the same <code>conversationId</code> for follow-ups; list
-                  them with <code>GET /api/conversations</code>.
+                  <code>POST /api/chat</code> returns a <code>conversationId</code>; send it again for
+                  follow-ups.
                 </p>
               </div>
               <div className="code-stack">
@@ -990,12 +947,8 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
             <div className="notice provider-note">
               <ShieldCheck size={22} />
               <div>
-                <strong>Share a focused experience.</strong>
-                <p>
-                  Embed visitors see the conversation, without access to your studio or internal traces.
-                  Choose exact allowed website origins. The link contains a bearer capability: anyone with it
-                  can use the selected agent until it expires or you revoke it.
-                </p>
+                <strong>Visitors see only the conversation.</strong>
+                <p>The link works from the origins you allow until it expires or you revoke it.</p>
               </div>
             </div>
           )}
@@ -1049,7 +1002,7 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                   />
                 </Field>
-                <Field label="Agent or workflow">
+                <Field label="Workflow">
                   <select
                     aria-label="Integration target"
                     required
@@ -1057,11 +1010,12 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
                     onChange={(e) => setForm({ ...form, target: e.target.value })}
                   >
                     <option value="" disabled>
-                      Select a target
+                      Select a workflow
                     </option>
                     {targets.map((t) => (
                       <option key={`${t.type}:${t.id}`} value={`${t.type}:${t.id}`}>
-                        {t.name} · {t.type}
+                        {t.name}
+                        {t.type === 'agent' ? ' · saved agent' : ''}
                       </option>
                     ))}
                   </select>

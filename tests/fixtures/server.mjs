@@ -249,8 +249,25 @@ function answer(messages, tools) {
 app.post('/v1/chat/completions', async (req, res) => {
   stats.models++;
   if (JSON.stringify(req.body).includes('delay-model')) await new Promise((r) => setTimeout(r, 15000));
+  // Behave like a 32k-class model that rejects oversized prompts, so context compaction can be tested.
+  const promptChars = req.body.messages.reduce((n, m) => n + String(m.content ?? '').length, 0);
+  if (promptChars > 24000) {
+    stats.contextRejections = (stats.contextRejections ?? 0) + 1;
+    return res.status(400).json({
+      error: {
+        message: `This model's maximum context length is 6000 tokens. However, you requested ${req.body.max_tokens ?? 4096} output tokens and your prompt contains at least ${Math.ceil(promptChars / 4)} input tokens. Please reduce the length of the input prompt or the number of requested output tokens.`,
+        type: 'invalid_request_error',
+        code: 'context_length_exceeded',
+      },
+    });
+  }
   const message = answer(req.body.messages, req.body.tools);
   const finish = message.tool_calls ? 'tool_calls' : 'stop';
+  // Report usage the way a real provider would, so token budgets can be exercised end to end.
+  const usage = {
+    prompt_tokens: Math.ceil(promptChars / 4),
+    completion_tokens: Math.ceil(JSON.stringify(message).length / 4),
+  };
   if (req.body.stream) {
     stats.streams = (stats.streams ?? 0) + 1;
     res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
@@ -272,14 +289,14 @@ app.post('/v1/chat/completions', async (req, res) => {
       send({ index: 0, delta: { tool_calls: [{ index, function: { arguments: args.slice(5) } }] } });
     }
     res.write(
-      `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: finish }], usage: { prompt_tokens: 10, completion_tokens: 5 } })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: finish }], usage })}\n\n`,
     );
     res.write('data: [DONE]\n\n');
     return res.end();
   }
   res.json({
     choices: [{ message: { role: 'assistant', ...message }, finish_reason: finish }],
-    usage: { prompt_tokens: 10, completion_tokens: 5 },
+    usage,
   });
 });
 app.post('/api/chat', (req, res) => {

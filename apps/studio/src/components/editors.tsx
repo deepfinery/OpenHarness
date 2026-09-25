@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, Check, Cpu, KeyRound, LoaderCircle, Plug, Plus, Sparkles, Wand2, X } from 'lucide-react';
+import { BookOpen, Check, Cpu, KeyRound, LoaderCircle, Plug, Plus, Sparkles, X } from 'lucide-react';
 import { api, errorMessage, send, type Data, type Entity } from '../api';
 import { Button, CopyButton, ErrorNotice, Field, Modal, SaveForm } from './ui';
-import { agentRecipes } from '../../../../packages/core/src/starters.js';
 import { patternDescriptions } from '../../../../packages/core/src/patterns.js';
 import { agentPatterns, type AgentPattern } from '../../../../packages/core/src/schema.js';
 
@@ -94,296 +93,6 @@ export function PatternFields({
   );
 }
 
-export function AgentEditor({ value, data, onClose, onSaved }: Props) {
-  const [form, set] = useState<any>(
-    value
-      ? { pattern: 'react', patternConfig: {}, ...value }
-      : {
-          name: '',
-          description: '',
-          systemPrompt: agentRecipes[0].systemPrompt,
-          providerId: data.providers[0]?.id ?? '',
-          connections: [],
-          knowledgeBaseIds: [],
-          maxTurns: 12,
-          timeoutSeconds: 300,
-          pattern: 'react',
-          patternConfig: {},
-          enabled: true,
-        },
-  );
-  const [template, setTemplate] = useState(value ? '' : agentRecipes[0].id);
-  const [step, setStep] = useState<'template' | 'form'>(value ? 'form' : 'template');
-  const update = (key: string, v: unknown) => set((f: any) => ({ ...f, [key]: v }));
-  function applyTemplate(id: string) {
-    const recipe = agentRecipes.find((r) => r.id === id)!;
-    setTemplate(id);
-    set((f: any) => ({
-      ...f,
-      name: f.name || recipe.name,
-      description: recipe.description,
-      systemPrompt: recipe.systemPrompt,
-      pattern: recipe.pattern,
-      patternConfig: { ...defaultPatternConfig, ...recipe.patternConfig },
-    }));
-  }
-  function toggleTool(connectionId: string, tool: string) {
-    const bindings = [...form.connections];
-    const index = bindings.findIndex((b: any) => b.connectionId === connectionId);
-    const binding = index >= 0 ? bindings[index] : { connectionId, tools: [] };
-    const tools = binding.tools.includes(tool)
-      ? binding.tools.filter((t: string) => t !== tool)
-      : [...binding.tools, tool];
-    if (index >= 0) bindings[index] = { connectionId, tools };
-    else bindings.push({ connectionId, tools });
-    update(
-      'connections',
-      bindings.filter((b) => b.tools.length),
-    );
-  }
-  if (step === 'template')
-    return (
-      <Modal title="Create an agent" onClose={onClose} wide>
-        <div className="starter-body">
-          <h3>Start from a template.</h3>
-          <p>
-            Each template pairs an agentic pattern with instructions written for it. You can change everything
-            afterwards.
-          </p>
-          <div className="template-grid">
-            {agentRecipes.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                className={`starter-card ${template === r.id ? 'selected' : ''}`}
-                aria-pressed={template === r.id}
-                onClick={() => applyTemplate(r.id)}
-              >
-                <span className="status next">{patternDescriptions[r.pattern].name}</span>
-                <strong>{r.name}</strong>
-                <span>{r.description}</span>
-                <small>
-                  {[r.wantsTools && 'MCP tools', r.wantsKnowledge && 'knowledge']
-                    .filter(Boolean)
-                    .join(' · ') || 'no resources required'}
-                </small>
-              </button>
-            ))}
-          </div>
-          <div className="starter-footer">
-            <Button variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <div className="row-actions">
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setTemplate('');
-                  set((f: any) => ({
-                    ...f,
-                    systemPrompt: '',
-                    description: '',
-                    pattern: 'react',
-                    patternConfig: {},
-                  }));
-                  setStep('form');
-                }}
-              >
-                Start blank
-              </Button>
-              <Button
-                onClick={() => {
-                  if (!form.systemPrompt) applyTemplate(template || agentRecipes[0].id);
-                  setStep('form');
-                }}
-              >
-                <Wand2 size={15} />
-                Use this template
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Modal>
-    );
-  return (
-    <Modal title={value ? 'Edit agent' : 'Create an agent'} onClose={onClose} wide>
-      <SaveForm
-        onCancel={onClose}
-        label={value ? 'Save agent' : 'Create agent'}
-        onSave={async () => {
-          const created = await send(`/agents${value ? `/${value.id}` : ''}`, form, value ? 'PUT' : 'POST');
-          await onSaved(created);
-          onClose();
-        }}
-      >
-        <div className="two-columns">
-          <Field label="Agent name">
-            <input
-              aria-label="Agent name"
-              required
-              maxLength={100}
-              placeholder="Research assistant"
-              value={form.name}
-              onChange={(e) => update('name', e.target.value)}
-            />
-          </Field>
-          <Field label="Model provider">
-            <select
-              aria-label="Agent model provider"
-              required
-              value={form.providerId}
-              onChange={(e) => update('providerId', e.target.value)}
-            >
-              <option value="" disabled>
-                Choose a model provider
-              </option>
-              {data.providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} · {p.model}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-        {!data.providers.length && (
-          <div className="notice">Add a model provider in Settings before creating your first agent.</div>
-        )}
-        <Field label="Description">
-          <input
-            aria-label="Agent description"
-            placeholder="What does this agent do?"
-            value={form.description}
-            onChange={(e) => update('description', e.target.value)}
-          />
-        </Field>
-        <Field label="Instructions" hint="Define the agent’s purpose, constraints, and expected output.">
-          <textarea
-            aria-label="Agent instructions"
-            className="prompt-input"
-            rows={7}
-            required
-            value={form.systemPrompt}
-            onChange={(e) => update('systemPrompt', e.target.value)}
-          />
-        </Field>
-        <div className="form-section">
-          <h3>
-            <Sparkles size={17} /> Agentic pattern
-          </h3>
-          <p>How the agent organizes its reasoning. Tools and knowledge are available in every pattern.</p>
-          <PatternFields
-            pattern={form.pattern}
-            config={form.patternConfig ?? {}}
-            onPattern={(p) => update('pattern', p)}
-            onConfig={(c) => update('patternConfig', c)}
-          />
-        </div>
-        <div className="form-section">
-          <h3>
-            <Plug size={17} /> MCP tools
-          </h3>
-          <p>Select the exact tools this agent may call. You can use several MCP servers.</p>
-          {!data.connections.length && (
-            <div className="inline-empty">Add an MCP server in Connections, then discover its tools.</div>
-          )}
-          {data.connections.map((c) => (
-            <details
-              className="tool-group"
-              key={c.id}
-              open={form.connections.some((b: any) => b.connectionId === c.id)}
-            >
-              <summary>
-                {c.name}
-                <span>
-                  {form.connections.find((b: any) => b.connectionId === c.id)?.tools.length ?? 0} of{' '}
-                  {c.tools?.length ?? 0} tools
-                </span>
-              </summary>
-              <div>
-                {!c.tools?.length && <p>Discover tools on the Connections page first.</p>}
-                {c.tools?.map((t: any) => (
-                  <label className="check-row" key={t.name}>
-                    <input
-                      type="checkbox"
-                      checked={form.connections.some(
-                        (b: any) => b.connectionId === c.id && b.tools.includes(t.name),
-                      )}
-                      onChange={() => toggleTool(c.id, t.name)}
-                    />
-                    <span>
-                      <strong>{t.name}</strong>
-                      <small>{t.description?.slice(0, 200)}</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </details>
-          ))}
-        </div>
-        <div className="form-section">
-          <h3>
-            <BookOpen size={17} /> Knowledge
-          </h3>
-          <p>Retrieve relevant passages before the agent starts reasoning.</p>
-          {!data.knowledge.length && (
-            <div className="inline-empty">Create a knowledge base to give this agent source material.</div>
-          )}
-          {data.knowledge.map((k) => (
-            <label className="check-row" key={k.id}>
-              <input
-                type="checkbox"
-                checked={form.knowledgeBaseIds.includes(k.id)}
-                onChange={() =>
-                  update(
-                    'knowledgeBaseIds',
-                    form.knowledgeBaseIds.includes(k.id)
-                      ? form.knowledgeBaseIds.filter((id: string) => id !== k.id)
-                      : [...form.knowledgeBaseIds, k.id],
-                  )
-                }
-              />
-              <span>{k.name}</span>
-            </label>
-          ))}
-        </div>
-        <div className="two-columns">
-          <Field
-            label="Maximum turns per pass"
-            hint="Patterns with several passes get up to four times this budget in total."
-          >
-            <input
-              aria-label="Maximum turns"
-              type="number"
-              min={1}
-              max={40}
-              value={form.maxTurns}
-              onChange={(e) => update('maxTurns', Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Time limit (seconds)">
-            <input
-              aria-label="Agent time limit"
-              type="number"
-              min={10}
-              max={900}
-              value={form.timeoutSeconds}
-              onChange={(e) => update('timeoutSeconds', Number(e.target.value))}
-            />
-          </Field>
-        </div>
-        <label className="check-row">
-          <input
-            type="checkbox"
-            checked={form.enabled}
-            onChange={(e) => update('enabled', e.target.checked)}
-          />
-          Agent enabled
-        </label>
-      </SaveForm>
-    </Modal>
-  );
-}
-
 type Preset = {
   id: string;
   kind: 'openai-compatible' | 'anthropic' | 'gemini' | 'ollama';
@@ -464,6 +173,7 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
           model: presets[0].chatModels[0] ?? '',
           embeddingModel: presets[0].embeddingModels[0] ?? '',
           maxOutputTokens: 4096,
+          contextWindow: 128000,
           outputTokenParameter: 'max_tokens',
           streaming: true,
         },
@@ -514,7 +224,7 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
       >
         <div className="form-section first">
           <h3>
-            <Cpu size={17} /> 1. Where do your models run?
+            <Cpu size={17} /> Provider
           </h3>
           <div className="preset-grid" role="radiogroup" aria-label="Provider">
             {presets.map((p) => (
@@ -532,7 +242,7 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
             ))}
           </div>
           <div className="two-columns">
-            <Field label="Provider name" hint="How it appears when you pick a model for an agent.">
+            <Field label="Provider name">
               <input
                 aria-label="Provider name"
                 placeholder={preset.name}
@@ -575,19 +285,9 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
         </div>
         <div className="form-section">
           <h3>
-            <Sparkles size={17} /> 2. Chat model
+            <Sparkles size={17} /> Chat model
           </h3>
-          <p>
-            The model agents reason with. Every agent picks one provider, so you can mix providers per agent.
-          </p>
-          <Field
-            label="Chat model ID"
-            hint={
-              preset.chatModels.length
-                ? 'Suggestions are shown as you type; any model ID your provider offers works.'
-                : 'Enter the exact model ID offered by your service.'
-            }
-          >
+          <Field label="Model ID" hint="Any model your provider offers.">
             <input
               aria-label="Chat model"
               required
@@ -605,20 +305,18 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
         </div>
         <div className="form-section">
           <h3>
-            <BookOpen size={17} /> 3. Embedding model
+            <BookOpen size={17} /> Embedding model
           </h3>
           {preset.kind === 'anthropic' ? (
             <div className="notice">
-              Anthropic does not offer embeddings. Knowledge bases need a second provider (OpenAI, Gemini or
-              Ollama) with an embedding model; agents can still use this provider for chat.
+              Anthropic has no embedding models. Knowledge bases use another provider for embeddings.
             </div>
           ) : (
             <>
-              <p>
-                Turns documents into vectors for knowledge bases. Leave it empty if this provider is only for
-                chat. It cannot change once a knowledge base uses it.
-              </p>
-              <Field label="Embedding model ID (optional)">
+              <Field
+                label="Embedding model ID (optional)"
+                hint="For knowledge bases. Fixed once one uses it."
+              >
                 <input
                   aria-label="Embedding model"
                   list="embedding-model-suggestions"
@@ -648,6 +346,20 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
                 onChange={(e) => update('maxOutputTokens', Number(e.target.value))}
               />
             </Field>
+            <Field
+              label="Context window (tokens)"
+              hint="Long conversations are trimmed to fit. Learned automatically from the provider's first limit error."
+            >
+              <input
+                aria-label="Context window"
+                type="number"
+                min={2048}
+                max={4000000}
+                step={1024}
+                value={form.contextWindow ?? 128000}
+                onChange={(e) => update('contextWindow', Number(e.target.value))}
+              />
+            </Field>
             {form.kind === 'openai-compatible' && (
               <Field label="Output budget field" hint="Some reasoning models require max_completion_tokens.">
                 <select
@@ -668,10 +380,8 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
               onChange={(e) => update('streaming', e.target.checked)}
             />
             <span>
-              <strong>Stream answers token by token</strong>
-              <small>
-                Turn off for servers that reject the stream flag. Answers then arrive when complete.
-              </small>
+              <strong>Stream answers</strong>
+              <small>Turn off for servers that reject the stream flag.</small>
             </span>
           </label>
         </details>
@@ -686,11 +396,7 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
               {testing ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
               Test connection
             </Button>
-            <small className="field-help">
-              Checks the chat model
-              {form.embeddingModel && form.kind !== 'anthropic' ? ' and the embedding model' : ''} before you
-              save.
-            </small>
+            <small className="field-help">Checks the models before you save.</small>
           </div>
           <ErrorNotice error={testError} />
           {test && (
@@ -769,9 +475,7 @@ export function ConnectionEditor({ value, onClose, onSaved }: Props) {
         <div className="notice">
           <Plug size={18} />
           <span>
-            Any remote MCP server works: Streamable HTTP (recommended) or legacy SSE, with no auth, an API
-            key, or OAuth. Tools are discovered from the server, then you choose which ones each agent may
-            call.
+            Any remote MCP server: no auth, an API key, or OAuth. Tools are discovered after saving.
           </span>
         </div>
         <Field label="Connection name">
@@ -783,10 +487,7 @@ export function ConnectionEditor({ value, onClose, onSaved }: Props) {
             onChange={(e) => update('name', e.target.value)}
           />
         </Field>
-        <Field
-          label="Server URL"
-          hint="The MCP endpoint from the provider’s documentation, for example https://mcp.example.com/mcp."
-        >
+        <Field label="Server URL" hint="For example https://mcp.example.com/mcp.">
           <input
             aria-label="MCP server URL"
             placeholder="https://your-server.example/mcp"
@@ -860,16 +561,11 @@ export function ConnectionEditor({ value, onClose, onSaved }: Props) {
           <div className="oauth-guide">
             <ol>
               <li>
-                Save this connection, then click <strong>Authorize</strong>. A window opens where you sign in
-                with the provider; it returns here and tools are discovered automatically.
+                Save, then click <strong>Authorize</strong> and sign in with the provider.
               </li>
+              <li>If the provider asks for a redirect URL, use the callback below.</li>
               <li>
-                If the provider asks you to register a redirect URL, use the callback below. Providers that
-                support dynamic registration need nothing else.
-              </li>
-              <li>
-                Some providers (for example Finnhub) publish a fixed OAuth client ID instead. Enter it below
-                and leave the secret empty.
+                Providers with a fixed client ID (for example Finnhub): enter it, leave the secret empty.
               </li>
             </ol>
             <div className="callback-row">
@@ -912,10 +608,7 @@ export function ConnectionEditor({ value, onClose, onSaved }: Props) {
             </Field>
             <div className="notice">
               <KeyRound size={16} />
-              <span>
-                The provider’s tokens are stored encrypted and refreshed automatically. OAuth here authorizes
-                tools only; it is not a login to this studio.
-              </span>
+              <span>Tokens are stored encrypted and refreshed automatically.</span>
             </div>
           </div>
         )}
@@ -966,15 +659,12 @@ export function KnowledgeEditor({ value, data, onClose, onSaved }: Props) {
           <textarea
             aria-label="Knowledge base description"
             rows={3}
-            placeholder="What is in here, and which agents should use it?"
+            placeholder="What is in here?"
             value={form.description}
             onChange={(e) => set({ ...form, description: e.target.value })}
           />
         </Field>
-        <Field
-          label="Embedding provider"
-          hint="Documents and questions are embedded with this model. It stays fixed for the life of the knowledge base."
-        >
+        <Field label="Embedding provider" hint="Fixed for the life of the knowledge base.">
           <select
             aria-label="Embedding provider"
             required
@@ -994,10 +684,7 @@ export function KnowledgeEditor({ value, data, onClose, onSaved }: Props) {
         </Field>
         {!providers.length && (
           <div className="notice">
-            <span>
-              None of your providers has an embedding model yet. Add one (OpenAI, Gemini or Ollama) with an
-              embedding model ID, then come back.
-            </span>
+            <span>No provider has an embedding model yet. Add one (OpenAI, Gemini or Ollama) first.</span>
           </div>
         )}
         {!value && (

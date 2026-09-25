@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { makeStarter, starterRecipes, type StarterKind } from '../../../../packages/core/src/starters.js';
 import type { Workflow } from '../../../../packages/core/src/schema.js';
-import { errorMessage, type Data } from '../api';
+import { defaultProviderId, errorMessage, type Data } from '../api';
 import { Button, ErrorNotice, Field, Modal } from './ui';
 import { KnowledgeControl, McpControl, ProviderControl } from './ResourceControls';
 const starterIcons: Record<StarterKind, typeof Bot> = {
@@ -39,14 +39,14 @@ export function WorkflowStarter({
   const [kind, setKind] = useState<StarterKind>('mcp'),
     [stage, setStage] = useState(0),
     [name, setName] = useState('MCP tool assistant'),
-    [providerId, setProviderId] = useState(data.providers[0]?.id ?? ''),
+    [providerId, setProviderId] = useState(defaultProviderId(data)),
     [knowledgeBaseId, setKnowledge] = useState(data.knowledge[0]?.id ?? ''),
     [connectionId, setConnection] = useState(data.connections[0]?.id ?? ''),
     [tools, setTools] = useState<string[]>([]),
     [error, setError] = useState('');
   const recipe = starterRecipes.find((r) => r.id === kind)!;
   useEffect(() => {
-    if (!providerId && data.providers[0]) setProviderId(data.providers[0].id);
+    if (!providerId && data.providers.length) setProviderId(defaultProviderId(data));
   }, [data.providers]);
   function open() {
     try {
@@ -63,18 +63,13 @@ export function WorkflowStarter({
             <Check size={14} /> Choose a template
           </span>
           <i />
-          <span className={stage ? 'active' : ''}>Connect your resources</span>
+          <span className={stage ? 'active' : ''}>Connect resources</span>
           <i />
-          <span>Make it yours</span>
+          <span>Edit on the canvas</span>
         </div>
         {stage === 0 ? (
           <>
-            <h3>Start with a working structure.</h3>
-            <p>
-              Every template includes Start and Finish. Multi-agent templates pass results between agents with{' '}
-              <code>{'{{last}}'}</code> and <code>{'{{steps.id}}'}</code>; you can add, rewire or remove steps
-              afterwards.
-            </p>
+            <h3>Pick a starting point</h3>
             <div className="starter-grid three">
               {starterRecipes.map((r) => {
                 const Icon = starterIcons[r.id];
@@ -108,7 +103,6 @@ export function WorkflowStarter({
         ) : (
           <>
             <h3>{recipe.name}</h3>
-            <p>Use shared workspace resources or add them here. No separate agent setup is needed.</p>
             <Field label="Workflow name">
               <input
                 aria-label="Starter workflow name"
@@ -140,10 +134,7 @@ export function WorkflowStarter({
             {kind === 'notify' && (
               <div className="notice">
                 <Mail size={16} />
-                <span>
-                  The Email step sends through Settings → Email (SMTP). Set its recipient on the canvas; it
-                  starts as a placeholder address.
-                </span>
+                <span>Set the Email step’s recipient on the canvas. It sends through Settings → Email.</span>
               </div>
             )}
           </>

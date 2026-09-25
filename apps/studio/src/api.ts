@@ -23,14 +23,24 @@ export type User = {
   enabled: boolean;
   tenantId: string;
 };
-export type Data = {
-  agents: Entity[];
-  workflows: Entity[];
-  providers: Entity[];
-  connections: Entity[];
-  knowledge: Entity[];
+export const collections = ['agents', 'workflows', 'providers', 'connections', 'knowledge'] as const;
+export type Data = Record<(typeof collections)[number], Entity[]> & {
+  /** Workspace defaults, such as the model provider new agents start with. */
+  defaults: { providerId: string };
 };
-export const emptyData: Data = { agents: [], workflows: [], providers: [], connections: [], knowledge: [] };
+export const emptyData: Data = {
+  agents: [],
+  workflows: [],
+  providers: [],
+  connections: [],
+  knowledge: [],
+  defaults: { providerId: '' },
+};
+/** The provider new agents use: the workspace default when it exists, otherwise the first provider. */
+export const defaultProviderId = (data: Data) =>
+  (data.providers.some((p) => p.id === data.defaults.providerId) ? data.defaults.providerId : '') ||
+  data.providers[0]?.id ||
+  '';
 export const timestamp = (date?: string) =>
   date ? new Date(date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 export const errorMessage = (error: unknown) =>

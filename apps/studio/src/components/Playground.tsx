@@ -90,14 +90,22 @@ export function followRun(runId: string, onRun: (run: any) => void, onError: (me
   };
 }
 
-export function Playground({ data, initialTarget }: { data: Data; initialTarget?: string }) {
-  const targets = [
-    ...data.agents.map((a) => ({ ...a, type: 'agent' })),
-    ...data.workflows.map((w) => ({ ...w, type: 'workflow' })),
-  ];
-  const [target, setTarget] = useState(
-    initialTarget || (targets[0] ? `${targets[0].type}:${targets[0].id}` : ''),
-  );
+/** Workflows are the unit of work; saved agents only appear for workspaces that still have them. */
+export const playgroundTargets = (data: Data) => [
+  ...data.workflows.map((w) => ({ ...w, type: 'workflow' })),
+  ...data.agents.map((a) => ({ ...a, type: 'agent' })),
+];
+export function Playground({
+  data,
+  target,
+  onTargetChange,
+}: {
+  data: Data;
+  /** `workflow:<id>` or `agent:<id>`; the selector lives in the app's top bar. */
+  target: string;
+  onTargetChange: (target: string) => void;
+}) {
+  const targets = playgroundTargets(data);
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string>();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -117,7 +125,7 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
   const targetKey = current ? (current.type === 'agent' ? 'agentId' : 'workflowId') : undefined;
 
   useEffect(() => {
-    if (!target && targets[0]) setTarget(`${targets[0].type}:${targets[0].id}`);
+    if (!target && targets[0]) onTargetChange(`${targets[0].type}:${targets[0].id}`);
   }, [data, target]);
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -234,11 +242,7 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
           New conversation
         </Button>
         <div className="conversation-items">
-          {!conversations.length && (
-            <p className="conversation-empty">
-              Conversations with {current?.name ?? 'this target'} are saved here, like a chat history.
-            </p>
-          )}
+          {!conversations.length && <p className="conversation-empty">No conversations yet.</p>}
           {conversations.map((c) => (
             <div className={`conversation-item ${c.id === conversationId ? 'active' : ''}`} key={c.id}>
               <button onClick={() => void openConversation(c.id)}>
@@ -270,48 +274,19 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
         </div>
       </aside>
       <div className="playground-main">
-        <div className="playground-toolbar">
-          <div className="playground-target">
-            {!showConversations && (
-              <IconButton title="Show conversations" onClick={() => setShowConversations(true)}>
-                <PanelLeftOpen size={17} />
-              </IconButton>
-            )}
-            <div>
-              <span className="eyebrow">Playground</span>
-              <select
-                aria-label="Playground agent or workflow"
-                value={target}
-                disabled={busy}
-                onChange={(e) => {
-                  reset();
-                  setTarget(e.target.value);
-                }}
-              >
-                <option value="" disabled>
-                  Choose an agent or workflow
-                </option>
-                {targets.map((t) => (
-                  <option key={`${t.type}:${t.id}`} value={`${t.type}:${t.id}`}>
-                    {t.name} · {t.type}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="playground-toolbar-right">
-            {current?.type === 'agent' &&
-              (current as Entity).pattern &&
-              (current as Entity).pattern !== 'react' && (
-                <span className="status next">{String((current as Entity).pattern).replace('-', ' ')}</span>
-              )}
-            <IconButton
-              title={showTrace ? 'Hide trace panel' : 'Show trace panel'}
-              onClick={() => setShowTrace(!showTrace)}
-            >
-              <Terminal size={17} />
+        <div className="playground-float">
+          {!showConversations && (
+            <IconButton title="Show conversations" onClick={() => setShowConversations(true)}>
+              <PanelLeftOpen size={17} />
             </IconButton>
-          </div>
+          )}
+          <span className="grow" />
+          <IconButton
+            title={showTrace ? 'Hide trace panel' : 'Show trace panel'}
+            onClick={() => setShowTrace(!showTrace)}
+          >
+            <Terminal size={17} />
+          </IconButton>
         </div>
         <div className="chat-scroll">
           {!messages.length && !busy ? (
@@ -321,12 +296,9 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
                 <span className="orbit-point one" />
                 <span className="orbit-point two" />
               </div>
-              <div className="eyebrow">A space to experiment</div>
-              <h2>{current ? `Meet ${current.name}.` : 'Put your agents to work.'}</h2>
+              <h2>{current ? current.name : 'No workflow selected'}</h2>
               <p>
-                {current
-                  ? 'Ask a question, give it a task, and watch each step as it works. Answers stream in as they are written.'
-                  : 'Create an agent or workflow, then start a conversation here.'}
+                {current ? 'Send a message. Every step shows up in the trace.' : 'Create a workflow first.'}
               </p>
               {current && (
                 <div className="suggestions">
@@ -398,7 +370,7 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
           >
             <textarea
               aria-label="Message your agent"
-              placeholder={current ? `Message ${current.name}…` : 'Choose an agent to begin…'}
+              placeholder={current ? `Message ${current.name}…` : 'Choose a workflow…'}
               value={input}
               disabled={!current || busy}
               rows={2}

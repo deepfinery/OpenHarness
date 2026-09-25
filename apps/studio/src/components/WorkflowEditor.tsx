@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import {
   Background,
   ConnectionMode,
@@ -18,7 +18,8 @@ import '@xyflow/react/dist/style.css';
 import {
   BookOpen,
   Bot,
-  Check,
+  Clock3,
+  Code2,
   Download,
   Flag,
   GitBranch,
@@ -30,6 +31,7 @@ import {
   Plus,
   Redo2,
   Save,
+  Settings2,
   Trash2,
   Undo2,
   Unplug,
@@ -37,13 +39,14 @@ import {
 } from 'lucide-react';
 import { parse, stringify } from 'yaml';
 import {
-  agentSchema,
   workflowSchema,
   type Agent,
   type Workflow,
   type WorkflowNode,
   type WorkflowResource,
 } from '../../../../packages/core/src/schema.js';
+import { effortLabel } from '../../../../packages/core/src/patterns.js';
+import { describeSchedule } from '../../../../packages/core/src/schedule.js';
 import { layoutWorkflow } from '../workflowLayout';
 import { api, errorMessage, type Data, type Entity } from '../api';
 import {
@@ -56,15 +59,24 @@ import {
   isFinish,
   removeGraphNode,
 } from '../workflowGraph';
-import { Button, ErrorNotice, Field, IconButton } from './ui';
-import { KnowledgeControl, McpControl, ProviderControl } from './ResourceControls';
-import { PatternFields } from './editors';
+import { Button, CopyButton, ErrorNotice, Field, IconButton, Modal } from './ui';
+import { KnowledgeControl, McpControl } from './ResourceControls';
+import { ConnectionEditor, KnowledgeEditor } from './editors';
+import { AgentFields, ScheduleFields } from './agentFields';
 
 type GraphItem = WorkflowNode | WorkflowResource;
-type FlowData = { item: GraphItem; detail: string; attached: number; warning?: string } & Record<
-  string,
-  unknown
->;
+type StepType = 'agent' | 'tool' | 'parallel' | 'condition' | 'email' | 'finish';
+type Payload =
+  | { type: StepType }
+  | { type: 'mcp'; connectionId?: string }
+  | { type: 'knowledge'; knowledgeBaseId?: string };
+type FlowData = {
+  item: GraphItem;
+  detail: string;
+  attached: number;
+  warning?: string;
+  onOpen: (id: string) => void;
+} & Record<string, unknown>;
 const icons = {
   start: Play,
   finish: Flag,
@@ -89,14 +101,32 @@ const labels = {
   mcp: 'MCP tools',
   knowledge: 'Knowledge',
 };
+const MIME = 'application/agentic-node';
+const stepTypes: StepType[] = ['agent', 'condition', 'parallel', 'tool', 'email', 'finish'];
+const stepHints: Record<StepType, string> = {
+  agent: 'Reasons and acts',
+  condition: 'Yes / no branch',
+  parallel: 'Agents together',
+  tool: 'One tool call',
+  email: 'Send the result',
+  finish: 'Return a result',
+};
+
 function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
+  const [over, setOver] = useState(0);
   const n = data.item,
     Icon = icons[n.type],
     resource = n.type === 'mcp' || n.type === 'knowledge',
     finish = n.type === 'finish' || n.type === 'output';
+  // Agents accept tools and knowledge dropped straight from the toolbox.
+  const dragging = (e: DragEvent) => n.type === 'agent' && e.dataTransfer.types.includes(MIME);
   return (
     <div
-      className={`flow-card harness-card kind-${n.type} ${selected ? 'selected' : ''} ${data.warning ? 'needs-config' : ''}`}
+      className={`flow-card harness-card kind-${n.type} ${selected ? 'selected' : ''} ${data.warning ? 'needs-config' : ''} ${over > 0 ? 'drop-target' : ''}`}
+      onDragEnter={(e) => dragging(e) && setOver((v) => v + 1)}
+      onDragLeave={(e) => dragging(e) && setOver((v) => Math.max(0, v - 1))}
+      onDrop={() => setOver(0)}
+      onDoubleClick={() => data.onOpen(n.id)}
     >
       {!resource && n.type !== 'start' && (
         <>
@@ -110,12 +140,23 @@ function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
           <span className="port-label port-in">In</span>
         </>
       )}
+      <button
+        type="button"
+        className="card-gear nodrag"
+        aria-label={`Configure ${n.name}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          data.onOpen(n.id);
+        }}
+      >
+        <Settings2 size={14} />
+      </button>
       <div className="flow-card-top">
         <span className="node-icon">
           <Icon size={20} />
         </span>
         <div>
-          <small>{labels[n.type]}</small>
+          {n.name !== labels[n.type] && <small>{labels[n.type]}</small>}
           <strong>{n.name}</strong>
         </div>
       </div>
@@ -147,6 +188,22 @@ function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
           />
         </div>
       )}
+      {n.type === 'parallel' && (
+        <div className="agent-ports members">
+          <span>
+            Runs <small>{data.attached || ''}</small>
+          </span>
+          <Handle
+            type="source"
+            id="members"
+            position={Position.Bottom}
+            style={{ left: '50%' }}
+            className="members-port"
+            data-testid={`port-${n.id}-members`}
+            aria-label={`${n.name} members`}
+          />
+        </div>
+      )}
       {resource && (
         <>
           <Handle
@@ -158,8 +215,8 @@ function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
           />
           <div className="resource-card-foot">
             {data.attached
-              ? `${data.attached} agent${data.attached === 1 ? '' : 's'} connected`
-              : 'Drag to an agent’s Tools or Knowledge port'}
+              ? `${data.attached} agent${data.attached === 1 ? '' : 's'}`
+              : 'Connect to an agent'}
           </div>
         </>
       )}
@@ -202,6 +259,46 @@ function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
 }
 const nodeTypes = { studio: GraphCard };
 const newId = (type: string) => `${type}_${crypto.randomUUID().slice(0, 8)}`;
+
+function ToolItem({
+  payload,
+  label,
+  hint,
+  icon: Icon,
+  className = '',
+  onAdd,
+}: {
+  payload: Payload;
+  label: string;
+  hint: string;
+  icon: typeof Bot;
+  className?: string;
+  onAdd: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`tool-item ${className}`}
+      draggable
+      aria-label={`Add ${label}`}
+      title="Click to add, or drag onto the canvas"
+      onDragStart={(e) => {
+        e.dataTransfer.setData(MIME, JSON.stringify(payload));
+        e.dataTransfer.effectAllowed = 'copy';
+      }}
+      onClick={onAdd}
+    >
+      <span className="node-icon">
+        <Icon size={16} />
+      </span>
+      <span>
+        <strong>{label}</strong>
+        <small>{hint}</small>
+      </span>
+    </button>
+  );
+}
+
 export function WorkflowEditor({
   value,
   draft,
@@ -209,6 +306,7 @@ export function WorkflowEditor({
   onClose,
   onSaved,
   onRun,
+  onNavigate,
 }: {
   value?: Entity;
   draft?: Workflow;
@@ -216,10 +314,15 @@ export function WorkflowEditor({
   onClose: () => void;
   onSaved: () => Promise<void>;
   onRun?: (id: string) => void;
+  onNavigate?: (page: string) => void;
 }) {
   const [form, setForm] = useState<Workflow>(() => editableWorkflow(value ?? draft, data));
   const [selected, select] = useState(form.nodes.find((n) => n.type === 'agent')?.id ?? form.startAt),
     [selectedEdge, selectEdge] = useState('');
+  const [open, setOpen] = useState<
+    { kind: 'node'; id: string } | { kind: 'workflow' } | { kind: 'api' } | null
+  >(null);
+  const [adding, setAdding] = useState<'connection' | 'knowledge' | null>(null);
   const [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [tab, setTab] = useState<'canvas' | 'yaml'>('canvas'),
@@ -229,6 +332,7 @@ export function WorkflowEditor({
     [dirty, setDirty] = useState(false);
   const [flow, setFlow] = useState<ReactFlowInstance<Node<FlowData>> | null>(null);
   const [measurements, setMeasurements] = useState<Record<string, { width: number; height: number }>>({});
+  const [publicUrl, setPublicUrl] = useState(location.origin);
   const undo = useRef<Workflow[]>([]),
     redo = useRef<Workflow[]>([]);
   const formRef = useRef(form);
@@ -241,6 +345,12 @@ export function WorkflowEditor({
       document.body.style.overflow = old;
     };
   }, []);
+  useEffect(() => {
+    if (open?.kind === 'api')
+      void api('/config')
+        .then((c) => setPublicUrl(c.publicUrl))
+        .catch(() => {});
+  }, [open?.kind]);
   function remember(current: Workflow) {
     undo.current.push(structuredClone(current));
     undo.current = undo.current.slice(-40);
@@ -272,9 +382,11 @@ export function WorkflowEditor({
     setError('');
   }
   const all: GraphItem[] = [...form.nodes, ...form.resources];
-  const item = all.find((n) => n.id === selected),
-    step = form.nodes.find((n) => n.id === selected),
-    resource = form.resources.find((r) => r.id === selected);
+  const item = all.find((n) => n.id === selected);
+  const openItem = open?.kind === 'node' ? all.find((n) => n.id === open.id) : undefined,
+    openStep = open?.kind === 'node' ? form.nodes.find((n) => n.id === open.id) : undefined,
+    openResource = open?.kind === 'node' ? form.resources.find((r) => r.id === open.id) : undefined;
+  const agentNodes = form.nodes.filter((n) => n.type === 'agent');
   const edges = useMemo(
     () =>
       graphEdges(form).map((edge) => ({
@@ -287,9 +399,11 @@ export function WorkflowEditor({
             ? edge.targetHandle === 'knowledge'
               ? '#2a9d8a'
               : '#9673b7'
-            : '#49a2dc',
+            : edge.id.startsWith('member:')
+              ? '#8a9bb0'
+              : '#49a2dc',
           strokeWidth: 2,
-          strokeDasharray: edge.id.startsWith('resource:') ? '6 5' : undefined,
+          strokeDasharray: edge.id.startsWith('flow:') ? undefined : '6 5',
         },
         markerEnd: edge.id.startsWith('flow:')
           ? { type: MarkerType.ArrowClosed, color: '#49a2dc', width: 18, height: 18 }
@@ -299,6 +413,11 @@ export function WorkflowEditor({
       })),
     [form, selectedEdge],
   );
+  const openSettings = (id: string) => {
+    select(id);
+    selectEdge('');
+    setOpen({ kind: 'node', id });
+  };
   const nodes: Node<FlowData>[] = useMemo(
     () =>
       [...form.nodes, ...form.resources].map((n, i) => {
@@ -315,14 +434,18 @@ export function WorkflowEditor({
                   const resource = form.resources.find((r) => r.id === b.resourceId);
                   return total + (resource?.type === 'mcp' ? resource.tools.length : 0);
                 }, 0)
-            : form.bindings.filter((b) => b.resourceId === n.id).length;
+            : n.type === 'parallel'
+              ? n.agentNodeIds.length + n.agentIds.length
+              : form.bindings.filter((b) => b.resourceId === n.id).length;
         const detail =
           n.type === 'agent'
-            ? (data.providers.find((p) => p.id === agent?.providerId)?.model ?? 'Choose a model')
+            ? `${data.providers.find((p) => p.id === agent?.providerId)?.model ?? 'Choose a model'} · ${effortLabel(agent?.effort)} effort`
             : n.type === 'start'
-              ? 'API · Chat · Webhook · Schedule'
+              ? form.schedule?.enabled
+                ? describeSchedule(form.schedule)
+                : 'Playground · API · Webhook'
               : n.type === 'finish' || n.type === 'output'
-                ? 'Return the workflow result'
+                ? 'Returns the result'
                 : n.type === 'mcp'
                   ? `${connection?.name ?? 'Choose a server'} · ${n.tools.length} tools`
                   : n.type === 'knowledge'
@@ -330,27 +453,31 @@ export function WorkflowEditor({
                     : n.type === 'tool'
                       ? `${connection?.name ?? 'MCP server'} / ${n.tool || 'Choose an action'}`
                       : n.type === 'parallel'
-                        ? `${n.agentIds.length} agents`
+                        ? `${count} agent${count === 1 ? '' : 's'} run together`
                         : n.type === 'email'
-                          ? `To ${n.to}`
+                          ? `To ${n.to || '…'}`
                           : `${n.value} ${n.operator} ${n.compare}`;
         const warning =
           n.type === 'agent' && !agent?.providerId
-            ? 'Select a model to run'
+            ? 'Choose a model'
             : n.type === 'mcp' && (!n.connectionId || !n.tools.length)
               ? 'Select tools'
               : n.type === 'knowledge' && !n.knowledgeBaseId
                 ? 'Select a knowledge base'
-                : n.type === 'email' && /example\.com|^\s*$/.test(n.to)
-                  ? 'Set the recipient'
-                  : undefined;
+                : n.type === 'tool' && !n.tool
+                  ? 'Choose an action'
+                  : n.type === 'parallel' && !count
+                    ? 'Choose agents'
+                    : n.type === 'email' && /example\.com|^\s*$/.test(n.to)
+                      ? 'Set the recipient'
+                      : undefined;
         return {
           id: n.id,
           type: 'studio',
           position: n.position ?? { x: 60 + i * 300, y: 150 },
           selected: n.id === selected,
           measured: measurements[n.id],
-          data: { item: n, detail, attached: count, warning },
+          data: { item: n, detail, attached: count, warning, onOpen: openSettings },
         };
       }),
     [form, data, selected, measurements],
@@ -362,9 +489,18 @@ export function WorkflowEditor({
       resources: f.resources.map((r) => (r.id === id ? ({ ...r, ...values } as WorkflowResource) : r)),
     }));
   }
-  function patchAgent(patchValue: Partial<Agent>) {
-    if (step?.type === 'agent')
-      patch(step.id, { config: { ...defaultAgent(data), ...step.config, ...patchValue } });
+  function patchAgent(id: string, patchValue: Partial<Agent>) {
+    const node = formRef.current.nodes.find((n) => n.id === id);
+    if (node?.type === 'agent')
+      patch(id, {
+        config: { ...defaultAgent(data), ...node.config, ...patchValue },
+        ...(patchValue.name ? { name: patchValue.name } : {}),
+      });
+  }
+  function rename(id: string, name: string) {
+    const node = formRef.current.nodes.find((n) => n.id === id);
+    if (node?.type === 'agent') patch(id, { name, config: { ...defaultAgent(data), ...node.config, name } });
+    else patch(id, { name });
   }
   function safely(task: () => void) {
     try {
@@ -377,17 +513,27 @@ export function WorkflowEditor({
   function connect(c: Connection) {
     safely(() => change((f) => connectGraph(f, c)));
   }
-  function add(
-    type: 'agent' | 'tool' | 'parallel' | 'condition' | 'email' | 'finish' | 'mcp' | 'knowledge',
-    position?: { x: number; y: number },
-    anchorId?: string,
-  ) {
+  /** The agent card under a canvas point, so a toolbox item can be dropped straight onto it. */
+  function agentAt(point: { x: number; y: number }) {
+    return form.nodes.find((n) => {
+      if (n.type !== 'agent' || !n.position) return false;
+      const size = measurements[n.id] ?? { width: 250, height: 200 };
+      return (
+        point.x >= n.position.x &&
+        point.x <= n.position.x + size.width &&
+        point.y >= n.position.y &&
+        point.y <= n.position.y + size.height
+      );
+    });
+  }
+  function add(payload: Payload, position?: { x: number; y: number }, anchorId?: string): string {
     let f = form;
-    let anchor =
-      f.nodes.find((n) => n.id === anchorId && n.type === 'agent') ??
-      f.nodes.find((n) => n.id === selected && n.type === 'agent') ??
-      f.nodes.find((n) => n.type === 'agent');
+    const type = payload.type;
     if (type === 'mcp' || type === 'knowledge') {
+      let anchor =
+        f.nodes.find((n) => n.id === anchorId && n.type === 'agent') ??
+        f.nodes.find((n) => n.id === selected && n.type === 'agent') ??
+        f.nodes.find((n) => n.type === 'agent');
       if (!anchor) {
         const id = newId('agent');
         anchor = {
@@ -400,39 +546,47 @@ export function WorkflowEditor({
         };
         f = insertStep(f, anchor, selected);
       }
-      const id = newId(type),
-        pos = position ?? {
-          x:
-            (anchor.position?.x ?? 340) +
-            f.resources.filter((r) =>
-              f.bindings.some((b) => b.resourceId === r.id && b.agentNodeId === anchor!.id),
-            ).length *
-              280,
-          y: (anchor.position?.y ?? 110) + 320,
+      const id = newId(type);
+      const pos = position ?? {
+        x:
+          (anchor.position?.x ?? 340) +
+          f.resources.filter((r) =>
+            f.bindings.some((b) => b.resourceId === r.id && b.agentNodeId === anchor!.id),
+          ).length *
+            280,
+        y: (anchor.position?.y ?? 110) + 320,
+      };
+      let r: WorkflowResource;
+      if (type === 'mcp') {
+        const connection =
+          data.connections.find((c) => c.id === payload.connectionId) ??
+          data.connections.find((c) => c.enabled) ??
+          data.connections[0];
+        // Every discovered tool is granted to begin with; trim the list in the card's settings.
+        r = {
+          id,
+          name: connection?.name ?? 'MCP tools',
+          type,
+          connectionId: connection?.id ?? '',
+          tools: (connection?.tools ?? []).slice(0, 100).map((t: { name: string }) => t.name),
+          position: pos,
         };
-      const r: WorkflowResource =
-        type === 'mcp'
-          ? {
-              id,
-              name: 'MCP tools',
-              type,
-              connectionId: data.connections[0]?.id ?? '',
-              tools: [],
-              position: pos,
-            }
-          : { id, name: 'Knowledge', type, knowledgeBaseId: data.knowledge[0]?.id ?? '', position: pos };
+      } else {
+        const kb = data.knowledge.find((k) => k.id === payload.knowledgeBaseId) ?? data.knowledge[0];
+        r = { id, name: kb?.name ?? 'Knowledge', type, knowledgeBaseId: kb?.id ?? '', position: pos };
+      }
       const withResource = {
         ...f,
         resources: [...f.resources, r],
         bindings: [...f.bindings, { agentNodeId: anchor.id, resourceId: id }],
       };
-      // A palette click has no position of its own: re-run the layout so the card gets clear space.
       change(position ? withResource : autoPlace(withResource));
       select(id);
       selectEdge('');
       reveal(id);
-      return;
+      return id;
     }
+    const step = f.nodes.find((n) => n.id === selected);
     const id = newId(type),
       base = {
         id,
@@ -445,7 +599,7 @@ export function WorkflowEditor({
         : type === 'tool'
           ? { ...base, type, connectionId: data.connections[0]?.id ?? '', tool: '', arguments: {} }
           : type === 'parallel'
-            ? { ...base, type, agentIds: data.agents[0] ? [data.agents[0].id] : [], prompt: '{{last}}' }
+            ? { ...base, type, agentNodeIds: [], agentIds: [], prompt: '{{last}}' }
             : type === 'condition'
               ? {
                   ...base,
@@ -464,20 +618,48 @@ export function WorkflowEditor({
     select(id);
     selectEdge('');
     reveal(id);
+    return id;
   }
-  /** New cards are placed to the right of the selection, often outside the viewport; bring them into view. */
+  /** A new agent card that only a Parallel step runs; it stays beside the execution path. */
+  function addMember(parallelId: string) {
+    const parallel = form.nodes.find((n) => n.id === parallelId);
+    if (parallel?.type !== 'parallel') return;
+    const id = newId('agent');
+    const member: WorkflowNode = {
+      id,
+      name: `Agent ${parallel.agentNodeIds.length + 1}`,
+      type: 'agent',
+      config: { ...defaultAgent(data), name: `Agent ${parallel.agentNodeIds.length + 1}` },
+      prompt: '{{input}}',
+      position: { x: parallel.position?.x ?? 300, y: (parallel.position?.y ?? 100) + 260 },
+    };
+    change(
+      autoPlace({
+        ...form,
+        nodes: [
+          ...form.nodes.map((n) =>
+            n.id === parallelId && n.type === 'parallel'
+              ? { ...n, agentNodeIds: [...n.agentNodeIds, id] }
+              : n,
+          ),
+          member,
+        ],
+      }),
+    );
+    reveal(id);
+  }
   function reveal(id: string) {
     setTimeout(() => {
       if (!flow?.getNode(id)) return;
       void flow.fitView({ padding: 0.16, duration: 250, maxZoom: 1 });
     }, 60);
   }
-  /** Lay out every card with the shared layout engine so nothing ever lands on top of another card. */
+  /** Lay out every card with the shared layout engine so nothing lands on top of another card. */
   function autoPlace(f: Workflow): Workflow {
     const items: GraphItem[] = [...f.nodes, ...f.resources];
     const links = [
       ...graphEdges(f)
-        .filter((e) => e.id.startsWith('flow:'))
+        .filter((e) => !e.id.startsWith('resource:'))
         .map((e) => ({ from: e.source, to: e.target })),
       ...f.bindings.map((b) => ({ from: b.agentNodeId, to: b.resourceId, label: 'tool' })),
     ];
@@ -493,7 +675,7 @@ export function WorkflowEditor({
               : i.type === 'mcp' || i.type === 'knowledge'
                 ? 244
                 : 286,
-          height: i.type === 'agent' ? 205 : 155,
+          height: i.type === 'agent' || i.type === 'parallel' ? 205 : 155,
         };
       },
       f.startAt,
@@ -513,6 +695,7 @@ export function WorkflowEditor({
     safely(() => {
       change((f) => removeGraphNode(f, id));
       select('');
+      if (open?.kind === 'node' && open.id === id) setOpen(null);
     });
   }
   async function save(run = false) {
@@ -549,9 +732,8 @@ export function WorkflowEditor({
       setBusy(false);
     }
   }
-  const nextOptions = form.nodes.filter(
-    (n) => (n.id !== step?.id || step?.type === 'condition') && n.type !== 'start',
-  );
+  const nextOptions = (self?: WorkflowNode) =>
+    form.nodes.filter((n) => (n.id !== self?.id || self?.type === 'condition') && n.type !== 'start');
   const selectedLink = edges.find((e) => e.id === selectedEdge);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -559,6 +741,10 @@ export function WorkflowEditor({
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         travel(e.shiftKey ? 'redo' : 'undo');
+      }
+      if (e.key === 'Enter' && selected && !open) {
+        e.preventDefault();
+        setOpen({ kind: 'node', id: selected });
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedEdge && selectedLink) {
@@ -573,18 +759,18 @@ export function WorkflowEditor({
     };
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
-  }, [form, selected, selectedEdge]);
+  }, [form, selected, selectedEdge, open]);
 
-  function flowSelect(label: string, field: string, current: string | undefined) {
+  function flowSelect(step: WorkflowNode, label: string, field: string, current: string | undefined) {
     return (
       <Field label={label}>
         <select
           aria-label={label}
           value={current ?? ''}
-          onChange={(e) => step && patch(step.id, { [field]: e.target.value || undefined })}
+          onChange={(e) => patch(step.id, { [field]: e.target.value || undefined })}
         >
-          <option value="">Connect a step</option>
-          {nextOptions.map((n) => (
+          <option value="">Not connected</option>
+          {nextOptions(step).map((n) => (
             <option key={n.id} value={n.id}>
               {n.name}
             </option>
@@ -593,6 +779,11 @@ export function WorkflowEditor({
       </Field>
     );
   }
+  const curl = value?.id
+    ? `curl -X POST '${publicUrl}/api/runs' \\\n  -H 'Authorization: Bearer YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -H 'Idempotency-Key: unique-request-id' \\\n  -d '{"workflowId": "${value.id}", "input": "Hello"}'`
+    : '';
+  const read = `# poll until status is succeeded or failed\ncurl '${publicUrl}/api/runs/RUN_ID' -H 'Authorization: Bearer YOUR_API_KEY'\n\n# or stream the trace and answer as they happen\ncurl -N '${publicUrl}/api/runs/RUN_ID/stream' -H 'Authorization: Bearer YOUR_API_KEY'`;
+  const enabledConnections = data.connections.filter((c) => c.enabled);
   return (
     <div
       className="workflow-screen harness-editor"
@@ -613,8 +804,8 @@ export function WorkflowEditor({
             onChange={(e) => change({ ...form, name: e.target.value })}
           />
           <small>
-            {dirty ? 'Unsaved changes' : 'Workflow harness'} · {form.nodes.length} steps ·{' '}
-            {form.resources.length} resources
+            {dirty ? 'Unsaved' : 'Saved'} · {form.nodes.length} steps
+            {form.schedule?.enabled ? ` · ${describeSchedule(form.schedule)}` : ''}
           </small>
         </div>
         <div className="history-actions">
@@ -661,6 +852,14 @@ export function WorkflowEditor({
             YAML
           </button>
         </div>
+        <Button variant="secondary" onClick={() => setOpen({ kind: 'workflow' })}>
+          <Settings2 size={15} />
+          Settings
+        </Button>
+        <Button variant="secondary" onClick={() => setOpen({ kind: 'api' })}>
+          <Code2 size={15} />
+          Use in your app
+        </Button>
         <IconButton
           title="Export workflow YAML"
           onClick={() => {
@@ -680,7 +879,7 @@ export function WorkflowEditor({
         </Button>
         <Button disabled={busy} onClick={() => void save()}>
           <Save size={16} />
-          Save workflow
+          Save
         </Button>
       </header>
       {error && (
@@ -692,120 +891,81 @@ export function WorkflowEditor({
         </div>
       )}
       <div className="workflow-body">
-        <aside className="node-palette">
-          <span className="eyebrow">BUILD YOUR FLOW</span>
-          <p>Click to insert a step, or drag it onto the canvas. Drag between the large ports to connect.</p>
-          <h4>Execution steps</h4>
-          {(['agent', 'tool', 'condition', 'parallel', 'email', 'finish'] as const).map((type) => {
-            const Icon = icons[type];
-            return (
-              <button
-                className="palette-item"
+        <aside className="toolbox" aria-label="Toolbox">
+          <div className="toolbox-group">
+            <h4>Steps</h4>
+            {stepTypes.map((type) => (
+              <ToolItem
                 key={type}
-                draggable
-                onDragStart={(e) => e.dataTransfer.setData('application/agentic-node', type)}
-                onClick={() => add(type)}
-                aria-label={`Add ${labels[type]}`}
+                payload={{ type }}
+                label={labels[type]}
+                hint={stepHints[type]}
+                icon={icons[type]}
+                onAdd={() => add({ type })}
+              />
+            ))}
+          </div>
+          <div className="toolbox-group">
+            <h4>
+              MCP tools
+              <button
+                type="button"
+                className="icon-button small"
+                aria-label="Connect MCP server"
+                title="Connect an MCP server"
+                onClick={() => setAdding('connection')}
               >
-                <span className="node-icon">
-                  <Icon size={19} />
-                </span>
-                <span>
-                  <strong>{labels[type]}</strong>
-                  <small>
-                    {
-                      {
-                        agent: 'Reason and act',
-                        tool: 'Call one MCP action',
-                        condition: 'Choose the next path',
-                        parallel: 'Run agents together',
-                        email: 'Send the result by email',
-                        finish: 'Return a result',
-                      }[type]
-                    }
-                  </small>
-                </span>
                 <Plus size={14} />
               </button>
-            );
-          })}
-          <h4>Attach to an agent</h4>
-          {(['mcp', 'knowledge'] as const).map((type) => {
-            const Icon = icons[type];
-            return (
+            </h4>
+            {enabledConnections.length ? (
+              enabledConnections.map((c) => (
+                <ToolItem
+                  key={c.id}
+                  className="mcp"
+                  payload={{ type: 'mcp', connectionId: c.id }}
+                  label={c.name}
+                  hint={c.tools?.length ? `${c.tools.length} tools` : 'No tools discovered'}
+                  icon={Plug}
+                  onAdd={() => add({ type: 'mcp', connectionId: c.id })}
+                />
+              ))
+            ) : (
+              <p className="toolbox-empty">No servers connected.</p>
+            )}
+          </div>
+          <div className="toolbox-group">
+            <h4>
+              Knowledge
               <button
-                key={type}
-                className={`palette-item resource-palette ${type}`}
-                draggable
-                onDragStart={(e) => e.dataTransfer.setData('application/agentic-node', type)}
-                onClick={() => add(type)}
-                aria-label={`Add ${labels[type]}`}
+                type="button"
+                className="icon-button small"
+                aria-label="Create knowledge base"
+                title="Create a knowledge base"
+                onClick={() => setAdding('knowledge')}
               >
-                <span className="node-icon">
-                  <Icon size={19} />
-                </span>
-                <span>
-                  <strong>{labels[type]}</strong>
-                  <small>{type === 'mcp' ? 'Agent chooses when to call' : 'Reference your documents'}</small>
-                </span>
                 <Plus size={14} />
               </button>
-            );
-          })}
-          <div className="palette-guide">
-            <strong>Two kinds of connections</strong>
-            <p>
-              <i className="flow-key" />
-              Next connects execution steps.
-            </p>
-            <p>
-              <i className="resource-key" />
-              Bottom ports attach tools and knowledge to an agent.
-            </p>
+            </h4>
+            {data.knowledge.length ? (
+              data.knowledge.map((k) => (
+                <ToolItem
+                  key={k.id}
+                  className="knowledge"
+                  payload={{ type: 'knowledge', knowledgeBaseId: k.id }}
+                  label={k.name}
+                  hint="Documents & notes"
+                  icon={BookOpen}
+                  onAdd={() => add({ type: 'knowledge', knowledgeBaseId: k.id })}
+                />
+              ))
+            ) : (
+              <p className="toolbox-empty">No knowledge bases.</p>
+            )}
           </div>
-          <div className="palette-bottom">
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={form.enabled}
-                onChange={(e) => change({ ...form, enabled: e.target.checked })}
-              />
-              Workflow enabled
-            </label>
-            <Field label="Step budget">
-              <input
-                aria-label="Workflow step budget"
-                type="number"
-                min={1}
-                max={500}
-                value={form.maxSteps}
-                onChange={(e) => change({ ...form, maxSteps: Number(e.target.value) })}
-              />
-            </Field>
-            <small>Loops stop at this limit. Agent turns have their own budget.</small>
-            <Field
-              label="If a runner crashes"
-              hint={
-                (form.resumePolicy ?? 'safe') === 'safe'
-                  ? 'Resume from the last checkpoint unless the step in flight could act on an external system.'
-                  : (form.resumePolicy ?? 'safe') === 'always'
-                    ? 'Always resume, even if a tool or email step was in flight and may already have acted.'
-                    : 'Never resume; mark the run interrupted for review.'
-              }
-            >
-              <select
-                aria-label="Resume policy"
-                value={form.resumePolicy ?? 'safe'}
-                onChange={(e) =>
-                  change({ ...form, resumePolicy: e.target.value as Workflow['resumePolicy'] })
-                }
-              >
-                <option value="safe">Resume when safe</option>
-                <option value="always">Always resume</option>
-                <option value="never">Never resume</option>
-              </select>
-            </Field>
-          </div>
+          <p className="toolbox-hint">
+            Drag onto the canvas or onto an agent. Double-click a card to edit it.
+          </p>
         </aside>
         {tab === 'yaml' ? (
           <textarea
@@ -819,21 +979,23 @@ export function WorkflowEditor({
           <div
             className="flow-canvas"
             onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes(MIME)) return;
               e.preventDefault();
-              e.dataTransfer.dropEffect = 'move';
+              e.dataTransfer.dropEffect = 'copy';
             }}
             onDrop={(e) => {
               e.preventDefault();
-              const type = e.dataTransfer.getData('application/agentic-node');
-              if (
-                ['agent', 'tool', 'condition', 'parallel', 'email', 'finish', 'mcp', 'knowledge'].includes(
-                  type,
-                )
-              )
-                add(
-                  type as Parameters<typeof add>[0],
-                  flow?.screenToFlowPosition({ x: e.clientX, y: e.clientY }),
-                );
+              let payload: Payload | undefined;
+              try {
+                payload = JSON.parse(e.dataTransfer.getData(MIME));
+              } catch {
+                return;
+              }
+              if (!payload?.type) return;
+              const position = flow?.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+              const target = position ? agentAt(position) : undefined;
+              const resource = payload.type === 'mcp' || payload.type === 'knowledge';
+              add(payload, resource && target ? undefined : position, target?.id);
             }}
           >
             <ReactFlow
@@ -851,6 +1013,7 @@ export function WorkflowEditor({
                 select(n.id);
                 selectEdge('');
               }}
+              onNodeDoubleClick={(_, n) => openSettings(n.id)}
               onPaneClick={() => {
                 select('');
                 selectEdge('');
@@ -916,329 +1079,229 @@ export function WorkflowEditor({
                 zoomable
               />
             </ReactFlow>
-            <div className="canvas-hint">
-              Drag a port to connect · Click a line to disconnect · Scroll to zoom
-            </div>
+            {(item || selectedLink) && (
+              <div className="canvas-selection" role="toolbar" aria-label="Selection">
+                {selectedLink ? (
+                  <>
+                    <span>
+                      <strong>{all.find((n) => n.id === selectedLink.source)?.name}</strong> →{' '}
+                      <strong>{all.find((n) => n.id === selectedLink.target)?.name}</strong>
+                    </span>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        change((f) => disconnectGraph(f, selectedLink));
+                        selectEdge('');
+                      }}
+                    >
+                      <Unplug size={14} />
+                      Disconnect
+                    </Button>
+                  </>
+                ) : (
+                  item && (
+                    <>
+                      <span>
+                        <small>{labels[item.type]}</small>
+                        <strong>{item.name}</strong>
+                      </span>
+                      <Button variant="secondary" onClick={() => setOpen({ kind: 'node', id: item.id })}>
+                        <Settings2 size={14} />
+                        Settings
+                      </Button>
+                      {item.type !== 'start' && (
+                        <IconButton title="Delete selected component" onClick={() => remove(item.id)}>
+                          <Trash2 size={15} />
+                        </IconButton>
+                      )}
+                    </>
+                  )
+                )}
+              </div>
+            )}
             <Button className="arrange-button" variant="secondary" onClick={arrange}>
               <LayoutGrid size={15} />
               Auto layout
             </Button>
           </div>
         )}
-        <aside className="node-inspector">
-          {selectedLink ? (
-            <>
-              <div className="inspector-title">
-                <h3>Connection</h3>
-              </div>
-              <p>
-                {all.find((n) => n.id === selectedLink.source)?.name} →{' '}
-                {all.find((n) => n.id === selectedLink.target)?.name}
-              </p>
-              <p className="field-help">
-                {selectedLink.id.startsWith('resource:')
-                  ? 'This gives the agent access to this resource.'
-                  : 'Execution follows this connection after the step finishes.'}
-              </p>
-              <Button
-                variant="danger"
-                onClick={() => {
-                  change((f) => disconnectGraph(f, selectedLink));
-                  selectEdge('');
-                }}
-              >
-                <Unplug size={16} />
-                Disconnect
-              </Button>
-            </>
-          ) : item ? (
-            <>
-              <div className="inspector-title">
-                <h3>{labels[item.type]}</h3>
-                {item.type !== 'start' && (
-                  <IconButton title="Delete selected component" onClick={() => remove(item.id)}>
-                    <Trash2 size={16} />
-                  </IconButton>
-                )}
-              </div>
-              <Field label="Component name">
+      </div>
+      {open?.kind === 'node' && openItem && (
+        <Modal
+          title={`${labels[openItem.type]}${openItem.name !== labels[openItem.type] ? ` · ${openItem.name}` : ''}`}
+          onClose={() => setOpen(null)}
+          wide={openItem.type === 'agent' || openItem.type === 'mcp' || openItem.type === 'tool'}
+        >
+          <div className="form-content node-settings">
+            {openItem.type !== 'start' && (
+              <Field label="Name">
                 <input
                   aria-label="Component name"
-                  value={item.name}
-                  onChange={(e) => patch(item.id, { name: e.target.value })}
+                  value={openItem.name}
+                  onChange={(e) => rename(openItem.id, e.target.value)}
                 />
               </Field>
-              {step?.type === 'start' && (
-                <>
-                  <div className="notice">
-                    Every trigger enters here. The input is available as <code>{'{{input}}'}</code>.
+            )}
+            {openStep?.type === 'start' && (
+              <>
+                <p className="field-help">
+                  Runs start here from the playground, the API, a webhook or a schedule. The message is{' '}
+                  <code>{'{{input}}'}</code>.
+                </p>
+                {flowSelect(openStep, 'First step', 'next', openStep.next)}
+                <div className="compact-actions">
+                  <Button variant="secondary" onClick={() => setOpen({ kind: 'workflow' })}>
+                    <Clock3 size={14} />
+                    Schedule
+                  </Button>
+                  <Button variant="secondary" onClick={() => setOpen({ kind: 'api' })}>
+                    <Code2 size={14} />
+                    Use in your app
+                  </Button>
+                </div>
+              </>
+            )}
+            {openStep?.type === 'agent' && (
+              <>
+                <AgentFields
+                  value={{ ...defaultAgent(data), ...openStep.config, name: openStep.name }}
+                  data={data}
+                  refresh={onSaved}
+                  onChange={(p) => patchAgent(openStep.id, p)}
+                />
+                <Field
+                  label="Message to this agent"
+                  hint="{{input}} is the run input, {{last}} the previous step."
+                >
+                  <textarea
+                    aria-label="Input prompt"
+                    rows={2}
+                    value={openStep.prompt}
+                    onChange={(e) => patch(openStep.id, { prompt: e.target.value })}
+                  />
+                </Field>
+                <div className="form-section">
+                  <h3>
+                    <Plug size={16} /> Tools & knowledge
+                  </h3>
+                  {form.bindings
+                    .filter((b) => b.agentNodeId === openStep.id)
+                    .map((b) => {
+                      const r = form.resources.find((r) => r.id === b.resourceId)!;
+                      return (
+                        <div className="binding-row" key={r.id}>
+                          <button type="button" onClick={() => setOpen({ kind: 'node', id: r.id })}>
+                            {r.type === 'mcp' ? <Plug size={14} /> : <BookOpen size={14} />}
+                            {r.name}
+                            <small>{r.type === 'mcp' ? `${r.tools.length} tools` : 'knowledge'}</small>
+                          </button>
+                          <IconButton
+                            title={`Disconnect ${r.name}`}
+                            onClick={() =>
+                              change({ ...form, bindings: form.bindings.filter((v) => v !== b) })
+                            }
+                          >
+                            <Unplug size={14} />
+                          </IconButton>
+                        </div>
+                      );
+                    })}
+                  <div className="compact-actions">
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        setOpen({ kind: 'node', id: add({ type: 'mcp' }, undefined, openStep.id) })
+                      }
+                    >
+                      <Plus size={13} />
+                      MCP tools
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        setOpen({ kind: 'node', id: add({ type: 'knowledge' }, undefined, openStep.id) })
+                      }
+                    >
+                      <Plus size={13} />
+                      Knowledge
+                    </Button>
                   </div>
-                  <div className="trigger-list">
-                    <strong>API & conversation</strong>
-                    <p>
-                      Use an API key from Integrations to call <code>/api/runs</code> or{' '}
-                      <code>/api/chat</code>.
-                    </p>
-                    <strong>Webhook</strong>
-                    <p>
-                      Create an authenticated webhook in Integrations. JSON fields are available as{' '}
-                      <code>{'{{payload.field}}'}</code>.
-                    </p>
-                    <strong>Playground & iframe</strong>
-                    <p>Test with a message or use an embedded conversation.</p>
-                  </div>
-                  <details>
-                    <summary>Scheduled runs</summary>
-                    <ErrorNotice error={value?.lastScheduleError} />
-                    <label className="check-row">
+                </div>
+              </>
+            )}
+            {openResource?.type === 'mcp' && (
+              <McpControl
+                data={data}
+                refresh={onSaved}
+                connectionId={openResource.connectionId}
+                tools={openResource.tools}
+                onChange={(connectionId, tools) =>
+                  patch(openResource.id, {
+                    connectionId,
+                    tools,
+                    name: data.connections.find((c) => c.id === connectionId)?.name ?? openResource.name,
+                  })
+                }
+              />
+            )}
+            {openResource?.type === 'knowledge' && (
+              <KnowledgeControl
+                data={data}
+                refresh={onSaved}
+                value={openResource.knowledgeBaseId}
+                onChange={(knowledgeBaseId) =>
+                  patch(openResource.id, {
+                    knowledgeBaseId,
+                    name: data.knowledge.find((k) => k.id === knowledgeBaseId)?.name ?? openResource.name,
+                  })
+                }
+              />
+            )}
+            {openResource && (
+              <div className="form-section">
+                <h3>Used by</h3>
+                {agentNodes.length ? (
+                  agentNodes.map((n) => (
+                    <label className="check-row" key={n.id}>
                       <input
                         type="checkbox"
-                        checked={form.schedule?.enabled ?? false}
+                        checked={form.bindings.some(
+                          (b) => b.resourceId === openResource.id && b.agentNodeId === n.id,
+                        )}
                         onChange={(e) =>
-                          change({
-                            ...form,
-                            schedule: {
-                              everyMinutes: 60,
-                              input: 'Run the scheduled task.',
-                              ...form.schedule,
-                              enabled: e.target.checked,
-                            },
-                          })
+                          change((f) => ({
+                            ...f,
+                            bindings: e.target.checked
+                              ? [...f.bindings, { agentNodeId: n.id, resourceId: openResource.id }]
+                              : f.bindings.filter(
+                                  (b) => !(b.resourceId === openResource.id && b.agentNodeId === n.id),
+                                ),
+                          }))
                         }
                       />
-                      Enable schedule
+                      {n.name}
                     </label>
-                    {form.schedule?.enabled && (
-                      <>
-                        <Field label="Every (minutes)">
-                          <input
-                            aria-label="Schedule interval"
-                            type="number"
-                            min={1}
-                            value={form.schedule.everyMinutes}
-                            onChange={(e) =>
-                              change({
-                                ...form,
-                                schedule: { ...form.schedule!, everyMinutes: Number(e.target.value) },
-                              })
-                            }
-                          />
-                        </Field>
-                        <Field label="Scheduled input">
-                          <textarea
-                            value={form.schedule.input}
-                            onChange={(e) =>
-                              change({ ...form, schedule: { ...form.schedule!, input: e.target.value } })
-                            }
-                          />
-                        </Field>
-                      </>
-                    )}
-                  </details>
-                </>
-              )}
-              {step?.type === 'agent' && (
-                <>
-                  <ProviderControl
-                    data={data}
-                    refresh={onSaved}
-                    value={step.config?.providerId ?? ''}
-                    onChange={(providerId) => patchAgent({ providerId })}
-                  />
-                  <Field label="Instructions">
-                    <textarea
-                      aria-label="Agent instructions"
-                      rows={6}
-                      value={step.config?.systemPrompt ?? ''}
-                      onChange={(e) => patchAgent({ systemPrompt: e.target.value })}
-                    />
-                  </Field>
-                  <Field label="Input prompt" hint="Use {{input}}, {{last}}, or {{steps.step_id}}.">
-                    <textarea
-                      aria-label="Input prompt"
-                      rows={3}
-                      value={step.prompt}
-                      onChange={(e) => patch(step.id, { prompt: e.target.value })}
-                    />
-                  </Field>
-                  <div className="inspector-section">
-                    <h4>Agentic pattern</h4>
-                    <PatternFields
-                      pattern={step.config?.pattern ?? 'react'}
-                      config={step.config?.patternConfig ?? {}}
-                      onPattern={(pattern) => patchAgent({ pattern })}
-                      onConfig={(patternConfig) =>
-                        patchAgent({ patternConfig: patternConfig as Agent['patternConfig'] })
-                      }
-                    />
-                  </div>
-                  <div className="inspector-section">
-                    <h4>Agent resources</h4>
-                    <p className="field-help">
-                      These cards connect to the bottom of this agent. It chooses when to call its tools.
-                    </p>
-                    <div className="compact-actions">
-                      <Button variant="secondary" onClick={() => add('mcp')}>
-                        <Plus size={13} />
-                        MCP tools
-                      </Button>
-                      <Button variant="secondary" onClick={() => add('knowledge')}>
-                        <Plus size={13} />
-                        Knowledge
-                      </Button>
-                    </div>
-                    {form.bindings
-                      .filter((b) => b.agentNodeId === step.id)
-                      .map((b) => {
-                        const r = form.resources.find((r) => r.id === b.resourceId)!;
-                        return (
-                          <div className="binding-row" key={r.id}>
-                            <button onClick={() => select(r.id)}>{r.name}</button>
-                            <IconButton
-                              title={`Disconnect ${r.name}`}
-                              onClick={() =>
-                                change({ ...form, bindings: form.bindings.filter((v) => v !== b) })
-                              }
-                            >
-                              <Unplug size={14} />
-                            </IconButton>
-                          </div>
-                        );
-                      })}
-                  </div>
-                  <details>
-                    <summary>Agent limits & saved agents</summary>
-                    <Field label="Maximum reasoning turns">
-                      <input
-                        type="number"
-                        min={1}
-                        max={40}
-                        value={step.config?.maxTurns ?? 12}
-                        onChange={(e) => patchAgent({ maxTurns: Number(e.target.value) })}
-                      />
-                    </Field>
-                    <Field label="Agent timeout (seconds)">
-                      <input
-                        type="number"
-                        min={10}
-                        max={900}
-                        value={step.config?.timeoutSeconds ?? 300}
-                        onChange={(e) => patchAgent({ timeoutSeconds: Number(e.target.value) })}
-                      />
-                    </Field>
-                    <Field label="Use a saved agent as a starting point">
-                      <select
-                        aria-label="Use saved agent"
-                        value=""
-                        onChange={(e) => {
-                          const a = data.agents.find((a) => a.id === e.target.value);
-                          if (a)
-                            change((f) =>
-                              editableWorkflow(
-                                {
-                                  ...f,
-                                  nodes: f.nodes.map((n) =>
-                                    n.id === step.id
-                                      ? ({ ...n, config: agentSchema.parse(a) } as WorkflowNode)
-                                      : n,
-                                  ),
-                                },
-                                data,
-                              ),
-                            );
-                        }}
-                      >
-                        <option value="">Choose an agent to copy</option>
-                        {data.agents.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.name}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                  </details>
-                </>
-              )}
-              {resource?.type === 'mcp' && (
-                <McpControl
-                  data={data}
-                  refresh={onSaved}
-                  connectionId={resource.connectionId}
-                  tools={resource.tools}
-                  onChange={(connectionId, tools) => patch(resource.id, { connectionId, tools })}
-                />
-              )}
-              {resource?.type === 'knowledge' && (
-                <KnowledgeControl
-                  data={data}
-                  refresh={onSaved}
-                  value={resource.knowledgeBaseId}
-                  onChange={(knowledgeBaseId) => patch(resource.id, { knowledgeBaseId })}
-                />
-              )}
-              {resource && (
-                <div className="inspector-section">
-                  <h4>Connected agents</h4>
-                  <p className="field-help">Connect by dragging ports, or select agents here.</p>
-                  {(() => {
-                    const connectedAgentId = form.bindings.find(
-                      (b) => b.resourceId === resource.id,
-                    )?.agentNodeId;
-                    return (
-                      <div className="compact-actions">
-                        <Button variant="secondary" onClick={() => add('mcp', undefined, connectedAgentId)}>
-                          <Plus size={13} />
-                          MCP tools
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          onClick={() => add('knowledge', undefined, connectedAgentId)}
-                        >
-                          <Plus size={13} />
-                          Knowledge
-                        </Button>
-                      </div>
-                    );
-                  })()}
-                  {form.nodes
-                    .filter((n) => n.type === 'agent')
-                    .map((n) => (
-                      <label className="check-row" key={n.id}>
-                        <input
-                          type="checkbox"
-                          checked={form.bindings.some(
-                            (b) => b.resourceId === resource.id && b.agentNodeId === n.id,
-                          )}
-                          onChange={(e) =>
-                            change((f) => ({
-                              ...f,
-                              bindings: e.target.checked
-                                ? [...f.bindings, { agentNodeId: n.id, resourceId: resource.id }]
-                                : f.bindings.filter(
-                                    (b) => !(b.resourceId === resource.id && b.agentNodeId === n.id),
-                                  ),
-                            }))
-                          }
-                        />
-                        {n.name}
-                      </label>
-                    ))}
-                </div>
-              )}
-              {step?.type === 'tool' && (
-                <>
-                  <Field label="MCP connection">
+                  ))
+                ) : (
+                  <p className="field-help">Add an agent first.</p>
+                )}
+              </div>
+            )}
+            {openStep?.type === 'tool' && (
+              <>
+                <div className="two-columns">
+                  <Field label="MCP server">
                     <select
                       aria-label="Action MCP connection"
-                      value={step.connectionId}
+                      value={openStep.connectionId}
                       onChange={(e) => {
                         setArgumentDrafts((drafts) => {
                           const next = { ...drafts };
-                          delete next[step.id];
+                          delete next[openStep.id];
                           return next;
                         });
-                        setInvalidArguments((v) => ({ ...v, [step.id]: false }));
-                        patch(step.id, { connectionId: e.target.value, tool: '', arguments: {} });
+                        setInvalidArguments((v) => ({ ...v, [openStep.id]: false }));
+                        patch(openStep.id, { connectionId: e.target.value, tool: '', arguments: {} });
                       }}
                     >
                       <option value="">Choose a server</option>
@@ -1252,12 +1315,12 @@ export function WorkflowEditor({
                   <Field label="Tool">
                     <select
                       aria-label="Action tool"
-                      value={step.tool}
-                      onChange={(e) => patch(step.id, { tool: e.target.value })}
+                      value={openStep.tool}
+                      onChange={(e) => patch(openStep.id, { tool: e.target.value })}
                     >
-                      <option value="">Choose a discovered action</option>
+                      <option value="">Choose a tool</option>
                       {data.connections
-                        .find((c) => c.id === step.connectionId)
+                        .find((c) => c.id === openStep.connectionId)
                         ?.tools?.map((t: any) => (
                           <option key={t.name} value={t.name}>
                             {t.name}
@@ -1265,158 +1328,309 @@ export function WorkflowEditor({
                         ))}
                     </select>
                   </Field>
-                  <ArgumentEditor
-                    key={step.id}
-                    value={step.arguments}
-                    draft={argumentDrafts[step.id]}
-                    schema={
-                      data.connections
-                        .find((c) => c.id === step.connectionId)
-                        ?.tools?.find((t: any) => t.name === step.tool)?.inputSchema
-                    }
-                    onChange={(value, invalid, text) => {
-                      setArgumentDrafts((v) => ({ ...v, [step.id]: text }));
-                      setInvalidArguments((v) => ({ ...v, [step.id]: invalid }));
-                      if (!invalid) patch(step.id, { arguments: value });
-                    }}
+                </div>
+                <ArgumentEditor
+                  key={openStep.id}
+                  value={openStep.arguments}
+                  draft={argumentDrafts[openStep.id]}
+                  schema={
+                    data.connections
+                      .find((c) => c.id === openStep.connectionId)
+                      ?.tools?.find((t: any) => t.name === openStep.tool)?.inputSchema
+                  }
+                  onChange={(v, invalid, text) => {
+                    setArgumentDrafts((d) => ({ ...d, [openStep.id]: text }));
+                    setInvalidArguments((d) => ({ ...d, [openStep.id]: invalid }));
+                    if (!invalid) patch(openStep.id, { arguments: v });
+                  }}
+                />
+              </>
+            )}
+            {openStep?.type === 'email' && (
+              <>
+                <Field label="To" hint="Comma-separated. Templates work: {{payload.email}}.">
+                  <input
+                    aria-label="Email recipients"
+                    placeholder="team@example.com"
+                    value={openStep.to}
+                    onChange={(e) => patch(openStep.id, { to: e.target.value })}
                   />
-                  <p className="field-help">
-                    This is a direct action in the execution path. Attach MCP tools to an agent when it should
-                    choose its own calls.
-                  </p>
-                </>
-              )}
-              {step?.type === 'email' && (
-                <>
-                  <Field
-                    label="To"
-                    hint="One or more addresses separated by commas. Templates work: {{payload.email}}."
-                  >
-                    <input
-                      aria-label="Email recipients"
-                      placeholder="team@example.com"
-                      value={step.to}
-                      onChange={(e) => patch(step.id, { to: e.target.value })}
-                    />
-                  </Field>
-                  <Field label="Subject">
-                    <input
-                      aria-label="Email subject"
-                      value={step.subject}
-                      onChange={(e) => patch(step.id, { subject: e.target.value })}
-                    />
-                  </Field>
-                  <Field
-                    label="Body"
-                    hint="Plain text. {{last}} is the previous step’s result; {{steps.id}} any earlier one."
-                  >
-                    <textarea
-                      aria-label="Email body"
-                      rows={6}
-                      value={step.body}
-                      onChange={(e) => patch(step.id, { body: e.target.value })}
-                    />
-                  </Field>
-                  <p className="field-help">
-                    Sends through Settings → Email (SMTP). This step acts on the outside world, so a crashed
-                    run does not replay it under the default resume policy.
-                  </p>
-                </>
-              )}
-              {step?.type === 'condition' && (
-                <>
+                </Field>
+                <Field label="Subject">
+                  <input
+                    aria-label="Email subject"
+                    value={openStep.subject}
+                    onChange={(e) => patch(openStep.id, { subject: e.target.value })}
+                  />
+                </Field>
+                <Field label="Body">
+                  <textarea
+                    aria-label="Email body"
+                    rows={5}
+                    value={openStep.body}
+                    onChange={(e) => patch(openStep.id, { body: e.target.value })}
+                  />
+                </Field>
+                <p className="field-help">Sent through Settings → Email.</p>
+              </>
+            )}
+            {openStep?.type === 'condition' && (
+              <>
+                <div className="two-columns">
                   <Field label="Value">
-                    <input value={step.value} onChange={(e) => patch(step.id, { value: e.target.value })} />
+                    <input
+                      aria-label="Condition value"
+                      value={openStep.value}
+                      onChange={(e) => patch(openStep.id, { value: e.target.value })}
+                    />
                   </Field>
                   <Field label="Comparison">
                     <select
-                      value={step.operator}
-                      onChange={(e) => patch(step.id, { operator: e.target.value })}
+                      aria-label="Condition operator"
+                      value={openStep.operator}
+                      onChange={(e) => patch(openStep.id, { operator: e.target.value })}
                     >
                       {['equals', 'notEquals', 'contains', 'truthy', 'greaterThan'].map((v) => (
                         <option key={v}>{v}</option>
                       ))}
                     </select>
                   </Field>
-                  <Field label="Compare with">
-                    <input
-                      value={step.compare}
-                      onChange={(e) => patch(step.id, { compare: e.target.value })}
-                    />
-                  </Field>
-                  {flowSelect('When true', 'onTrue', step.onTrue)}
-                  {flowSelect('When false', 'onFalse', step.onFalse)}
-                </>
-              )}
-              {step?.type === 'parallel' && (
-                <>
-                  <Field label="Input prompt">
-                    <textarea
-                      value={step.prompt}
-                      onChange={(e) => patch(step.id, { prompt: e.target.value })}
-                    />
-                  </Field>
-                  {data.agents.length ? (
-                    data.agents.map((a) => (
-                      <label className="check-row" key={a.id}>
-                        <input
-                          type="checkbox"
-                          checked={step.agentIds.includes(a.id)}
-                          onChange={(e) =>
-                            patch(step.id, {
-                              agentIds: e.target.checked
-                                ? [...step.agentIds, a.id]
-                                : step.agentIds.filter((id) => id !== a.id),
-                            })
-                          }
-                        />
-                        {a.name}
-                      </label>
-                    ))
-                  ) : (
-                    <p>Add reusable agents in the Agents page to use parallel execution.</p>
-                  )}
-                </>
-              )}
-              {step && isFinish(step) && 'template' in step && (
-                <Field
-                  label="Final response"
-                  hint="Return {{last}} or compose an answer from {{steps.step_id}}."
-                >
-                  <textarea
-                    aria-label="Final response template"
-                    rows={6}
-                    value={step.template}
-                    onChange={(e) => patch(step.id, { template: e.target.value })}
+                </div>
+                <Field label="Compare with">
+                  <input
+                    aria-label="Condition compare value"
+                    value={openStep.compare}
+                    onChange={(e) => patch(openStep.id, { compare: e.target.value })}
                   />
                 </Field>
-              )}
-              {step &&
-                !isFinish(step) &&
-                step.type !== 'condition' &&
-                flowSelect('Next step', 'next', step.next)}
-              <small className="component-id">ID: {item.id}</small>
-            </>
-          ) : (
-            <>
-              <div className="inspector-title">
-                <h3>Your workflow</h3>
-              </div>
-              <p>Select a component to configure it, or a connection to remove it.</p>
-              <Field label="Description">
+                <div className="two-columns">
+                  {flowSelect(openStep, 'When yes', 'onTrue', openStep.onTrue)}
+                  {flowSelect(openStep, 'When no', 'onFalse', openStep.onFalse)}
+                </div>
+              </>
+            )}
+            {openStep?.type === 'parallel' && (
+              <>
+                <Field label="Message to each agent">
+                  <textarea
+                    aria-label="Parallel input prompt"
+                    rows={2}
+                    value={openStep.prompt}
+                    onChange={(e) => patch(openStep.id, { prompt: e.target.value })}
+                  />
+                </Field>
+                <div className="form-section">
+                  <h3>Agents that run together</h3>
+                  {agentNodes.map((a) => (
+                    <label className="check-row" key={a.id}>
+                      <input
+                        type="checkbox"
+                        checked={openStep.agentNodeIds.includes(a.id)}
+                        onChange={(e) =>
+                          patch(openStep.id, {
+                            agentNodeIds: e.target.checked
+                              ? [...openStep.agentNodeIds, a.id]
+                              : openStep.agentNodeIds.filter((id) => id !== a.id),
+                          })
+                        }
+                      />
+                      {a.name}
+                    </label>
+                  ))}
+                  <Button variant="secondary" onClick={() => addMember(openStep.id)}>
+                    <Plus size={13} />
+                    New agent in this group
+                  </Button>
+                  {data.agents.length > 0 && (
+                    <details>
+                      <summary>Saved agents</summary>
+                      {data.agents.map((a) => (
+                        <label className="check-row" key={a.id}>
+                          <input
+                            type="checkbox"
+                            checked={openStep.agentIds.includes(a.id)}
+                            onChange={(e) =>
+                              patch(openStep.id, {
+                                agentIds: e.target.checked
+                                  ? [...openStep.agentIds, a.id]
+                                  : openStep.agentIds.filter((id) => id !== a.id),
+                              })
+                            }
+                          />
+                          {a.name}
+                        </label>
+                      ))}
+                    </details>
+                  )}
+                </div>
+              </>
+            )}
+            {openStep && isFinish(openStep) && 'template' in openStep && (
+              <Field
+                label="Final response"
+                hint="{{last}} returns the previous step; {{steps.id}} any earlier one."
+              >
                 <textarea
-                  value={form.description}
-                  onChange={(e) => change({ ...form, description: e.target.value })}
+                  aria-label="Final response template"
+                  rows={5}
+                  value={openStep.template}
+                  onChange={(e) => patch(openStep.id, { template: e.target.value })}
                 />
               </Field>
-              <div className="notice">
-                Start a run from the Playground, an API call, a conversation, a webhook, or a schedule. Every
-                route uses the same queued harness.
-              </div>
-            </>
-          )}
-        </aside>
-      </div>
+            )}
+            {openStep &&
+              !isFinish(openStep) &&
+              openStep.type !== 'condition' &&
+              openStep.type !== 'start' &&
+              flowSelect(openStep, 'Next step', 'next', openStep.next)}
+          </div>
+          <div className="form-actions between">
+            {openItem.type !== 'start' ? (
+              <Button variant="danger" onClick={() => remove(openItem.id)}>
+                <Trash2 size={15} />
+                Delete
+              </Button>
+            ) : (
+              <span />
+            )}
+            <Button onClick={() => setOpen(null)}>Done</Button>
+          </div>
+        </Modal>
+      )}
+      {open?.kind === 'workflow' && (
+        <Modal title="Workflow settings" onClose={() => setOpen(null)} wide>
+          <div className="form-content">
+            <Field label="Description">
+              <textarea
+                aria-label="Workflow description"
+                rows={2}
+                value={form.description}
+                onChange={(e) => change({ ...form, description: e.target.value })}
+              />
+            </Field>
+            <div className="two-columns">
+              <Field label="Step budget" hint="Loops stop at this limit.">
+                <input
+                  aria-label="Workflow step budget"
+                  type="number"
+                  min={1}
+                  max={500}
+                  value={form.maxSteps}
+                  onChange={(e) => change({ ...form, maxSteps: Number(e.target.value) })}
+                />
+              </Field>
+              <Field
+                label="If a runner crashes"
+                hint={
+                  (form.resumePolicy ?? 'safe') === 'safe'
+                    ? 'Resume unless a tool or email step was in flight.'
+                    : (form.resumePolicy ?? 'safe') === 'always'
+                      ? 'Always resume, even if a tool may already have acted.'
+                      : 'Mark the run interrupted for review.'
+                }
+              >
+                <select
+                  aria-label="Resume policy"
+                  value={form.resumePolicy ?? 'safe'}
+                  onChange={(e) =>
+                    change({ ...form, resumePolicy: e.target.value as Workflow['resumePolicy'] })
+                  }
+                >
+                  <option value="safe">Resume when safe</option>
+                  <option value="always">Always resume</option>
+                  <option value="never">Never resume</option>
+                </select>
+              </Field>
+            </div>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={form.enabled}
+                onChange={(e) => change({ ...form, enabled: e.target.checked })}
+              />
+              Workflow enabled
+            </label>
+            <div className="form-section">
+              <h3>
+                <Clock3 size={16} /> Schedule
+              </h3>
+              <ScheduleFields
+                value={form.schedule}
+                onChange={(schedule) => change({ ...form, schedule })}
+                nextRunAt={value?.nextRunAt}
+                lastError={value?.lastScheduleError}
+              />
+            </div>
+          </div>
+          <div className="form-actions">
+            <Button onClick={() => setOpen(null)}>Done</Button>
+          </div>
+        </Modal>
+      )}
+      {open?.kind === 'api' && (
+        <Modal title="Use in your app" onClose={() => setOpen(null)} wide>
+          <div className="form-content">
+            {!value?.id ? (
+              <div className="notice">Save the workflow first. Its ID is what other apps call.</div>
+            ) : (
+              <>
+                <p className="field-help">
+                  Create an API key in Integrations, then start runs from any language. Webhooks accept JSON
+                  from other systems; schedules run without a caller.
+                </p>
+                <div className="code-card">
+                  <div>
+                    <span>Start a run</span>
+                    <CopyButton value={curl} />
+                  </div>
+                  <pre>{curl}</pre>
+                </div>
+                <div className="code-card">
+                  <div>
+                    <span>Read the result</span>
+                    <CopyButton value={read} />
+                  </div>
+                  <pre>{read}</pre>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="form-actions between">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                if (dirty && !confirm('Leave without saving your changes?')) return;
+                onClose();
+                onNavigate?.('integrations');
+              }}
+            >
+              <Code2 size={14} />
+              Open Integrations
+            </Button>
+            <Button onClick={() => setOpen(null)}>Done</Button>
+          </div>
+        </Modal>
+      )}
+      {adding === 'connection' && (
+        <ConnectionEditor
+          data={data}
+          onClose={() => setAdding(null)}
+          onSaved={async (c) => {
+            await onSaved();
+            if (c) add({ type: 'mcp', connectionId: c.id });
+          }}
+        />
+      )}
+      {adding === 'knowledge' && (
+        <KnowledgeEditor
+          data={data}
+          onClose={() => setAdding(null)}
+          onSaved={async (k) => {
+            await onSaved();
+            if (k) add({ type: 'knowledge', knowledgeBaseId: k.id });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1441,13 +1655,10 @@ function ArgumentEditor({
   }
   return (
     <>
-      <Field
-        label="Tool arguments (JSON)"
-        hint="Template values preserve types when they fill a whole field."
-      >
+      <Field label="Arguments (JSON)" hint="Templates like {{input}} fill values.">
         <textarea
           aria-label="Tool arguments JSON"
-          rows={7}
+          rows={6}
           value={text}
           onChange={(e) => {
             try {

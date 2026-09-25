@@ -31,8 +31,8 @@ export function WebhooksPanel({ data }: { data: Data }) {
     <>
       <div className="section-toolbar">
         <div>
-          <h2>Trigger a workflow from another application.</h2>
-          <p>Authenticated webhooks accept JSON and submit a durable run to the same queue.</p>
+          <h2>Webhooks</h2>
+          <p>Another system posts JSON; a run starts.</p>
         </div>
         <Button onClick={() => setAdding(true)}>
           <Plus size={16} />
@@ -92,15 +92,11 @@ export function WebhooksPanel({ data }: { data: Data }) {
       </div>
       <div className="notice provider-note">
         <div>
-          <strong>Send a JSON payload with the webhook secret.</strong>
+          <strong>POST JSON with the secret as a bearer token.</strong>
           <p>
-            Use <code>Authorization: Bearer …</code>. Choose a JSON field for the workflow input, or leave it
-            blank to pass the whole payload. Steps can also reference <code>{'{{payload.field}}'}</code>. An{' '}
-            <code>Idempotency-Key</code> prevents duplicate deliveries.
-          </p>
-          <p>
-            The response includes a run ID. Poll <code>GET /api/hooks/:webhookId/runs/:runId</code> using the
-            same secret to read the result.
+            Pick a JSON field for the input or pass the whole payload; steps can read{' '}
+            <code>{'{{payload.field}}'}</code>. Poll <code>GET /api/hooks/:id/runs/:runId</code> with the same
+            secret for the result.
           </p>
         </div>
       </div>
@@ -137,10 +133,11 @@ export function WebhooksPanel({ data }: { data: Data }) {
                 value={form.target}
                 onChange={(e) => setForm({ ...form, target: e.target.value })}
               >
-                <option value="">Choose a workflow or agent</option>
+                <option value="">Choose a workflow</option>
                 {targets.map((t) => (
                   <option key={t.id} value={`${t.type}:${t.id}`}>
-                    {t.name} · {t.type}
+                    {t.name}
+                    {t.type === 'agent' ? ' · saved agent' : ''}
                   </option>
                 ))}
               </select>

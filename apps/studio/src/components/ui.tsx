@@ -89,7 +89,7 @@ export function PageTitle({
 }: {
   eyebrow?: string;
   title: string;
-  text: string;
+  text?: string;
   action?: ReactNode;
 }) {
   return (
@@ -97,7 +97,7 @@ export function PageTitle({
       <div>
         {eyebrow && <div className="eyebrow">{eyebrow}</div>}
         <h1>{title}</h1>
-        <p>{text}</p>
+        {text && <p>{text}</p>}
       </div>
       {action}
     </div>

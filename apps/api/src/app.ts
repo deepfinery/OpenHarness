@@ -122,23 +122,45 @@ app.put('/api/profile', requireSession, updateProfile);
 app.get('/api/config', requireSession, (_req, res) =>
   res.json({ publicUrl: config.PUBLIC_URL, maxUploadMB: config.MAX_UPLOAD_MB }),
 );
-app.get('/api/tenant', requireSession, async (req, res) => {
-  const tenantId = req.principal!.tenantId;
-  const tenant = await collection<{ _id: string; name: string }>('tenants').findOne({ _id: tenantId });
-  res.json({
+type Tenant = { _id: string; name?: string; defaultProviderId?: string };
+/** The workspace default model provider: the chosen one if it still exists, otherwise the oldest provider. */
+async function tenantView(tenantId: string) {
+  const tenant = await collection<Tenant>('tenants').findOne({ _id: tenantId });
+  const providers = collection<{ _id: string; ownerId: string; createdAt: Date }>('providers');
+  let defaultProviderId = tenant?.defaultProviderId;
+  if (!defaultProviderId || !(await providers.findOne({ _id: defaultProviderId, ownerId: tenantId })))
+    defaultProviderId = (await providers.find({ ownerId: tenantId }).sort({ createdAt: 1 }).limit(1).next())
+      ?._id;
+  return {
     id: tenantId,
     name: tenant?.name ?? 'Team workspace',
     members: await collection<User>('users').countDocuments({ tenantId }),
-  });
-});
+    defaultProviderId,
+  };
+}
+app.get('/api/tenant', requireSession, async (req, res) =>
+  res.json(await tenantView(req.principal!.tenantId)),
+);
 app.put('/api/tenant', requireAdmin, async (req, res) => {
-  const body = z.object({ name: z.string().trim().min(1).max(100) }).parse(req.body);
-  await collection<{ _id: string; name: string }>('tenants').updateOne(
-    { _id: req.principal!.tenantId },
-    { $set: body },
-    { upsert: true },
-  );
-  res.json({ id: req.principal!.tenantId, ...body });
+  const body = z
+    .object({
+      name: z.string().trim().min(1).max(100).optional(),
+      defaultProviderId: z.string().uuid().nullable().optional(),
+    })
+    .parse(req.body);
+  const tenantId = req.principal!.tenantId;
+  if (body.defaultProviderId) {
+    const owned = await collection<{ _id: string; ownerId: string }>('providers').findOne({
+      _id: body.defaultProviderId,
+      ownerId: tenantId,
+    });
+    if (!owned) throw new HttpError(400, 'Choose a model provider from this workspace');
+  }
+  const $set: Record<string, unknown> = {};
+  if (body.name !== undefined) $set.name = body.name;
+  if (body.defaultProviderId !== undefined) $set.defaultProviderId = body.defaultProviderId ?? '';
+  await collection<Tenant>('tenants').updateOne({ _id: tenantId }, { $set }, { upsert: true });
+  res.json(await tenantView(tenantId));
 });
 app.get('/api/mcp/oauth/callback', requireSession, async (req, res) => {
   const query = z

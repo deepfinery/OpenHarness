@@ -17,7 +17,13 @@ import { encrypt, HttpError, safeError, validateRemoteUrl } from '../../../packa
 import { discoverTools, startOAuth } from '../../../packages/core/src/mcp.js';
 import { chat, embed, ownedProvider } from '../../../packages/core/src/llm.js';
 import { searchKnowledge } from '../../../packages/core/src/knowledge.js';
-import { filePath, removeFile, saveFile } from '../../../packages/core/src/storage.js';
+import {
+  filePath,
+  readStoredFile,
+  removeFile,
+  replaceFile,
+  saveFile,
+} from '../../../packages/core/src/storage.js';
 import { rateLimit } from './auth.js';
 
 type Resource = { _id: string; ownerId: string; createdAt: Date; updatedAt: Date; [key: string]: any };
@@ -353,6 +359,94 @@ resources.post('/knowledge/:id/documents', upload.single('file'), async (req, re
     throw e;
   }
   res.status(202).json({ id: _id, filename, status: 'queued' });
+});
+// Notes: text written in the studio, stored like any other document and re-indexed on every save.
+const noteBody = z.object({ title: z.string().trim().min(1).max(150), content: z.string().max(2_000_000) });
+const noteFilename = (title: string) =>
+  `${
+    title
+      .replace(/\.md$/i, '')
+      .replace(/[\\/:*?"<>|\r\n\0]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 140) || 'Note'
+  }.md`;
+const textDocument = (filename: string) => /\.(txt|md|csv|json|yaml|yml)$/i.test(filename);
+resources.post('/knowledge/:id/notes', async (req, res) => {
+  const ownerId = req.principal!.tenantId;
+  const knowledgeBaseId = String(req.params.id);
+  await assertOwned('knowledge', ownerId, knowledgeBaseId);
+  const body = noteBody.parse(req.body);
+  const _id = randomUUID();
+  const storageKey = `${ownerId}/${_id}`;
+  const buffer = Buffer.from(body.content, 'utf8');
+  const now = new Date();
+  await saveFile(storageKey, buffer);
+  const doc: KnowledgeDocument = {
+    _id,
+    ownerId,
+    knowledgeBaseId,
+    filename: noteFilename(body.title),
+    storageKey,
+    size: buffer.length,
+    kind: 'note',
+    // An empty note has nothing to index yet; it becomes searchable on its first real save.
+    status: body.content.trim() ? 'queued' : 'ready',
+    ...(body.content.trim() ? {} : { chunks: 0 }),
+    createdAt: now,
+    updatedAt: now,
+  };
+  try {
+    await collection<KnowledgeDocument>('documents').insertOne(doc);
+  } catch (e) {
+    await removeFile(storageKey);
+    throw e;
+  }
+  res.status(202).json({ id: _id, filename: doc.filename, status: doc.status, kind: 'note' });
+});
+resources.get('/documents/:id/content', async (req, res) => {
+  const doc = await collection<KnowledgeDocument>('documents').findOne({
+    _id: String(req.params.id),
+    ownerId: req.principal!.tenantId,
+    status: { $ne: 'deleting' },
+  });
+  if (!doc) throw new HttpError(404, 'Document not found');
+  if (!textDocument(doc.filename)) throw new HttpError(415, 'Only text documents open in the editor');
+  if (doc.size > 2_000_000) throw new HttpError(413, 'This document is too large to edit here');
+  res.json({
+    id: doc._id,
+    filename: doc.filename,
+    kind: doc.kind ?? 'upload',
+    status: doc.status,
+    content: (await readStoredFile(doc.storageKey)).toString('utf8'),
+  });
+});
+resources.put('/documents/:id', async (req, res) => {
+  const body = noteBody.partial({ title: true }).parse(req.body);
+  const documents = collection<KnowledgeDocument>('documents');
+  const doc = await documents.findOne({ _id: String(req.params.id), ownerId: req.principal!.tenantId });
+  if (!doc || doc.status === 'deleting') throw new HttpError(404, 'Document not found');
+  if (doc.status === 'indexing')
+    throw new HttpError(409, 'This document is being indexed. Try again shortly.');
+  if (!textDocument(doc.filename)) throw new HttpError(415, 'Only text documents can be edited');
+  const buffer = Buffer.from(body.content, 'utf8');
+  await replaceFile(doc.storageKey, buffer);
+  const empty = !body.content.trim();
+  await documents.updateOne(
+    { _id: doc._id, ownerId: doc.ownerId },
+    {
+      $set: {
+        filename: body.title ? noteFilename(body.title) : doc.filename,
+        size: buffer.length,
+        kind: 'note',
+        status: empty ? 'ready' : 'queued',
+        updatedAt: new Date(),
+        ...(empty ? { chunks: 0 } : {}),
+      },
+      $unset: { publishedAt: '', error: '', leaseId: '', leaseUntil: '' },
+    },
+  );
+  res.status(202).json({ status: empty ? 'ready' : 'queued' });
 });
 resources.get('/documents/:id/download', async (req, res) => {
   const doc = await collection<KnowledgeDocument>('documents').findOne({

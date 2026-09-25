@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { KeyRound, Plus, RefreshCw, Upload } from 'lucide-react';
-import { api, errorMessage, send, type Data, type Entity } from '../api';
+import { api, defaultProviderId, errorMessage, send, type Data, type Entity } from '../api';
 import { Button, ErrorNotice, Field } from './ui';
 import { ConnectionEditor, KnowledgeEditor, ProviderEditor } from './editors';
 
@@ -21,6 +21,7 @@ export function ProviderControl({
           {data.providers.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name} · {p.model}
+              {p.id === defaultProviderId(data) ? ' · default' : ''}
             </option>
           ))}
         </select>
@@ -159,9 +160,7 @@ export function McpControl({
       <ErrorNotice error={error} />
       {connection && (
         <>
-          <p className="field-help">
-            Select the exact tools this agent may call. After OAuth, close its window and discover tools.
-          </p>
+          <p className="field-help">Tools the agent may call.</p>
           {connection.tools?.length > 0 ? (
             <div className="resource-tool-picker">
               <input
@@ -310,7 +309,7 @@ export function KnowledgeControl({
                 </div>
               ))
             ) : (
-              <p>Upload a document to give this agent reference material.</p>
+              <p>No documents yet.</p>
             )}
           </div>
         </>

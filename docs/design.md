@@ -23,8 +23,15 @@ editing a workflow afterwards cannot change the accepted graph or its tool grant
 
 Cycles are allowed only in explicit harness graphs, with a path to Finish and
 an execution budget of 1–500 steps. Agent reasoning/tool loops have separate
-turn and timeout limits; the worker also enforces a 30-minute run limit.
-Legacy graphs remain compatible. There is no arbitrary-code node.
+budgets set by the agent's effort level (light, medium, high, extra high, max,
+or auto, which resolves a level per request): model turns per pass, a total
+token budget (from provider usage reports, or estimated), and a time limit; the
+worker also enforces a 30-minute run limit. A spent token budget ends with one
+tool-less call for the final answer rather than an error. Before every model
+call the dialog is compacted to the provider's context window (older tool
+results first, then completed turns), and a provider context-length error is
+parsed, remembered on the provider, and retried once compacted. Legacy graphs
+remain compatible. There is no arbitrary-code node.
 
 ## Data boundaries
 

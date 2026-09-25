@@ -8,6 +8,7 @@ import { workflowSchema } from './schema.js';
 import { agentWithResources } from './workflow.js';
 import { resumeDecision } from './runtime.js';
 import { settleConversation } from './conversations.js';
+import { nextScheduledAt } from './schedule.js';
 
 export async function createRun(
   ownerId: string,
@@ -217,6 +218,14 @@ export async function dispatchSchedules() {
     .toArray();
   for (const w of due) {
     if (!w.schedule) continue;
+    // A schedule with a wall-clock time waits for that time instead of firing the moment it is saved.
+    if (!w.nextRunAt && w.schedule.at && w.schedule.everyMinutes >= 1440) {
+      await workflows.updateOne(
+        { _id: w._id, nextRunAt: { $exists: false } },
+        { $set: { nextRunAt: nextScheduledAt(w.schedule) } },
+      );
+      continue;
+    }
     const dueAt = w.nextRunAt ?? w.createdAt;
     const filter = {
       _id: w._id,
@@ -230,7 +239,7 @@ export async function dispatchSchedules() {
         { scheduleKey: `${w._id}:${dueAt.toISOString()}`, trigger: 'schedule' },
       );
       await workflows.updateOne(filter, {
-        $set: { nextRunAt: new Date(Date.now() + w.schedule.everyMinutes * 60000) },
+        $set: { nextRunAt: nextScheduledAt(w.schedule) },
         $unset: { lastScheduleError: '' },
       });
     } catch (error) {

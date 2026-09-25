@@ -33,17 +33,23 @@ the item. Responses include a `revision`. Supply `If-Match: <revision>` on PUT
 for optimistic concurrency; a stale version returns 409. The canvas always
 uses this precondition. Legacy resources without revisions use `If-Match: 0`.
 
-| Collection    | Required fields                      | Optional fields                                                                                                                                        |
-| ------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `providers`   | `name`, `kind`, `baseUrl`, `model`   | `apiKey`, `embeddingModel`, `maxOutputTokens`, `outputTokenParameter` (`max_tokens` or `max_completion_tokens`), `streaming` (default `true`)          |
-| `connections` | `name`, `url`                        | `transport` (`http`/`sse`), `authType` (`none`/`token`/`oauth`), `token`, `tokenHeader`, `oauthClientId`, `oauthClientSecret`, `oauthScope`, `enabled` |
-| `agents`      | `name`, `providerId`, `systemPrompt` | `description`, `connections`, `knowledgeBaseIds`, `maxTurns`, `timeoutSeconds`, `pattern`, `patternConfig`, `enabled`                                  |
-| `knowledge`   | `name`, `providerId`                 | `description`                                                                                                                                          |
-| `workflows`   | `name`, `startAt`, `nodes`           | `description`, `enabled`, `schedule`, `resources`, `bindings`, `maxSteps`, `resumePolicy` (`safe`/`always`/`never`)                                    |
+| Collection    | Required fields                      | Optional fields                                                                                                                                                                                                                                                                                 |
+| ------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `providers`   | `name`, `kind`, `baseUrl`, `model`   | `apiKey`, `embeddingModel`, `maxOutputTokens`, `contextWindow` (tokens, default 128000; updated automatically from provider limit errors), `outputTokenParameter` (`max_tokens` or `max_completion_tokens`), `streaming` (default `true`)                                                       |
+| `connections` | `name`, `url`                        | `transport` (`http`/`sse`), `authType` (`none`/`token`/`oauth`), `token`, `tokenHeader`, `oauthClientId`, `oauthClientSecret`, `oauthScope`, `enabled`                                                                                                                                          |
+| `agents`      | `name`, `providerId`, `systemPrompt` | `description`, `connections`, `knowledgeBaseIds`, `maxTurns`, `timeoutSeconds`, `tokenBudget`, `pattern`, `patternConfig`, `effort` (`light`/`medium`/`high`/`extra-high`/`max`/`auto`), `enabled`. The studio configures agents inline on workflow cards; this collection remains for API use. |
+| `knowledge`   | `name`, `providerId`                 | `description`                                                                                                                                                                                                                                                                                   |
+| `workflows`   | `name`, `startAt`, `nodes`           | `description`, `enabled`, `schedule`, `resources`, `bindings`, `maxSteps`, `resumePolicy` (`safe`/`always`/`never`)                                                                                                                                                                             |
 
 Agent `pattern` is one of `react` (default), `plan-execute`, `reflection`, or `loop`.
 `patternConfig` holds `maxPlanSteps` (1–8), `reflections` (1–3), `iterations` (1–10), and
-`doneMarker`; unused fields are ignored.
+`doneMarker`; unused fields are ignored. `effort` selects loop and token budget presets
+(light 4 turns/30k tokens, medium 12/120k, high 24/400k, extra-high 36/1M, max 40/5M).
+For a fixed level the stored `maxTurns`, `timeoutSeconds`, `patternConfig` and
+`tokenBudget` (default: the preset) are what the runner enforces; `auto` resolves a
+level per request and applies that preset, recorded as an `effort` trace event.
+When the token budget is spent the agent gets one final tool-less call
+(`budget_exhausted` event).
 
 Secret fields are write-only. Omit them on PUT to preserve an existing secret;
 an explicit empty string clears it. Responses expose `hasApiKey`, `hasToken`,
@@ -71,6 +77,9 @@ Discover tools before selecting them. Empty lists grant no tool permissions.
 | GET      | `/mcp/oauth/callback`         | Browser OAuth callback, bound to local session and one-time state.                                                    |
 | POST     | `/connections/:id/disconnect` | Removes stored MCP OAuth credentials and tool discovery.                                                              |
 | GET/POST | `/knowledge/:id/documents`    | List documents or upload one multipart `file`.                                                                        |
+| POST     | `/knowledge/:id/notes`        | Create a Markdown note: `{ "title", "content" }`; stored as `<title>.md` with `kind: "note"` and queued for indexing. |
+| GET      | `/documents/:id/content`      | Text of a TXT/MD/CSV/JSON/YAML document (≤ 2 MB) for editing.                                                         |
+| PUT      | `/documents/:id`              | Replace a text document's `content` (and optionally `title`); re-indexes. 409 while it is being indexed.              |
 | POST     | `/knowledge/:id/search`       | Search with `{ "query": "question" }`.                                                                                |
 | GET      | `/documents/:id/download`     | Download the owner's original file.                                                                                   |
 | POST     | `/documents/:id/reindex`      | Queue a ready or failed document for reindexing.                                                                      |
@@ -119,16 +128,16 @@ every step needs a possible path to Finish. Cycles are permitted with a bounded
 `maxSteps` (default 100, maximum 500). Exhaustion fails the run. Execution cannot
 return to Start. Legacy graphs without Start keep their acyclic validation.
 
-| Type        | Fields                                                                              |
-| ----------- | ----------------------------------------------------------------------------------- |
-| `start`     | `next`                                                                              |
-| `agent`     | Exactly one of `agentId` or inline `config` (agent definition), `prompt`, `next`    |
-| `tool`      | `connectionId`, `tool`, object `arguments`, `next`                                  |
-| `parallel`  | `agentIds` (up to 8), `prompt`, `next`                                              |
-| `email`     | `to` (comma-separated templates), `subject`, `body`, `next`; sent via SMTP settings |
-| `condition` | `value`, `operator`, `compare`, `onTrue`, `onFalse`                                 |
-| `finish`    | `template`                                                                          |
-| `output`    | Legacy alias for Finish                                                             |
+| Type        | Fields                                                                                                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `start`     | `next`                                                                                                                                                                       |
+| `agent`     | Exactly one of `agentId` or inline `config` (agent definition), `prompt`, `next`                                                                                             |
+| `tool`      | `connectionId`, `tool`, object `arguments`, `next`                                                                                                                           |
+| `parallel`  | `agentNodeIds` (agent cards in this workflow) and/or legacy `agentIds` (saved agents), up to 8 in total, `prompt`, `next`. Member cards need no place in the execution path. |
+| `email`     | `to` (comma-separated templates), `subject`, `body`, `next`; sent via SMTP settings                                                                                          |
+| `condition` | `value`, `operator`, `compare`, `onTrue`, `onFalse`                                                                                                                          |
+| `finish`    | `template`                                                                                                                                                                   |
+| `output`    | Legacy alias for Finish                                                                                                                                                      |
 
 Every node has `id`, `name`, and optional `position: {x,y}`. Resources use
 `type: mcp`, `connectionId`, and a nonempty `tools` selection, or
@@ -145,7 +154,11 @@ in tool arguments. Embedded bindings such as `Result: {{last}}` render text.
 fail the run explicitly. Resource cards cannot be used as control targets; explicit MCP action steps can.
 
 An optional schedule is `{ "enabled": true, "everyMinutes": 60,
-"input": "Run the daily research." }`. It begins after the next dispatcher poll.
+"input": "Run the research." }`. Interval schedules begin after the next dispatcher
+poll. For `everyMinutes` of 1440 or more, add `at: "HH:MM"` and `timezone` (an IANA
+name such as `Europe/Berlin`) to fire at that wall-clock time; `everyMinutes: 10080`
+with `weekday` (0 = Sunday … 6 = Saturday) fires weekly. Each slot is deduplicated
+with a `scheduleKey`, and the resource exposes `nextRunAt` and `lastScheduleError`.
 
 ## Runs and integrations
 
@@ -198,8 +211,12 @@ action already accepted by an external service.
 
 ## Tenant membership
 
-`GET /tenant` returns the current tenant's ID, name and member count. An
-administrator can rename it with `PUT /tenant {"name":"Research team"}`.
+`GET /tenant` returns the current tenant's ID, name, member count and
+`defaultProviderId` — the model provider new agents start with (the chosen one, or
+the oldest provider when none is chosen or the chosen one was deleted). An
+administrator can rename the workspace with `PUT /tenant {"name":"Research team"}`
+or choose the default with `PUT /tenant {"defaultProviderId":"PROVIDER_UUID"}`
+(`null` clears it).
 `/users` lists only the current tenant; creating a user defaults to the same
 tenant. A member cannot manage users. Account updates are limited to the admin's
 tenant and invalidate that user's sessions when access/password changes.

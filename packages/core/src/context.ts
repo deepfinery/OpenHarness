@@ -1,0 +1,96 @@
+// Keeps a multi-turn dialog inside a model's context window without breaking tool-call pairing.
+import type { ChatMessage } from './llm.js';
+
+/** Conservative estimate: most tokenizers average 3.5–4 characters per token on mixed text and JSON. */
+export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
+export function dialogTokens(messages: ChatMessage[]) {
+  return messages.reduce(
+    (n, m) =>
+      n + estimateTokens(m.content) + (m.toolCalls ? estimateTokens(JSON.stringify(m.toolCalls)) : 0) + 6,
+    0,
+  );
+}
+export const isContextLengthError = (message: string) =>
+  /maximum context length|context[_ ]length|context window|too many tokens|prompt is too long|input is too long|exceeds? the (?:model'?s?|maximum)|token limit|max_tokens.*(?:exceed|greater)|tokens? (?:exceed|over)/i.test(
+    message,
+  );
+/** The limit a provider states in its error, when it states one (OpenAI, vLLM, Ollama, Anthropic wordings). */
+export function contextLimitFromError(message: string): number | undefined {
+  const patterns = [
+    /maximum context length is (\d+)/i,
+    /context window of (\d+)/i,
+    /context length of (\d+)/i,
+    /limit(?: of)? (\d+) tokens/i,
+    /(\d+) tokens? (?:context|limit|maximum)/i,
+  ];
+  for (const p of patterns) {
+    const m = p.exec(message);
+    if (m) return Number(m[1]);
+  }
+  return undefined;
+}
+
+const TRUNCATED = '\n…[earlier tool result truncated to fit the model context]';
+function truncate(m: ChatMessage, chars: number): ChatMessage {
+  return m.content.length > chars + TRUNCATED.length
+    ? { ...m, content: m.content.slice(0, chars) + TRUNCATED }
+    : m;
+}
+/** Splits messages after the system prompt into turn groups that start at each user message. */
+function groups(messages: ChatMessage[]) {
+  const out: ChatMessage[][] = [];
+  for (const m of messages) {
+    if (m.role === 'user' || !out.length) out.push([m]);
+    else out[out.length - 1].push(m);
+  }
+  return out;
+}
+
+/**
+ * Fits `messages` under `budget` tokens, escalating only as far as needed and never past `maxLevel`.
+ * Level 1 shortens older tool results; level 2 also drops the oldest completed turns (keeping the system
+ * prompt and the current turn); level 3 also trims the current turn's tool results and the system prompt.
+ * Assistant tool calls always stay with their tool results.
+ */
+export function compactDialog(
+  messages: ChatMessage[],
+  budget: number,
+  maxLevel: 1 | 2 | 3 = 3,
+): { messages: ChatMessage[]; changed: boolean; tokens: number; level: 0 | 1 | 2 | 3 } {
+  if (dialogTokens(messages) <= budget)
+    return { messages, changed: false, tokens: dialogTokens(messages), level: 0 };
+  const system = messages.filter((m) => m.role === 'system');
+  let rest = messages.filter((m) => m.role !== 'system');
+  let level: 1 | 2 | 3 = 1;
+  const fits = () => dialogTokens([...system, ...rest]) <= budget;
+
+  // Level 1: older tool results carry little value once the model has used them; the latest stays intact.
+  const toolIndexes = rest.map((m, i) => (m.role === 'tool' ? i : -1)).filter((i) => i >= 0);
+  for (const i of toolIndexes.slice(0, -1)) rest[i] = truncate(rest[i], 600);
+  if (fits() || maxLevel < 2) return finish();
+
+  // Level 2: drop completed turns from the oldest onward, never the current one.
+  level = 2;
+  let turns = groups(rest);
+  while (turns.length > 1 && !fits()) {
+    turns = turns.slice(1);
+    rest = turns.flat();
+  }
+  if (fits() || maxLevel < 3) return finish();
+
+  // Level 3: trim what is left of the current turn, then the system prompt itself.
+  level = 3;
+  rest = rest.map((m) => (m.role === 'tool' ? truncate(m, 300) : m));
+  if (!fits()) {
+    const allowance = Math.max(2000, Math.floor((budget - dialogTokens(rest) - 64) * 3.5));
+    for (let i = 0; i < system.length; i++)
+      if (system[i].content.length > allowance)
+        system[i] = { ...system[i], content: system[i].content.slice(0, allowance) + '\n…[context trimmed]' };
+  }
+  return finish();
+
+  function finish() {
+    const out = [...system, ...rest];
+    return { messages: out, changed: true, tokens: dialogTokens(out), level };
+  }
+}

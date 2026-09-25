@@ -231,6 +231,143 @@ test('email settings are workspace-scoped and the Email step sends through them'
   await ok('/settings/email', undefined, 'DELETE');
   assert.notEqual((await ok('/settings/email')).source, 'workspace');
 });
+test('a context-length rejection is recovered by compacting the dialog and remembered on the provider', async () => {
+  const own = await ok('/providers', {
+    name: `Small window ${suffix}`,
+    kind: 'openai-compatible',
+    baseUrl: 'http://fixtures:9090/v1',
+    model: 'test-chat',
+  });
+  assert.equal(own.contextWindow, 128000);
+  const agent = await ok('/agents', {
+    name: `Long memory ${suffix}`,
+    providerId: own.id,
+    systemPrompt: 'Chat.',
+  });
+  const filler = 'Earlier discussion about vendors and pricing. '.repeat(120);
+  const history = Array.from({ length: 6 }, (_, i) => ({
+    role: i % 2 ? ('assistant' as const) : ('user' as const),
+    content: `${filler} (${i})`,
+  }));
+  const before = (await stats()).contextRejections ?? 0;
+  const run = await waitRun(
+    (await ok('/runs', { agentId: agent.id, input: 'Now answer the final question', history })).id,
+  );
+  assert.equal(run.status, 'succeeded', run.error);
+  assert.match(run.output, /final question/);
+  assert.ok(
+    run.events.some((e: any) => e.type === 'context_compacted'),
+    'the trace records the compaction',
+  );
+  assert.ok(((await stats()).contextRejections ?? 0) > before, 'the provider rejected the first attempt');
+  assert.equal((await ok(`/providers/${own.id}`)).contextWindow, 6000, 'the learned window is stored');
+  const second = await waitRun((await ok('/runs', { agentId: agent.id, input: 'Again', history })).id);
+  assert.equal(second.status, 'succeeded', second.error);
+  assert.equal((await stats()).contextRejections, before + 1, 'later runs pre-trim instead of failing first');
+});
+test('effort budgets cap the tokens an agent may spend and auto effort resolves a level per request', async () => {
+  const providers = await ok('/providers');
+  const provider = providers.find((p: any) => p.baseUrl === 'http://fixtures:9090/v1') ?? providers[0];
+  const connection = (await ok('/connections')).find((c: any) =>
+    c.tools?.some((t: any) => t.name === 'lookup'),
+  );
+  assert.ok(connection, 'a fixture MCP connection with the lookup tool exists');
+  const frugal = await ok('/agents', {
+    name: `Frugal ${suffix}`,
+    providerId: provider.id,
+    systemPrompt: 'Help.',
+    effort: 'light',
+    tokenBudget: 1000,
+    connections: [{ connectionId: connection.id, tools: ['lookup'] }],
+  });
+  assert.equal(frugal.effort, 'light');
+  const filler = 'Background about the vendor contract. '.repeat(120);
+  const run = await waitRun(
+    (await ok('/runs', { agentId: frugal.id, input: `${filler} Now use tool please` })).id,
+  );
+  assert.equal(run.status, 'succeeded', run.error);
+  const exhausted = run.events.find((e: any) => e.type === 'budget_exhausted');
+  assert.ok(exhausted, 'the trace records the exhausted token budget');
+  assert.equal(exhausted.data.tokenBudget, 1000);
+  assert.ok(
+    run.events.some((e: any) => e.type === 'tool_completed'),
+    'the first tool call still ran',
+  );
+  assert.ok(run.output.length > 0, 'the agent answered with what it had');
+  const auto = await ok('/agents', {
+    name: `Auto ${suffix}`,
+    providerId: provider.id,
+    systemPrompt: 'Help.',
+    effort: 'auto',
+    connections: [{ connectionId: connection.id, tools: ['lookup'] }],
+  });
+  const autoRun = await waitRun(
+    (await ok('/runs', { agentId: auto.id, input: 'use tool for a quick fact' })).id,
+  );
+  assert.equal(autoRun.status, 'succeeded', autoRun.error);
+  const effort = autoRun.events.find((e: any) => e.type === 'effort');
+  assert.equal(effort?.data.level, 'medium', 'tools attached with a short request resolves to medium');
+  assert.equal(effort?.data.maxTurns, 12);
+  assert.equal((await request('/agents', 'POST', { ...frugal, effort: 'gigantic' })).status, 400);
+});
+test('knowledge notes are created, edited and re-indexed in place', async () => {
+  const kb = await ok('/knowledge', { name: `Notebook ${suffix}`, providerId: provider.id });
+  const note = await ok(`/knowledge/${kb.id}/notes`, {
+    title: 'Vendor policy',
+    content: '# Vendor policy\n\nAll vendors are approved by finance.',
+  });
+  assert.equal(note.filename, 'Vendor policy.md');
+  assert.equal(note.kind, 'note');
+  const ready = async () => {
+    for (let i = 0; i < 80; i++) {
+      const docs = await ok(`/knowledge/${kb.id}/documents`);
+      const d = docs.find((x: any) => x.id === note.id);
+      if (d?.status === 'ready') return d;
+      if (d?.status === 'failed') throw new Error(d.error);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    throw new Error('note was not indexed');
+  };
+  const indexed = await ready();
+  assert.ok(indexed.chunks >= 1);
+  const content = await ok(`/documents/${note.id}/content`);
+  assert.match(content.content, /approved by finance/);
+  assert.equal(content.kind, 'note');
+  // Editing overwrites the stored file, keeps the id and queues a fresh index.
+  const edited = await ok(
+    `/documents/${note.id}`,
+    { title: 'Vendor policy v2', content: '# Vendor policy\n\nRenewals need a fresh review.' },
+    'PUT',
+  );
+  assert.equal(edited.status, 'queued');
+  const again = await ready();
+  assert.equal(again.filename, 'Vendor policy v2.md');
+  assert.match((await ok(`/documents/${note.id}/content`)).content, /fresh review/);
+  const hits = await ok(`/knowledge/${kb.id}/search`, { query: 'renewals review' });
+  assert.ok(
+    hits.some((h: any) => /fresh review/.test(h.content)),
+    'search sees the edited text',
+  );
+  assert.ok(!hits.some((h: any) => /approved by finance/.test(h.content)), 'old passages are replaced');
+  assert.equal((await request(`/documents/${note.id}/content`, 'GET')).status, 200);
+  const pdfLike = await request(`/documents/${randomUUID()}/content`, 'GET');
+  assert.equal(pdfLike.status, 404);
+});
+test('the workspace default model provider is stored on the tenant and falls back to the oldest provider', async () => {
+  const tenant = await ok('/tenant');
+  assert.ok(tenant.defaultProviderId, 'a default exists once any provider does');
+  const chosen = await ok('/providers', {
+    name: `Default candidate ${suffix}`,
+    kind: 'openai-compatible',
+    baseUrl: 'http://fixtures:9090/v1',
+    model: 'test-chat',
+  });
+  assert.equal((await ok('/tenant', { defaultProviderId: chosen.id }, 'PUT')).defaultProviderId, chosen.id);
+  assert.equal((await ok('/tenant')).defaultProviderId, chosen.id);
+  assert.equal((await request('/tenant', 'PUT', { defaultProviderId: randomUUID() })).status, 400);
+  await ok(`/providers/${chosen.id}`, undefined, 'DELETE');
+  assert.notEqual((await ok('/tenant')).defaultProviderId, chosen.id, 'a deleted default falls back');
+});
 test('conversations are listed per target for their owner and can be deleted', async () => {
   const agent = await ok('/agents', {
     name: `Chatty ${suffix}`,

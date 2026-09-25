@@ -11,7 +11,7 @@ A self-hosted studio for AI agents, MCP tools, and knowledge. Build agents from 
 - [Quick start](#quick-start)
 - [What you get](#what-you-get)
 - [Concepts](#concepts): [agents and patterns](#agents-and-agentic-patterns) · [workflows](#workflows) · [runs and conversations](#runs-conversations-and-traces)
-- [Guides](#guides): [model provider](#1-connect-a-model-provider) · [MCP tools](#2-connect-mcp-tools) · [agents](#3-build-an-agent) · [workflows](#4-start-a-workflow-from-a-template) · [knowledge](#5-knowledge-bases) · [email](#6-outgoing-email) · [API, webhooks, embeds](#7-use-it-from-outside-the-studio)
+- [Guides](#guides): [model provider](#1-connect-a-model-provider) · [MCP tools](#2-connect-mcp-tools) · [agents](#3-configure-an-agent) · [workflows](#4-start-a-workflow-from-a-template) · [knowledge](#5-knowledge-bases) · [email](#6-outgoing-email) · [schedules](#7-run-it-on-a-schedule) · [API, webhooks, embeds](#8-use-it-from-outside-the-studio)
 - [Architecture](#architecture): [components](#components) · [run lifecycle](#run-lifecycle) · [run states](#run-states) · [resilience and idempotency](#resilience-idempotency-and-resume) · [design principles](#design-principles) · [in context](#agentic-architecture-in-context)
 - [Configuration](#configuration) · [Operations and limits](#operations-and-limits) · [Upgrade](#upgrade)
 - [Development and verification](#development-and-verification) · [License](#license)
@@ -37,18 +37,19 @@ Allow about 4 GB of memory for the stack, plus whatever your locally hosted mode
 
 ## What you get
 
-| Area                | What is included                                                                                                                                                                                                                                                                                     |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Agents**          | Seven templates (assistant, researcher, planner, reflective writer, autonomous worker, reviewer, support), four agentic patterns (ReAct, plan-and-execute, reflection, autonomous loop), explicit tool permissions across several MCP servers, knowledge bindings, turn and time limits.             |
-| **Workflows**       | Visual canvas with Start/Finish, inline agents, conditions, parallel agents, explicit MCP actions, Email steps, MCP-tool and knowledge cards, bounded cycles, undo/redo, auto layout, YAML view. Seven starters including three multi-agent ones. Every palette insertion is laid out automatically. |
-| **Runner**          | Durable RabbitMQ jobs, immutable execution snapshots, per-step checkpoints, automatic resume on a replacement runner under a per-workflow policy, idempotency keys on every tool call, cancellation, schedules.                                                                                      |
-| **Playground**      | Saved conversations per agent or workflow, token-by-token streaming, live execution trace and a run-history tab side by side.                                                                                                                                                                        |
-| **MCP connector**   | Streamable HTTP or legacy SSE; no auth, API key, or OAuth with PKCE, dynamic registration or a pre-registered client ID (for servers such as Finnhub); discovered tools shown on the connection card with their schemas; every call validated against the schema before it is sent.                  |
-| **Model providers** | Guided setup for OpenAI, Anthropic, Gemini, Ollama, or any OpenAI-compatible server; separate chat and embedding models; a connection test that reports the provider's exact error before you save.                                                                                                  |
-| **Knowledge bases** | Uploads (TXT, Markdown, CSV, JSON, YAML, text PDF, DOCX), background indexing, Weaviate hybrid search, cited passages in the prompt, retrieval testing.                                                                                                                                              |
-| **Outgoing email**  | Workspace SMTP settings (Amazon SES, Google Workspace, SendGrid, Mailgun, Postmark or any relay), `.env` defaults, a test send, and an Email workflow step.                                                                                                                                          |
-| **Workspaces**      | Local accounts, administrator-managed teammates, shared resources and run history per tenant, tenant isolation, edit-conflict detection.                                                                                                                                                             |
-| **Integrations**    | Target-scoped API keys, conversational API, server-sent event stream per run, authenticated JSON webhooks, revocable iframe embeds with allowed origins.                                                                                                                                             |
+| Area                | What is included                                                                                                                                                                                                                                                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agents**          | Agents live on the workflow canvas as cards: instructions, model, an effort level (light, medium, high, extra high, max or auto) that sets loop and token budgets, one of four agentic patterns (ReAct, plan-and-execute, reflection, autonomous loop), seven templates, explicit tool permissions, knowledge bindings. |
+| **Workflows**       | Visual designer with a thin toolbox that lists your MCP servers and knowledge bases, drag-and-drop onto the canvas or straight onto an agent, settings in popups instead of a side panel, conditions, parallel agent groups, explicit MCP actions, Email steps, bounded cycles, undo/redo, YAML view.                   |
+| **Runner**          | Durable RabbitMQ jobs, immutable execution snapshots, per-step checkpoints, automatic resume on a replacement runner under a per-workflow policy, idempotency keys on every tool call, context-window compaction with automatic recovery from provider limit errors, cancellation.                                      |
+| **Schedules**       | Run a workflow every N minutes, hourly, daily or weekly at a wall-clock time in your time zone; deduplicated so a restart never double-fires.                                                                                                                                                                           |
+| **Playground**      | The workflow selector sits in the top bar; saved conversations per workflow, token-by-token streaming, live execution trace and a run-history tab side by side.                                                                                                                                                         |
+| **MCP connector**   | Streamable HTTP or legacy SSE; no auth, API key, or OAuth with PKCE, dynamic registration or a pre-registered client ID (for servers such as Finnhub); discovered tools shown on the connection card with their schemas; every call validated against the schema before it is sent.                                     |
+| **Model providers** | Guided setup for OpenAI, Anthropic, Gemini, Ollama, or any OpenAI-compatible server; a workspace default provider that new agents start with; separate chat and embedding models; a connection test that reports the provider's exact error before you save.                                                            |
+| **Knowledge bases** | A notebook view: write Markdown notes in place (indexed on every save) or upload TXT, Markdown, CSV, JSON, YAML, text PDF and DOCX; background indexing, Weaviate hybrid search, cited passages in the prompt, an **Ask** dialog that shows the exact passages an agent would get.                                      |
+| **Outgoing email**  | Workspace SMTP settings (Amazon SES, Google Workspace, SendGrid, Mailgun, Postmark or any relay), `.env` defaults, a test send, and an Email workflow step.                                                                                                                                                             |
+| **Workspaces**      | Local accounts, administrator-managed teammates, shared resources and run history per tenant, tenant isolation, edit-conflict detection.                                                                                                                                                                                |
+| **Integrations**    | Target-scoped API keys, conversational API, server-sent event stream per run, authenticated JSON webhooks, revocable iframe embeds with allowed origins.                                                                                                                                                                |
 
 Deliberately not included: provider-specific tool catalogs, external account login, website builders, business wizards, reports, CRM, product catalogs, billing, or customer portals.
 
@@ -56,7 +57,18 @@ Deliberately not included: provider-specific tool catalogs, external account log
 
 ### Agents and agentic patterns
 
-An **agent** is a model provider, instructions, an allow-list of MCP tools, optional knowledge bases, execution limits, and a **pattern** that decides how it organizes its passes over the model. Tools and knowledge are available in every pattern.
+An **agent** is a card on a workflow canvas: a model provider, instructions, an allow-list of MCP tools, optional knowledge bases, an **effort level**, and a **pattern** that decides how it organizes its passes over the model. Tools and knowledge are available in every pattern. There is no separate agent registry to maintain; a one-agent workflow (Start → Agent → Finish) is the simplest assistant.
+
+| Effort         | Turns per pass                                                                                                                                                                   | Token budget | Time limit | Plan steps | Critique rounds | Loop iterations |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ---------- | ---------- | --------------- | --------------- |
+| **Light**      | 4                                                                                                                                                                                | 30k          | 90 s       | 3          | 1               | 2               |
+| **Medium**     | 12                                                                                                                                                                               | 120k         | 5 min      | 5          | 1               | 3               |
+| **High**       | 24                                                                                                                                                                               | 400k         | 10 min     | 8          | 2               | 6               |
+| **Extra high** | 36                                                                                                                                                                               | 1M           | 15 min     | 8          | 3               | 8               |
+| **Max**        | 40                                                                                                                                                                               | 5M           | 15 min     | 8          | 3               | 10              |
+| **Auto**       | light, medium or high per request: light for short requests without tools, medium when tools are attached or the pattern makes several passes, high for long requests with tools |
+
+Choosing a level sets these budgets in one move; **Limits** in the agent settings still allow individual overrides, including the token budget. The **loop budget** is the number of model turns per pass (multi-pass patterns get up to four passes). The **token budget** counts prompt and completion tokens across the whole run — from the provider's usage report when it sends one, otherwise estimated. When it runs out the agent gets one final call without tools and must answer with what it has; the trace shows a `budget_exhausted` event (and, for auto, an `effort` event naming the level chosen and why).
 
 | Pattern              | How it works                                                                                                                                | Use it for                                       |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
@@ -71,15 +83,15 @@ Patterns beyond ReAct receive up to four times the agent's turn limit in total m
 
 A **workflow** is a graph of steps executed in order from Start to Finish, plus resource cards (MCP tools, knowledge bases) attached to agents. Steps pass results through templates: `{{input}}` is the run input, `{{last}}` the previous step's result, `{{steps.<id>}}` any earlier step, and `{{payload.<field>}}` structured webhook or API data.
 
-| Step        | Behavior                                                                                | Outgoing connections                                       |
-| ----------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `start`     | Entry point of the workflow                                                             | one `next`                                                 |
-| `agent`     | Runs an agent's pattern; the model chooses when to call its bound MCP tools             | one `next`, plus bottom-port MCP tool / knowledge bindings |
-| `tool`      | Makes one fixed MCP call with templated arguments, no model involved                    | one `next`                                                 |
-| `parallel`  | Runs 2–8 saved agents concurrently on the same prompt and waits for all                 | one `next`                                                 |
-| `email`     | Sends a templated email through the workspace SMTP settings                             | one `next`                                                 |
-| `condition` | Evaluates a templated comparison                                                        | `onTrue` and `onFalse`                                     |
-| `finish`    | Renders a template from accumulated state and ends the run (`output` is a legacy alias) | none                                                       |
+| Step        | Behavior                                                                                  | Outgoing connections                                         |
+| ----------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `start`     | Entry point of the workflow                                                               | one `next`                                                   |
+| `agent`     | Runs an agent's pattern; the model chooses when to call its bound MCP tools               | one `next`, plus bottom-port MCP tool / knowledge bindings   |
+| `tool`      | Makes one fixed MCP call with templated arguments, no model involved                      | one `next`                                                   |
+| `parallel`  | Runs up to 8 agent cards from the same workflow concurrently on one prompt, waits for all | one `next`, plus a bottom **Runs** port to its member agents |
+| `email`     | Sends a templated email through the workspace SMTP settings                               | one `next`                                                   |
+| `condition` | Evaluates a templated comparison                                                          | `onTrue` and `onFalse`                                       |
+| `finish`    | Renders a template from accumulated state and ends the run (`output` is a legacy alias)   | none                                                         |
 
 Resource cards never advance execution: an agent's bound tools are available throughout its own turn budget, and the model decides when to call them. Use a `tool` step when a call must happen in a fixed order. One agent can attach several MCP servers and knowledge bases, and one card can serve several agents.
 
@@ -100,7 +112,9 @@ Every trigger — playground, API, conversation, webhook, schedule or embed — 
 | Gemini            | `https://generativelanguage.googleapis.com/v1beta` | Chat, tool use and embeddings with an API key. Unrelated to UI login.                                      |
 | Ollama            | `http://host.docker.internal:11434`                | Native chat and embedding APIs. Pull the models first. The host gateway is configured in Compose.          |
 
-Chat models are chosen per agent, so one workflow can mix a fast model with a careful one. A knowledge base is bound to one embedding provider for its lifetime. Streaming is on by default per provider and falls back to a single response when a server ignores the `stream` flag.
+Mark one provider as the **default** (Settings → Model providers → Make default): every new agent card starts with it, and each agent can still pick another, so one workflow can mix a fast model with a careful one. A knowledge base is bound to one embedding provider for its lifetime. Streaming is on by default per provider and falls back to a single response when a server ignores the `stream` flag.
+
+Each provider also has a **context window** (default 128k tokens, under Advanced). Before every model call the runner trims the conversation to fit — older tool results first, then completed turns, never the current question or a tool call without its result. If a provider still rejects a request with a context-length error (the familiar _"maximum context length is 32768 tokens"_), the runner reads the real limit from the message, stores it on the provider, compacts harder and retries; the trace records a `context_compacted` event. Long multi-turn conversations therefore keep working instead of failing with HTTP 400.
 
 ### 2. Connect MCP tools
 
@@ -110,9 +124,9 @@ Discovered tools appear as chips on the connection card; click one to see its in
 
 Private endpoints are denied unless their hostname is listed in `ALLOWED_PRIVATE_HOSTS` (default: `host.docker.internal,ollama`). A stdio-only MCP server should be exposed through an HTTP/SSE gateway; the studio never runs shell commands from the UI.
 
-### 3. Build an agent
+### 3. Configure an agent
 
-**Agents → Create agent** opens the template chooser. Each template pairs a pattern with instructions written for it; **Start blank** skips it. Adjust the instructions, choose the pattern and its options, pick a model, select the exact tools the agent may call (an empty selection grants nothing), attach knowledge bases, and set turn and time limits. Try it immediately in the **Playground**: conversations are saved per agent, answers stream as they are written, and the right panel switches between the live **Trace** and the run **History**.
+Agents are configured where they run: double-click an agent card (or its gear icon, or **Settings** in the selection bar) to open its settings. Pick a model (the workspace default is preselected), an **effort** level, a template to start the instructions from, the pattern and its options, and the message the agent receives (`{{input}}`, `{{last}}`, `{{steps.id}}`). **Tools & knowledge** lists what is attached and adds more. Try the workflow in the **Playground**: conversations are saved per workflow, answers stream as they are written, and the right panel switches between the live **Trace** and the run **History**.
 
 ### 4. Start a workflow from a template
 
@@ -128,7 +142,15 @@ Private endpoints are denied unless their hostname is listed in `ALLOWED_PRIVATE
 | Research and email    | Start → Analyst → Email → Finish                       | 1      | MCP + SMTP settings |
 | Blank canvas          | Start → Finish                                         | 0      | nothing             |
 
-On the canvas, click a palette item to insert it (the graph is re-laid out so nothing overlaps) or drag it to a spot of your choice. An agent's left/right ports carry execution; its bottom **Tools** and **Knowledge** ports attach resource cards, and the inspector of any card offers **+ MCP tools** / **+ Knowledge** to add more. Select a connection line and press Delete to remove it. The palette footer sets the step budget and the **resume policy** (see [Resilience](#resilience-idempotency-and-resume)). **Save & test** opens the workflow in the playground.
+The designer has a thin **toolbox** on the left and nothing on the right: every setting opens in a popup.
+
+- **Steps** (agent, condition, parallel agents, MCP action, email, finish): click to insert after the selected step, or drag to a spot on the canvas.
+- **MCP tools** lists your connected servers with their tool counts; **Knowledge** lists your knowledge bases. Drag one **onto an agent card** to attach it to that agent (all discovered tools are granted to begin with — trim them in the card's settings), or onto empty canvas to attach it to the selected agent. The **+** next to each heading connects a new server or creates a knowledge base without leaving the canvas.
+- Double-click any card, click its gear, or press Enter to open its settings; the floating selection bar offers **Settings** and delete. Select a connection line to disconnect it.
+- **Settings** in the header holds the description, step budget, **resume policy** (see [Resilience](#resilience-idempotency-and-resume)) and the **schedule**; **Use in your app** shows the exact API calls for this workflow.
+- A **Parallel agents** step points at agent cards in the same workflow (its bottom **Runs** port, or checkboxes in its settings); **New agent in this group** adds one.
+
+**Save & test** opens the workflow in the playground.
 
 For example, **Research and review** wires two agents and a knowledge binding like this:
 
@@ -142,7 +164,13 @@ flowchart LR
 
 ### 5. Knowledge bases
 
-**Knowledge bases → New knowledge base**: name it and choose the embedding provider. Drop files onto the page; each document is indexed in the background and used as soon as it is `ready`. The page shows document, passage and readiness counts, the embedding model in use, and a **Test retrieval** panel that returns the exact passages an agent would receive. Retrieved passages are placed in the agent's system prompt as reference data with source titles, never as instructions.
+**Knowledge → New knowledge base**: name it and choose the embedding provider. The page then works like a notebook: knowledge bases on the left, files in the middle, the open file on the right.
+
+- **New note** opens an editor. Write Markdown, press **Save** (or ⌘S / Ctrl+S); the note is stored as a `.md` document and indexed in the background, so agents can search it a few seconds later. Reopen a note to edit it; every save re-indexes.
+- **Upload** or drop files anywhere on the panel (TXT, Markdown, CSV, JSON, YAML, text PDF, DOCX). Text files open in the editor too; PDFs and DOCX show their status and a download link.
+- **Ask** searches the knowledge base and returns the exact passages an agent would receive. Retrieved passages are placed in the agent's system prompt as reference data with source titles, never as instructions.
+
+On the canvas, drag the knowledge base from the toolbox onto an agent to give it access.
 
 ### 6. Outgoing email
 
@@ -150,21 +178,25 @@ flowchart LR
 
 Email is sent by the **Email** workflow step. Recipients, subject and body are templates (`{{last}}`, `{{steps.analyst}}`, `{{payload.email}}`). Because sending is an external side effect, a run that crashes inside an Email step is not replayed under the default resume policy.
 
-### 7. Use it from outside the studio
+### 7. Run it on a schedule
 
-Create an API key in **Integrations** for one agent or workflow, then:
+**Settings** in the workflow header → **Run on a schedule**. Choose every minute, every 5/15/30 minutes, hourly, every 6 hours, **every day at a time**, **every week on a weekday at a time**, or a custom interval in minutes. Daily and weekly schedules use the time zone of your browser (changeable), including daylight-saving changes. Set the message the workflow receives; the next run time is shown once saved. Scheduled runs appear in **Executions** with trigger `schedule` and are deduplicated per slot, so an API restart never fires the same slot twice.
+
+### 8. Use it from outside the studio
+
+**Use in your app** in the workflow header shows the exact calls for that workflow. Create an API key in **Integrations** for the workflow, then:
 
 ```sh
 curl -X POST http://localhost:8088/api/runs \
   -H 'Authorization: Bearer YOUR_API_KEY' \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: a-unique-request-id' \
-  -d '{"agentId":"YOUR_AGENT_ID","input":"Summarize the available knowledge."}'
+  -d '{"workflowId":"YOUR_WORKFLOW_ID","input":"Summarize the available knowledge."}'
 ```
 
-The response is `202 Accepted` with an `id`. Poll `GET /api/runs/:id`, or open `GET /api/runs/:id/stream` for server-sent events that deliver the status, the trace, and the answer text as it streams. Terminal statuses are `succeeded`, `failed`, `cancelled`, and `interrupted`; cancel with `POST /api/runs/:id/cancel`. Use `workflowId` instead of `agentId` for workflows.
+The response is `202 Accepted` with an `id`. Poll `GET /api/runs/:id`, or open `GET /api/runs/:id/stream` for server-sent events that deliver the status, the trace, and the answer text as it streams. Terminal statuses are `succeeded`, `failed`, `cancelled`, and `interrupted`; cancel with `POST /api/runs/:id/cancel`.
 
-- **Conversations:** `POST /api/chat` with a target and `message` returns a run and a `conversationId`; send the same `conversationId` for follow-ups. `GET /api/conversations?agentId=…` lists the caller's conversations.
+- **Conversations:** `POST /api/chat` with a target and `message` returns a run and a `conversationId`; send the same `conversationId` for follow-ups. `GET /api/conversations?workflowId=…` lists the caller's conversations.
 - **Webhooks:** **Integrations → Webhooks** creates an authenticated URL. Send JSON with the bearer secret; the chosen field becomes `{{input}}` and every field is available as `{{payload.field}}`. Poll `/api/hooks/:id/runs/:runId` with the same secret. Retries may carry an `Idempotency-Key`.
 - **Embeds:** **Integrations → Embedded chat** issues an iframe snippet scoped to one target and your site's origins. Visitors see the conversation only — never traces, prompts or your studio. Treat the link as a credential; revoke it any time.
 
@@ -379,7 +411,8 @@ MongoDB, RabbitMQ and Weaviate credentials are generated into `.env` and consume
 - Agent tool errors, including arguments that fail the tool's schema, return to the model for correction. An explicit workflow tool error fails that run. No potentially mutating MCP tool is retried automatically.
 - Workflows have one Start and at least one Finish, every step needs a path to Finish, and cycles are bounded by the step budget (default 100, maximum 500). Agent turns and timeouts are bounded separately. Templates are not code: only `input`, `last`, `steps.<id>` and `payload.<field>` are evaluated.
 - Parallel steps wait for all agents; a failed sibling aborts the others' in-flight requests but cannot undo completed external actions.
-- Interval schedules dispatch while the API is running; after downtime an overdue schedule fires once.
+- Schedules dispatch while the API is running; after downtime an overdue slot fires once. Daily and weekly schedules wait for their first wall-clock time instead of firing on save.
+- Conversations longer than a provider's context window are compacted before each model call (older tool results first, then completed turns). A provider limit error is parsed, the learned window is stored on the provider, and the call is retried up to twice.
 - Knowledge indexing is retriable and replaces partial vectors. A provider's embedding configuration cannot change while a knowledge base uses it. Scanned PDFs need OCR before upload; extraction stops at 2 million characters or 4,000 chunks per document.
 - Run history and documents persist until you remove them or their volumes. Backups and retention are the operator's responsibility.
 

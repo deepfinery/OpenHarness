@@ -8,6 +8,14 @@ import { searchKnowledge } from './knowledge.js';
 import { sendEmail } from './email.js';
 import { asText, evaluateCondition, render, type Scope } from './templates.js';
 import { validateToolArguments } from './toolValidation.js';
+import {
+  compactDialog,
+  contextLimitFromError,
+  dialogTokens,
+  estimateTokens,
+  isContextLengthError,
+} from './context.js';
+import { budgetedAgent, effortPresets } from './patterns.js';
 
 type EventWriter = (event: Omit<RunEvent, 'at'>) => Promise<void>;
 /** Streams model text as it is produced. `reset` marks the start of a new answer. */
@@ -23,15 +31,24 @@ export type AgentContext = {
 type Session = Awaited<ReturnType<typeof connectMcp>>;
 type Handler = { session: Session; name: string; label: string; inputSchema: Record<string, unknown> };
 
-export async function runAgent(agent: Agent, input: string, history: Run['history'], ctx: AgentContext) {
+export async function runAgent(stored: Agent, input: string, history: Run['history'], ctx: AgentContext) {
+  // Effort decides the loop and token budgets; `auto` resolves them per request.
+  const agent = budgetedAgent(stored, input);
   const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(agent.timeoutSeconds * 1000)]);
   const sessions: Session[] = [];
   const tools: ToolDefinition[] = [];
   const handlers = new Map<string, Handler>();
   let toolCalls = 0;
   let modelTurns = 0;
+  let tokensUsed = 0;
   // Patterns make several passes; the total model budget scales with the configured turn limit.
   const totalTurnBudget = agent.maxTurns * (agent.pattern === 'react' ? 1 : 4);
+  if (stored.effort === 'auto')
+    await ctx.event({
+      type: 'effort',
+      message: `Auto effort: ${effortPresets[agent.resolvedEffort].label} (${agent.maxTurns} turns, ${agent.tokenBudget.toLocaleString()} tokens)`,
+      data: { level: agent.resolvedEffort, maxTurns: agent.maxTurns, tokenBudget: agent.tokenBudget },
+    });
   try {
     const context: string[] = [];
     for (const kb of agent.knowledgeBaseIds) {
@@ -78,21 +95,76 @@ export async function runAgent(agent: Agent, input: string, history: Run['histor
         : '');
     const base: ChatMessage[] = [{ role: 'system', content: systemPrompt }, ...history];
 
+    // Prompt budget: the provider's context window minus the answer we ask for, with a small margin.
+    let contextBudget = Math.max(1024, (provider.contextWindow ?? 128000) - provider.maxOutputTokens - 256);
+    /** Calls the model with the dialog trimmed to the budget, learning the real window from a context error. */
+    async function model(dialog: ChatMessage[], offered: ToolDefinition[]) {
+      for (let attempt = 0; ; attempt++) {
+        const fitted = compactDialog(dialog, contextBudget);
+        if (fitted.changed)
+          await ctx.event({
+            type: 'context_compacted',
+            message: `Trimmed the conversation to about ${fitted.tokens} tokens (budget ${contextBudget})`,
+            data: { level: fitted.level, budget: contextBudget, messages: fitted.messages.length },
+          });
+        try {
+          const response = await chat(provider, fitted.messages, offered, signal, ctx.onDelta);
+          // Providers that report usage are exact; otherwise estimate from what was sent and received.
+          tokensUsed +=
+            response.usage?.input || response.usage?.output
+              ? (response.usage.input ?? 0) + (response.usage.output ?? 0)
+              : fitted.tokens +
+                estimateTokens(response.text) +
+                estimateTokens(JSON.stringify(response.toolCalls));
+          return response;
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          if (attempt >= 2 || !isContextLengthError(text)) throw error;
+          const limit = contextLimitFromError(text);
+          if (limit && limit < (provider.contextWindow ?? Infinity)) {
+            // Remember the real window so later runs pre-trim instead of failing first.
+            provider.contextWindow = limit;
+            await collection('providers')
+              .updateOne({ _id: provider._id }, { $set: { contextWindow: limit } })
+              .catch(() => {});
+          }
+          contextBudget = Math.max(
+            1024,
+            limit ? limit - provider.maxOutputTokens - 256 : Math.floor(contextBudget * 0.6),
+          );
+        }
+      }
+    }
     /** One bounded reason/act loop. Tool failures return to the model so it can correct itself. */
     async function converse(messages: ChatMessage[], useTools: boolean, label: string): Promise<string> {
       const dialog = [...messages];
       const offered = useTools ? tools : [];
+      let finalizing = false;
       ctx.onDelta?.('', true);
       for (let turn = 0; turn < agent.maxTurns; turn++) {
         signal.throwIfAborted();
         if (++modelTurns > totalTurnBudget) throw new Error('Agent exhausted its total model-call budget');
-        const response = await chat(provider, dialog, offered, signal, ctx.onDelta);
+        // Over the token budget: one last call without tools so the agent answers with what it has.
+        if (tokensUsed >= agent.tokenBudget && !finalizing) {
+          finalizing = true;
+          await ctx.event({
+            type: 'budget_exhausted',
+            message: `Token budget of ${agent.tokenBudget.toLocaleString()} reached (about ${tokensUsed.toLocaleString()} used); asking for the final answer`,
+            data: { tokensUsed, tokenBudget: agent.tokenBudget, effort: agent.resolvedEffort },
+          });
+          // Added to the system prompt rather than as a user turn, so provider role-alternation rules stay intact.
+          const nudge =
+            '\n\nYou have used the budget for this task. Answer now with what you already know; do not request more tools.';
+          if (dialog[0]?.role === 'system') dialog[0] = { ...dialog[0], content: dialog[0].content + nudge };
+          else dialog.unshift({ role: 'system', content: nudge.trim() });
+        }
+        const response = await model(dialog, finalizing ? [] : offered);
         await ctx.event({
           type: 'model',
           message: `${label}: model turn ${turn + 1}`,
-          data: { model: provider.model, usage: response.usage },
+          data: { model: provider.model, usage: response.usage, tokensUsed },
         });
-        if (!response.toolCalls.length) {
+        if (!response.toolCalls.length || finalizing) {
           if (!response.text.trim()) throw new Error('The model returned an empty answer');
           return response.text;
         }
@@ -122,7 +194,8 @@ export async function runAgent(agent: Agent, input: string, history: Run['histor
                 undefined,
                 { signal, timeout: 60000 },
               );
-              text = asText(result).slice(0, 32000);
+              // Large tool payloads are the usual cause of context overflow; the trace keeps 6000 chars anyway.
+              text = asText(result).slice(0, 12000);
               isError = Boolean(result.isError);
             } catch (error) {
               signal.throwIfAborted();
@@ -140,7 +213,7 @@ export async function runAgent(agent: Agent, input: string, history: Run['histor
           });
           dialog.push({ role: 'tool', content: text, toolCallId: call.id, name: call.name });
         }
-        if (asText(dialog).length > 500000)
+        if (dialogTokens(dialog) > 2_000_000)
           throw new Error('Agent context budget exceeded. Narrow the task or tool output.');
       }
       throw new Error(`Agent reached its ${agent.maxTurns}-turn limit without a final answer`);
@@ -294,7 +367,10 @@ export function nodeHasSideEffects(run: Run, nodeId: string): boolean {
     case 'agent':
       return hasTools(run.snapshot.nodeAgents?.[node.id] ?? run.snapshot.agents[node.agentId!]);
     case 'parallel':
-      return node.agentIds.some((id) => hasTools(run.snapshot.agents[id]));
+      return (
+        node.agentIds.some((id) => hasTools(run.snapshot.agents[id])) ||
+        node.agentNodeIds.some((id) => hasTools(run.snapshot.nodeAgents?.[id]))
+      );
     default:
       return false;
   }
@@ -379,23 +455,23 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
         break;
       case 'parallel': {
         const controller = new AbortController();
-        const tasks = node.agentIds.map(async (id) => {
+        const members = [
+          ...node.agentNodeIds.map((id) => ({ id, agent: run.snapshot.nodeAgents?.[id] })),
+          ...node.agentIds.map((id) => ({ id, agent: run.snapshot.agents[id] })),
+        ];
+        const tasks = members.map(async ({ id, agent }) => {
+          if (!agent) throw new Error(`Parallel member ${id} is missing from the workflow`);
           try {
             return {
               agentId: id,
-              name: run.snapshot.agents[id].name,
-              output: await runAgent(
-                run.snapshot.agents[id],
-                asText(render(node.prompt, scope)),
-                run.history,
-                {
-                  ...base,
-                  nodeId: node.id,
-                  onDelta: undefined,
-                  event: (e) => event({ ...e, message: `${run.snapshot.agents[id].name}: ${e.message}` }),
-                  signal: AbortSignal.any([signal, controller.signal]),
-                },
-              ),
+              name: agent.name,
+              output: await runAgent(agent, asText(render(node.prompt, scope)), run.history, {
+                ...base,
+                nodeId: node.id,
+                onDelta: undefined,
+                event: (e) => event({ ...e, message: `${agent.name}: ${e.message}` }),
+                signal: AbortSignal.any([signal, controller.signal]),
+              }),
             };
           } catch (error) {
             controller.abort(error);
