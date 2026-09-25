@@ -38,10 +38,21 @@ export async function indexDocument(doc: KnowledgeDocument, signal: AbortSignal)
   if (!kb) throw new Error('Knowledge base no longer exists');
   const store = storeFor(kb);
   const name = knowledgeClass(kb._id);
-  const provider = await ownedProvider(doc.ownerId, kb.providerId);
   const text = await extractText(await readStoredFile(doc.storageKey), doc.filename);
   const chunks = chunkText(text);
   if (!chunks.length) throw new Error('No useful text found in this document');
+  // Stores that embed text themselves take the whole document; they chunk it their own way.
+  if (store.capabilities.embeds) {
+    await store.ensureCollection(name, 0, signal);
+    await store.deleteDocument(name, doc.ownerId, doc._id, signal);
+    await store.upsertDocument!(
+      name,
+      { ownerId: doc.ownerId, documentId: doc._id, title: doc.filename, content: text },
+      signal,
+    );
+    return chunks.length;
+  }
+  const provider = await ownedProvider(doc.ownerId, kb.providerId);
   let ready = false;
   for (let index = 0; index < chunks.length; index += 10) {
     signal.throwIfAborted();
@@ -102,8 +113,11 @@ export async function searchKnowledge(
       .toArray()
   ).filter((d) => !folder || d.folder === folder || d.folder?.startsWith(`${folder}/`));
   if (!ready.length) return [];
-  const vector = await embed(await ownedProvider(ownerId, kb.providerId), query, signal);
-  const hits = await storeFor(kb).search(
+  const store = storeFor(kb);
+  const vector = store.capabilities.embeds
+    ? []
+    : await embed(await ownedProvider(ownerId, kb.providerId), query, signal);
+  const hits = await store.search(
     knowledgeClass(kb._id),
     // A folder filter is applied after the store's ranking, so ask for more candidates.
     { ownerId, vector, text: query, limit: folder ? 40 : 8 },

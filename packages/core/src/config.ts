@@ -9,9 +9,17 @@ const s = z.object({
   WEAVIATE_URL: z.string().url().default('http://localhost:8080'),
   WEAVIATE_API_KEY: z.string().default(''),
   // Vector store for new knowledge bases. Existing bases keep the store they were created on.
-  VECTOR_STORE: z.enum(['weaviate', 'qdrant']).default('weaviate'),
+  VECTOR_STORE: z.enum(['weaviate', 'qdrant', 'opensearch', 'elasticsearch', 'openai']).default('weaviate'),
   QDRANT_URL: z.string().default(''),
   QDRANT_API_KEY: z.string().default(''),
+  OPENSEARCH_URL: z.string().default(''),
+  OPENSEARCH_USERNAME: z.string().default(''),
+  OPENSEARCH_PASSWORD: z.string().default(''),
+  ELASTICSEARCH_URL: z.string().default(''),
+  ELASTICSEARCH_API_KEY: z.string().default(''),
+  // Any OpenAI-compatible Vector Stores API: OpenAI, Llama Stack, or a managed service. It embeds text itself.
+  OPENAI_VECTOR_STORES_URL: z.string().default(''),
+  OPENAI_VECTOR_STORES_API_KEY: z.string().default(''),
   DATA_DIR: z.string().default('./data'),
   ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/, 'ENCRYPTION_KEY must be 32 random bytes in hex'),
   SETUP_TOKEN: z.string().min(32),
@@ -21,6 +29,8 @@ const s = z.object({
   ALLOW_PRIVATE_URLS: z.string().default('false'),
   ALLOWED_PRIVATE_HOSTS: z.string().default('host.docker.internal,ollama'),
   MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(100).default(20),
+  /** Sign-in attempts allowed per client address in ten minutes. */
+  LOGIN_RATE_LIMIT: z.coerce.number().int().min(1).max(10000).default(20),
   TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(0),
   // Installation-wide SMTP defaults (for example AWS SES). Workspace settings in the studio override them.
   SMTP_HOST: z.string().default(''),

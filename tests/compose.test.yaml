@@ -1,21 +1,33 @@
 services:
   api:
-    environment:
+    environment: &test-stores
       ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal,gateway
       SMTP_TRANSPORT: json
       QDRANT_URL: http://qdrant:6333
-    depends_on:
+      OPENSEARCH_URL: http://opensearch:9200
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      OPENAI_VECTOR_STORES_URL: http://fixtures:9090/openai/v1
+      OPENAI_VECTOR_STORES_API_KEY: test-vector-stores-key
+      # Every test file signs in; the suites together exceed the production limit of 20 per ten minutes.
+      LOGIN_RATE_LIMIT: 500
+    depends_on: &test-store-services
       qdrant: { condition: service_healthy }
+      opensearch: { condition: service_healthy }
+      elasticsearch: { condition: service_healthy }
   runner:
-    environment:
-      ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal,gateway
-      SMTP_TRANSPORT: json
-      QDRANT_URL: http://qdrant:6333
-    depends_on:
-      qdrant: { condition: service_healthy }
-  # The test stack always runs the optional Qdrant store, so both vector store drivers are exercised.
+    environment: *test-stores
+    depends_on: *test-store-services
+  # The test stack always runs the optional stores, so every vector store driver is exercised.
   qdrant:
     profiles: !reset []
+  opensearch:
+    profiles: !reset []
+    environment:
+      OPENSEARCH_JAVA_OPTS: -Xms256m -Xmx256m
+  elasticsearch:
+    profiles: !reset []
+    environment:
+      ES_JAVA_OPTS: -Xms256m -Xmx256m
   gateway:
     environment:
       GATEWAY_HEARTBEAT_SECONDS: 5

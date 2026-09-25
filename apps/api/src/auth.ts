@@ -164,7 +164,7 @@ export async function setup(req: Request, res: Response) {
   res.status(201).json(await newSession(res, user));
 }
 export async function login(req: Request, res: Response) {
-  await rateLimit(`login:${req.ip}`, 20, 600000);
+  await rateLimit(`login:${req.ip}`, config.LOGIN_RATE_LIMIT, 600000);
   const body = credentialsSchema.parse(req.body);
   const user = await collection<User>('users').findOne({ email: body.email, enabled: true });
   // Run the password KDF even for unknown users to avoid a cheap account oracle.

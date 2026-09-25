@@ -18,7 +18,7 @@ import { encrypt, HttpError, safeError, validateRemoteUrl } from '../../../packa
 import { discoverTools, startOAuth } from '../../../packages/core/src/mcp.js';
 import { chat, embed, ownedProvider } from '../../../packages/core/src/llm.js';
 import { dropKnowledgeIndex, searchKnowledge } from '../../../packages/core/src/knowledge.js';
-import { configuredVectorStores } from '../../../packages/core/src/vectorstores/index.js';
+import { configuredVectorStores, storeEmbeds } from '../../../packages/core/src/vectorstores/index.js';
 import { createNote, noteFilename } from '../../../packages/core/src/workspace.js';
 import {
   filePath,
@@ -73,7 +73,8 @@ export async function validateReferences(kind: string, ownerId: string, body: an
   }
   if (kind === 'knowledge') {
     const p = await ownedProvider(ownerId, body.providerId);
-    if (!p.embeddingModel || p.kind === 'anthropic')
+    // Stores that embed text themselves need no embedding model of ours.
+    if (!storeEmbeds(body.vectorStore ?? 'weaviate') && (!p.embeddingModel || p.kind === 'anthropic'))
       throw new HttpError(400, 'This knowledge base needs a provider with a supported embedding model');
   }
   if (kind === 'workflows') {
@@ -148,6 +149,11 @@ for (const [kind, schema] of Object.entries(definitions)) {
       const previous = method === 'put' ? await records().findOne({ _id: id, ownerId }) : null;
       if (method === 'put' && !previous) throw new HttpError(404, 'Resource not found');
       if (kind === 'providers' || kind === 'connections') await validateRemoteUrl(body.baseUrl ?? body.url);
+      if (kind === 'knowledge')
+        // The store is chosen once; bases from before stores were pluggable are on Weaviate.
+        body.vectorStore = previous
+          ? (body.vectorStore ?? previous.vectorStore ?? 'weaviate')
+          : (body.vectorStore ?? config.VECTOR_STORE);
       await validateReferences(kind, ownerId, body);
       if (
         kind === 'providers' &&
@@ -160,10 +166,6 @@ for (const [kind, schema] of Object.entries(definitions)) {
           'This provider is used by a knowledge base. Create a new provider to change its embedding configuration.',
         );
       if (kind === 'knowledge') {
-        // The store is chosen once; bases from before stores were pluggable are on Weaviate.
-        body.vectorStore = previous
-          ? (body.vectorStore ?? previous.vectorStore ?? 'weaviate')
-          : (body.vectorStore ?? config.VECTOR_STORE);
         if (!configuredVectorStores().includes(body.vectorStore))
           throw new HttpError(
             400,
