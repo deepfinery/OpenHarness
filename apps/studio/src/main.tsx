@@ -316,6 +316,17 @@ function App() {
     knowledge: KnowledgeEditor,
   };
   const Editor = editor ? editors[editor.type] : undefined;
+  // Machines the playground's workflow already has; a machine chosen for the chat replaces them.
+  const boundMachines = (() => {
+    const [type, id] = target.split(':');
+    if (type !== 'workflow') return [];
+    const workflow = data.workflows.find((w) => w.id === id) as
+      { resources?: { type: string; connectionId?: string }[] } | undefined;
+    const devices = new Map(data.connections.filter((c) => c.kind === 'device').map((c) => [c.id, c.name]));
+    return (workflow?.resources ?? []).flatMap((r) =>
+      r.type === 'mcp' && r.connectionId && devices.has(r.connectionId) ? [devices.get(r.connectionId)!] : [],
+    );
+  })();
   return (
     <div className="app-shell">
       <UpdateNotice />
@@ -406,10 +417,19 @@ function App() {
                   <select
                     className="topbar-select machine-select"
                     aria-label="Playground machine"
+                    title={
+                      boundMachines.length
+                        ? 'The workflow already has a machine. Choosing another one here replaces it for this chat.'
+                        : 'Give the agents the tools of one of your machines for this chat.'
+                    }
                     value={machine}
                     onChange={(e) => setMachine(e.target.value)}
                   >
-                    <option value="">No machine</option>
+                    <option value="">
+                      {boundMachines.length
+                        ? `Workflow's machine (${boundMachines.join(', ')})`
+                        : 'No machine'}
+                    </option>
                     {data.machines.map((m) => (
                       <option key={m.device_id} value={m.device_id} disabled={m.disabled}>
                         {m.name} · {m.online ? 'online' : 'offline'}
