@@ -1591,6 +1591,7 @@ export function WorkflowEditor({
                             offloadToolResults: form.workspace?.offloadToolResults ?? true,
                           }
                         : undefined,
+                      ...(e.target.value ? {} : { experience: undefined }),
                     })
                   }
                 >
@@ -1616,6 +1617,27 @@ export function WorkflowEditor({
                     }
                   />
                   Save large tool results as notes and keep only a summary in the agent’s context
+                </label>
+              )}
+              {form.workspace && (
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    aria-label="Learn from experience"
+                    checked={Boolean(form.experience?.enabled)}
+                    onChange={(e) =>
+                      change({
+                        ...form,
+                        experience: {
+                          recallLimit: form.experience?.recallLimit ?? 3,
+                          learnFromFailures: form.experience?.learnFromFailures ?? true,
+                          enabled: e.target.checked,
+                        },
+                      })
+                    }
+                  />
+                  Learn from experience: turn feedback and failures into lessons in experience/ and recall
+                  them in later runs
                 </label>
               )}
             </div>

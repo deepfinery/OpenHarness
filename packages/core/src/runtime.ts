@@ -6,6 +6,7 @@ import { chat, ownedProvider, type ChatMessage, type ToolDefinition } from './ll
 import { connectMcp, ownedConnection, toolAlias } from './mcp.js';
 import { afterTool, beforeTool, loadHooks, type HookRecord } from './hooks.js';
 import { runSubagents, SPAWN_TOOL, spawnToolDefinition, type SpawnRequest } from './subagents.js';
+import { lessonsNote, recallLessons } from './experience.js';
 import {
   agentNote,
   createNote,
@@ -55,6 +56,8 @@ export type AgentContext = {
   usage?: { tokens: number };
   /** 0 for agents a run starts; sub-agents are 1 and cannot spawn further sub-agents. */
   depth?: number;
+  /** Lessons recalled from the workflow's experience folder for this run's input. */
+  lessons?: string;
 };
 /** Tool results longer than this are saved in the workspace and summarised in the context. */
 const OFFLOAD_CHARS = 6000;
@@ -151,6 +154,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
       skillNote +
       deviceNote +
       (workspace ? workspaceNote : '') +
+      (ctx.lessons ? lessonsNote(ctx.lessons) : '') +
       (delegates
         ? `\n\nFor independent parts of a larger task, you can start up to ${agent.delegation?.maxAgents ?? 4} sub-agents with spawn_agents. Each works in parallel with a fresh context and a share of your budget, and reports back a summary and note ids. Give each a self-contained task, pick an effort that fits, and combine their results yourself.`
         : '') +
@@ -711,6 +715,13 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
   };
   // Hooks are read once, so a run sees one consistent set even if they change mid-run.
   const hooks = await loadHooks(run.ownerId);
+  const recalled = await recallLessons(run, signal);
+  if (recalled)
+    await writeEvent({
+      type: 'experience_recalled',
+      message: `Recalled ${recalled.notes.length} lesson${recalled.notes.length === 1 ? '' : 's'} from earlier runs`,
+      data: { notes: recalled.notes },
+    });
   const base = {
     ownerId: run.ownerId,
     runId: run._id,
@@ -719,6 +730,7 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
     device: run.device,
     hooks,
     agentId: run.workflowId ?? run.agentId,
+    ...(recalled ? { lessons: recalled.text } : {}),
     ...(run.snapshot.workflow?.workspace
       ? {
           workspace: {

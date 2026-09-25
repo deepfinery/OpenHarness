@@ -182,17 +182,19 @@ messages. These runs are independent; use `/chat` for server-managed history.
 An optional `payload` object exposes structured fields to workflow templates. An `Idempotency-Key` header reuses the existing run
 for an identical request. Reusing it for a different payload returns 409.
 
-| Method   | Path                       | Access                                                                                                                                               |
-| -------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST     | `/runs`                    | Session or API token with `execute` for the target; returns 202.                                                                                     |
-| GET      | `/runs?page=0`             | Session or API token with `read`; 50 runs per page.                                                                                                  |
-| GET      | `/runs/:id`                | Tenant session, or the creating API token with `read`.                                                                                               |
-| GET      | `/runs/:id/stream`         | Server-sent events (`event: run`) with the same body as `/runs/:id` on every change, including `partial` streamed text; closes on a terminal status. |
-| POST     | `/runs/:id/cancel`         | Tenant session, or the creating API token with `execute`.                                                                                            |
-| GET/POST | `/integrations/tokens`     | Session only; list/create a scoped API key.                                                                                                          |
-| DELETE   | `/integrations/tokens/:id` | Session only; revoke immediately.                                                                                                                    |
-| GET/POST | `/integrations/embeds`     | Session only; list/create a scoped embed.                                                                                                            |
-| DELETE   | `/integrations/embeds/:id` | Session only; revoke immediately.                                                                                                                    |
+| Method   | Path                              | Access                                                                                                                                               |
+| -------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST     | `/runs`                           | Session or API token with `execute` for the target; returns 202.                                                                                     |
+| GET      | `/runs?page=0`                    | Session or API token with `read`; 50 runs per page.                                                                                                  |
+| GET      | `/runs/:id`                       | Tenant session, or the creating API token with `read`.                                                                                               |
+| GET      | `/runs/:id/stream`                | Server-sent events (`event: run`) with the same body as `/runs/:id` on every change, including `partial` streamed text; closes on a terminal status. |
+| POST     | `/runs/:id/feedback`              | `rating` (`up`/`down`) and optional `comment` on a finished run. With learning on, it becomes a lesson.                                              |
+| GET      | `/workflows/:id/experience.jsonl` | Session only. Runs with feedback or lessons, as JSON Lines.                                                                                          |
+| POST     | `/runs/:id/cancel`                | Tenant session, or the creating API token with `execute`.                                                                                            |
+| GET/POST | `/integrations/tokens`            | Session only; list/create a scoped API key.                                                                                                          |
+| DELETE   | `/integrations/tokens/:id`        | Session only; revoke immediately.                                                                                                                    |
+| GET/POST | `/integrations/embeds`            | Session only; list/create a scoped embed.                                                                                                            |
+| DELETE   | `/integrations/embeds/:id`        | Session only; revoke immediately.                                                                                                                    |
 
 Token creation: `name`, `agentIds`, `workflowIds`, `scopes` (`read`, `execute`),
 and `expiresDays` (1–365). At least one target is required. The token is returned

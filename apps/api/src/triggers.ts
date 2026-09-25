@@ -222,7 +222,7 @@ conversationApi.post('/chat', async (req, res) => {
         agentId: reserved.agentId,
         workflowId: reserved.workflowId,
         input: body.message,
-        history: reserved.messages,
+        history: reserved.messages.map(({ role, content }) => ({ role, content })),
         ...(deviceId ? { deviceId } : {}),
       },
       {

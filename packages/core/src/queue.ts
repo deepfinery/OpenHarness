@@ -2,7 +2,7 @@ import amqp, { type ChannelModel, type ConfirmChannel } from 'amqplib';
 import { config } from './config.js';
 export const JOB_QUEUE = 'agentic.jobs';
 export const DEAD_QUEUE = 'agentic.jobs.dead';
-export type Job = { kind: 'run' | 'index' | 'delete'; id: string };
+export type Job = { kind: 'run' | 'index' | 'delete' | 'reflect'; id: string };
 let connection: ChannelModel | undefined;
 let channel: ConfirmChannel | undefined;
 let pending: Promise<ConfirmChannel> | undefined;

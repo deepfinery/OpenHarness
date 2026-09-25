@@ -188,6 +188,10 @@ In **Workflow settings → Knowledge workspace**, pick a knowledge base. The wor
 
 Turn on **Can hand focused tasks to sub-agents** in an agent's settings. The agent can then call `spawn_agents` to run up to four focused sub-agents in parallel. Each gets a fresh context, optionally one of its skills, and a share of its remaining token budget. Each writes its findings to the knowledge workspace and reports back a summary and note ids. See [docs/subagents.md](docs/subagents.md).
 
+### 6d. Learn from experience
+
+With a workspace set, turn on **Learn from experience** in the workflow settings. A thumbs up or down in the playground, or `POST /api/runs/:id/feedback`, becomes a short lesson in the workspace's `experience/` folder, and so does a failed run. Later runs recall the most relevant lessons into their agents' instructions. `GET /api/workflows/:id/experience.jsonl` exports the feedback and lessons. See [docs/experience.md](docs/experience.md).
+
 ### 7. Give agents skills
 
 **Skills → New skill**: name it, write one line saying _when_ it applies (“Use when someone reports an outage or error spike”), and the instructions to follow — steps, checklists, output formats, examples. In any agent's settings, **Skills** lists the library; tick as many as the agent should have, or create one in place.

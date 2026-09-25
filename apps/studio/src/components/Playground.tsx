@@ -13,6 +13,8 @@ import {
   Plus,
   Send,
   Terminal,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   UserRound,
 } from 'lucide-react';
@@ -34,7 +36,7 @@ export function Markdown({ text }: { text: string }) {
   );
 }
 const terminal = ['succeeded', 'failed', 'cancelled', 'interrupted'];
-type Message = { role: 'user' | 'assistant'; content: string };
+type Message = { role: 'user' | 'assistant'; content: string; runId?: string };
 type Conversation = {
   id: string;
   title: string;
@@ -47,6 +49,58 @@ type Conversation = {
  * Follows a run through server-sent events, falling back to polling when the stream is unavailable.
  * Calls `onRun` with every change until the run reaches a terminal state.
  */
+/** Thumbs up or down on an answer; a thumbs down asks what should change. Learning workflows turn it into a lesson. */
+function FeedbackBar({ runId }: { runId: string }) {
+  const [given, setGiven] = useState<'up' | 'down' | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [comment, setComment] = useState('');
+  const [problem, setProblem] = useState('');
+  async function rate(rating: 'up' | 'down', note?: string) {
+    setProblem('');
+    try {
+      await send(`/runs/${runId}/feedback`, { rating, ...(note ? { comment: note } : {}) });
+      setGiven(rating);
+      setAsking(false);
+    } catch (e) {
+      setProblem(errorMessage(e));
+    }
+  }
+  if (given)
+    return (
+      <div className="feedback-bar given">{given === 'up' ? 'Marked as helpful' : 'Feedback saved'}</div>
+    );
+  return (
+    <div className="feedback-bar">
+      <button type="button" className="icon-button" aria-label="Good answer" onClick={() => void rate('up')}>
+        <ThumbsUp size={14} />
+      </button>
+      <button type="button" className="icon-button" aria-label="Bad answer" onClick={() => setAsking(true)}>
+        <ThumbsDown size={14} />
+      </button>
+      {asking && (
+        <form
+          className="feedback-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void rate('down', comment.trim() || undefined);
+          }}
+        >
+          <input
+            aria-label="What should change"
+            placeholder="What should the agent do differently?"
+            value={comment}
+            maxLength={2000}
+            onChange={(e) => setComment(e.target.value)}
+          />
+          <button type="submit" className="text-button">
+            Send
+          </button>
+        </form>
+      )}
+      {problem && <small className="feedback-error">{problem}</small>}
+    </div>
+  );
+}
 export function followRun(runId: string, onRun: (run: any) => void, onError: (message: string) => void) {
   let stopped = false;
   let source: EventSource | null = null;
@@ -182,7 +236,7 @@ export function Playground({
         if (terminal.includes(next.status)) {
           setBusy(false);
           if (next.status === 'succeeded')
-            setMessages((m) => [...m, { role: 'assistant', content: next.output ?? '' }]);
+            setMessages((m) => [...m, { role: 'assistant', content: next.output ?? '', runId: next.id }]);
           else setError(next.error ?? `Run ${next.status}`);
           void loadConversations();
         }
@@ -336,6 +390,7 @@ export function Playground({
                   <div className="message-body">
                     <strong>{m.role === 'user' ? 'You' : (current?.name ?? 'Agent')}</strong>
                     <Markdown text={m.content} />
+                    {m.role === 'assistant' && m.runId && <FeedbackBar runId={m.runId} />}
                   </div>
                 </div>
               ))}

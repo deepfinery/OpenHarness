@@ -10,6 +10,7 @@ import type { KnowledgeDocument, Run } from '../../../packages/core/src/schema.j
 import { settleConversation } from '../../../packages/core/src/conversations.js';
 import { emitHarnessEvent } from '../../../packages/core/src/harnessEvents.js';
 import { runEnded } from '../../../packages/core/src/hooks.js';
+import { learns, reflectOnRun, requestReflection } from '../../../packages/core/src/experience.js';
 
 /** The Open Harness execution state of a run state (see apps/api/src/openharness/events.ts). */
 const executionStatusOf = (status: string) =>
@@ -31,6 +32,10 @@ async function processJob(job: Job, controller: AbortController) {
   const leaseId = randomUUID();
   const now = new Date();
   const leaseUntil = new Date(Date.now() + 30000);
+  if (job.kind === 'reflect') {
+    await reflectOnRun(job.id, AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]));
+    return;
+  }
   if (job.kind === 'run') {
     const runs = collection<Run>('runs');
     const run = await runs.findOneAndUpdate(
@@ -136,6 +141,14 @@ async function processJob(job: Job, controller: AbortController) {
           completed_at: (finished.finishedAt ?? new Date()).toISOString(),
         });
         await runEnded(finished).catch((error) => console.warn('End-of-run hooks failed:', safeError(error)));
+        // A learning workflow turns its failures into lessons as well as its feedback.
+        if (
+          ['failed', 'interrupted'].includes(finished.status) &&
+          !finished.parentRunId &&
+          learns(finished.snapshot.workflow) &&
+          finished.snapshot.workflow?.experience?.learnFromFailures !== false
+        )
+          await requestReflection(finished._id, 'failure').catch(() => {});
       }
     }
   } else {
@@ -198,7 +211,7 @@ const consumer = await channel.consume(JOB_QUEUE, (msg) => {
   const task = (async () => {
     try {
       const job = JSON.parse(msg.content.toString()) as Job;
-      if (!['run', 'index', 'delete'].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id))
+      if (!['run', 'index', 'delete', 'reflect'].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id))
         throw new Error('Malformed queue message');
       await processJob(job, controller);
       channel.ack(msg);

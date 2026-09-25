@@ -253,11 +253,23 @@ export const workflowSchema = z
         offloadToolResults: z.boolean().default(true),
       })
       .optional(),
+    /**
+     * Learning from experience: feedback and failures become lessons in the workspace's experience/ folder, and the
+     * most relevant lessons are recalled into later runs. Needs a workspace.
+     */
+    experience: z
+      .object({
+        enabled: z.boolean().default(false),
+        recallLimit: z.number().int().min(1).max(10).default(3),
+        learnFromFailures: z.boolean().default(true),
+      })
+      .optional(),
     schedule: scheduleSchema.optional(),
   })
   .superRefine((w, ctx) => {
     const nodes = new Map(w.nodes.map((n) => [n.id, n]));
     const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
+    if (w.experience?.enabled && !w.workspace) issue('Learning from experience needs a knowledge workspace');
     if (nodes.size !== w.nodes.length) issue('Node IDs must be unique');
     // Agent cards that a Parallel step runs may sit beside the execution path.
     const members = new Set<string>();
@@ -409,6 +421,17 @@ export type Run = Stored<RunInput> & {
   parentNodeId?: string;
   /** Tokens a sub-agent run used; they also count against its parent. */
   tokensUsed?: number;
+  /** The latest human feedback on the result. */
+  feedback?: { rating: 'up' | 'down'; comment?: string; at: Date; by?: string };
+  /** Turning the run and its feedback into a lesson for the workflow's experience folder. */
+  reflection?: {
+    status: 'pending' | 'done' | 'failed' | 'skipped';
+    requestedAt: Date;
+    reason?: 'feedback' | 'failure';
+    noteId?: string;
+    lesson?: string;
+    error?: string;
+  };
   webhookId?: string;
   conversationId?: string;
   overrides?: RunOverrides;
