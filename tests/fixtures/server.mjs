@@ -366,7 +366,12 @@ function answer(messages, tools) {
     };
   }
   // Machine control: call the device's run_command with argv, then report what it returned.
-  if (String(input).includes('run uname on the machine') && tools?.length) {
+  const machineCommand = String(input).includes('run uname on the machine')
+    ? ['uname', '-a']
+    : String(input).includes('run ls on the machine')
+      ? ['ls', '-la']
+      : undefined;
+  if (machineCommand && tools?.length) {
     const cmd = tools.find((t) => t.function.description.includes('/ run_command:'));
     if (cmd)
       return {
@@ -375,7 +380,7 @@ function answer(messages, tools) {
           {
             id: randomUUID(),
             type: 'function',
-            function: { name: cmd.function.name, arguments: JSON.stringify({ argv: ['uname', '-a'] }) },
+            function: { name: cmd.function.name, arguments: JSON.stringify({ argv: machineCommand }) },
           },
         ],
       };
@@ -384,14 +389,21 @@ function answer(messages, tools) {
   const toolNamed = (suffix) => tools?.find((t) => t.function.description.includes(`/ ${suffix}:`));
   const callTool = (tool, args) => ({
     content: '',
-    tool_calls: [{ id: randomUUID(), type: 'function', function: { name: tool.function.name, arguments: JSON.stringify(args) } }],
+    tool_calls: [
+      {
+        id: randomUUID(),
+        type: 'function',
+        function: { name: tool.function.name, arguments: JSON.stringify(args) },
+      },
+    ],
   });
   const prompt = String(input);
   if (/Use a tool to tell me what (\d+) \+ (\d+)/.test(prompt) && toolNamed('calculate')) {
     const [, a, b] = /what (\d+) \+ (\d+)/.exec(prompt);
     return callTool(toolNamed('calculate'), { a: Number(a), b: Number(b) });
   }
-  if (/Read the file at \/nonexistent/.test(prompt) && toolNamed('fail')) return callTool(toolNamed('fail'), {});
+  if (/Read the file at \/nonexistent/.test(prompt) && toolNamed('fail'))
+    return callTool(toolNamed('fail'), {});
   if (/shell|directory|environment|filesystem tools/i.test(prompt) && toolNamed('lookup'))
     return callTool(toolNamed('lookup'), { query: prompt.slice(0, 80) });
   const math = /What is (\d+) ?([*x+\-/]) ?(\d+)\?/.exec(prompt);

@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { makeStarter } from '../../packages/core/src/starters.js';
 
 const exec = promisify(execFile);
 const base = process.env.TEST_BASE_URL ?? 'http://localhost:8088';
@@ -191,6 +192,28 @@ test(
     assert.equal(chatRun.status, 'succeeded', chatRun.error);
     const conversation = await ok(`/conversations/${chat.conversationId}`);
     assert.equal(conversation.deviceId, deviceId);
+    // The Machine operator template binds the machine, so a plain chat runs commands on it without choosing it.
+    const template = await ok(
+      '/workflows',
+      makeStarter({
+        kind: 'machine',
+        name: `Machine operator template ${suffix}`,
+        providerId: provider.id,
+        machine: {
+          connectionId: online.connectionId,
+          name: online.name,
+          tools: online.tools.map((t: any) => t.name),
+        },
+      }),
+    );
+    const listed = await waitRun(
+      (await ok('/chat', { workflowId: template.id, message: 'Please run ls on the machine' })).id,
+    );
+    assert.equal(listed.status, 'succeeded', listed.error);
+    assert.equal(listed.device, undefined, 'no machine was chosen for the chat');
+    const ls = listed.events.find((e: any) => e.type === 'tool_completed');
+    assert.match(ls.message, /run_command/);
+    assert.match(String(ls.data?.result ?? ''), /total \d+/, 'ls -la output came back from the machine');
     // Denied at the connector: rm is not on the container's ALLOW_COMMANDS, so the agent sees a policy error, not a crash.
     const denied = await waitRun(
       (await ok('/runs', { workflowId: workflow.id, input: 'use tool please', deviceId })).id,
@@ -217,6 +240,9 @@ test(
       (await request('/runs', 'POST', { workflowId: workflow.id, input: 'x', deviceId: 'nope-123' })).status,
       404,
     );
+    // A machine that a workflow still uses cannot be removed.
+    assert.equal((await request(`/devices/${deviceId}`, 'DELETE')).status, 409);
+    await ok(`/workflows/${template.id}`, undefined, 'DELETE');
     // Removing the machine drops its connection and the gateway refuses the connector afterwards.
     assert.equal((await request(`/devices/${deviceId}`, 'DELETE')).status, 204);
     assert.ok(!(await ok('/devices')).machines.some((m: any) => m.device_id === deviceId));
