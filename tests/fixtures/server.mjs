@@ -5,6 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
+import multer from 'multer';
 const app = express();
 // Hook and webhook receivers keep the raw body so tests can verify signatures byte for byte.
 const received = [];
@@ -37,6 +38,109 @@ app.delete('/receiver', (_req, res) => {
 });
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+// A minimal OpenAI-compatible Vector Stores API (stores, files, attach, status, search), kept in memory.
+const vectorStores = new Map();
+const vectorFiles = new Map();
+const vectorAuth = (req, res, next) =>
+  req.headers.authorization === 'Bearer test-vector-stores-key'
+    ? next()
+    : res.status(401).json({ error: { message: 'Invalid API key' } });
+const vsId = (prefix) => `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 24)}`;
+app.get('/openai/v1/vector_stores', vectorAuth, (_req, res) =>
+  res.json({
+    object: 'list',
+    data: [...vectorStores.values()].map(({ id, name }) => ({ id, name, object: 'vector_store' })),
+  }),
+);
+app.post('/openai/v1/vector_stores', vectorAuth, (req, res) => {
+  const store = { id: vsId('vs'), name: req.body.name, metadata: req.body.metadata ?? {}, files: new Map() };
+  vectorStores.set(store.id, store);
+  stats.vectorStores = (stats.vectorStores ?? 0) + 1;
+  res.json({ id: store.id, name: store.name, object: 'vector_store' });
+});
+app.delete('/openai/v1/vector_stores/:id', vectorAuth, (req, res) => {
+  if (!vectorStores.delete(req.params.id)) return res.status(404).json({ error: { message: 'Not found' } });
+  res.json({ id: req.params.id, deleted: true });
+});
+app.post(
+  '/openai/v1/files',
+  vectorAuth,
+  multer({ storage: multer.memoryStorage() }).single('file'),
+  (req, res) => {
+    if (req.body.purpose !== 'assistants' || !req.file)
+      return res.status(400).json({ error: { message: 'Bad upload' } });
+    const file = {
+      id: vsId('file'),
+      filename: req.file.originalname,
+      text: req.file.buffer.toString('utf8'),
+    };
+    vectorFiles.set(file.id, file);
+    res.json({ id: file.id, object: 'file', filename: file.filename, bytes: req.file.size });
+  },
+);
+app.delete('/openai/v1/files/:id', vectorAuth, (req, res) => {
+  if (!vectorFiles.delete(req.params.id)) return res.status(404).json({ error: { message: 'Not found' } });
+  res.json({ id: req.params.id, deleted: true });
+});
+app.post('/openai/v1/vector_stores/:id/files', vectorAuth, (req, res) => {
+  const store = vectorStores.get(req.params.id);
+  if (!store || !vectorFiles.has(req.body.file_id))
+    return res.status(404).json({ error: { message: 'Not found' } });
+  store.files.set(req.body.file_id, {
+    id: req.body.file_id,
+    attributes: req.body.attributes ?? {},
+    since: Date.now(),
+  });
+  res.json({ id: req.body.file_id, object: 'vector_store.file', status: 'in_progress' });
+});
+app.get('/openai/v1/vector_stores/:id/files/:fileId', vectorAuth, (req, res) => {
+  const entry = vectorStores.get(req.params.id)?.files.get(req.params.fileId);
+  if (!entry) return res.status(404).json({ error: { message: 'Not found' } });
+  // Processing is asynchronous, as on real servers.
+  res.json({
+    id: entry.id,
+    status: Date.now() - entry.since > 300 ? 'completed' : 'in_progress',
+    last_error: null,
+  });
+});
+app.delete('/openai/v1/vector_stores/:id/files/:fileId', vectorAuth, (req, res) => {
+  if (!vectorStores.get(req.params.id)?.files.delete(req.params.fileId))
+    return res.status(404).json({ error: { message: 'Not found' } });
+  res.json({ id: req.params.fileId, deleted: true });
+});
+app.post('/openai/v1/vector_stores/:id/search', vectorAuth, (req, res) => {
+  const store = vectorStores.get(req.params.id);
+  if (!store) return res.status(404).json({ error: { message: 'Not found' } });
+  const terms = String(req.body.query ?? '')
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((t) => t.length > 2);
+  const filter = req.body.filters;
+  const hits = [];
+  for (const entry of store.files.values()) {
+    if (filter?.type === 'eq' && entry.attributes[filter.key] !== filter.value) continue;
+    const file = vectorFiles.get(entry.id);
+    if (!file) continue;
+    for (const chunk of file.text.split(/\n{2,}/).filter((c) => c.trim())) {
+      const lower = chunk.toLowerCase();
+      const score = terms.length ? terms.filter((t) => lower.includes(t)).length / terms.length : 0;
+      if (score > 0)
+        hits.push({
+          file_id: entry.id,
+          filename: file.filename,
+          score,
+          attributes: entry.attributes,
+          content: [{ type: 'text', text: chunk }],
+        });
+    }
+  }
+  hits.sort((a, b) => b.score - a.score);
+  res.json({
+    object: 'vector_store.search_results.page',
+    search_query: req.body.query,
+    data: hits.slice(0, req.body.max_num_results ?? 10),
+  });
+});
 const stats = { tools: 0, models: 0, embeddings: 0, refreshes: 0, oauthTokens: 0 };
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('/stats', (_req, res) => res.json(stats));

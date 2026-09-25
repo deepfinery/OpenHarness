@@ -7,7 +7,14 @@ const { qdrantStore } = await import('../../packages/core/src/vectorstores/qdran
 const { weaviateStore } = await import('../../packages/core/src/vectorstores/weaviate.js');
 const { configuredVectorStores, vectorStore } = await import('../../packages/core/src/vectorstores/index.js');
 
-type Call = { url: string; method: string; body?: any; headers: Record<string, string> };
+type Call = { url: string; method: string; body?: any; raw?: string; headers: Record<string, string> };
+const parse = (text: string) => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
 /** Replaces fetch with a scripted fake and records every request. */
 function fakeFetch(respond: (call: Call) => { status?: number; body?: unknown }) {
   const calls: Call[] = [];
@@ -16,7 +23,8 @@ function fakeFetch(respond: (call: Call) => { status?: number; body?: unknown })
     const call = {
       url: String(input),
       method: init.method ?? 'GET',
-      body: init.body ? JSON.parse(String(init.body)) : undefined,
+      raw: init.body ? String(init.body) : undefined,
+      body: init.body ? parse(String(init.body)) : undefined,
       headers: init.headers as Record<string, string>,
     };
     calls.push(call);
@@ -130,4 +138,74 @@ test('only configured stores can be used', () => {
   assert.deepEqual(configuredVectorStores(), ['weaviate']);
   assert.throws(() => vectorStore('qdrant'), /not configured/);
   assert.equal(vectorStore('weaviate').kind, 'weaviate');
+});
+
+const { openSearchStore, elasticsearchStore } =
+  await import('../../packages/core/src/vectorstores/searchEngine.js');
+test('the OpenSearch driver maps knn vectors, bulk-indexes chunks and runs hybrid owner-scoped queries', async () => {
+  const fake = fakeFetch((c) => {
+    if (c.method === 'GET' && c.url.endsWith('/_mapping')) return { status: 404, body: {} };
+    if (c.url.includes('/_bulk')) return { body: { errors: false, items: [] } };
+    if (c.url.endsWith('/_search'))
+      return {
+        body: {
+          hits: {
+            hits: [{ _score: 2, _source: { documentId: 'd1', title: 't', content: 'hello', chunkIndex: 0 } }],
+          },
+        },
+      };
+    return { body: { acknowledged: true } };
+  });
+  try {
+    const store = openSearchStore({ url: 'http://os:9200', authorization: 'Basic abc' });
+    await store.ensureCollection('Knowledge_ABC', 3);
+    const create = fake.calls.find((c) => c.method === 'PUT')!;
+    assert.equal(create.url, 'http://os:9200/knowledge_abc', 'index names are lowercased');
+    assert.deepEqual(create.body.settings, { index: { knn: true } });
+    assert.equal(create.body.mappings.properties.embedding.type, 'knn_vector');
+    assert.equal(create.body.mappings.properties.embedding.dimension, 3);
+    assert.equal(create.body.mappings.properties.ownerId.type, 'keyword');
+    await store.upsert('Knowledge_ABC', [chunk]);
+    const bulk = fake.calls.find((c) => c.url.includes('/_bulk'))!;
+    assert.equal(bulk.headers['Content-Type'], 'application/x-ndjson');
+    const [action, source] = bulk
+      .raw!.trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
+    assert.deepEqual(action, { index: { _index: 'knowledge_abc', _id: 'c1' } });
+    assert.deepEqual(source.embedding, [0.1, 0.2]);
+    assert.equal(source.ownerId, 'o1');
+    const hits = await store.search('Knowledge_ABC', { ownerId: 'o1', vector: [1], text: 'hi', limit: 4 });
+    const search = fake.calls.at(-1)!.body;
+    assert.deepEqual(search.query.bool.filter, [{ term: { ownerId: 'o1' } }]);
+    assert.deepEqual(search.query.bool.should[0], { knn: { embedding: { vector: [1], k: 4 } } });
+    assert.equal(hits[0].score, 2);
+    assert.equal(fake.calls[0].headers.Authorization, 'Basic abc');
+  } finally {
+    fake.restore();
+  }
+});
+test('the Elasticsearch driver uses dense_vector with a filtered knn section beside the keyword query', async () => {
+  const fake = fakeFetch((c) =>
+    c.method === 'GET' && c.url.endsWith('/_mapping')
+      ? {
+          body: {
+            knowledge_x: { mappings: { properties: { embedding: { type: 'dense_vector', dims: 8 } } } },
+          },
+        }
+      : { body: { hits: { hits: [] } } },
+  );
+  try {
+    const store = elasticsearchStore({ url: 'http://es:9200', authorization: 'ApiKey k' });
+    await assert.rejects(store.ensureCollection('Knowledge_X', 4), /expects 8-dimensional/);
+    await store.search('Knowledge_X', { ownerId: 'o1', vector: [1, 2], text: 'hi', limit: 5 });
+    const body = fake.calls.at(-1)!.body;
+    assert.equal(body.knn.field, 'embedding');
+    assert.deepEqual(body.knn.filter, { term: { ownerId: 'o1' } });
+    assert.equal(body.knn.num_candidates, 50);
+    assert.deepEqual(body.query.bool.should, [{ match: { content: 'hi' } }]);
+    assert.equal(fake.calls[0].headers.Authorization, 'ApiKey k');
+  } finally {
+    fake.restore();
+  }
 });

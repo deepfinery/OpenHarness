@@ -5,10 +5,13 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 
-// Pluggable vector stores (#18): the same knowledge flow runs on Weaviate and on Qdrant, end to end.
+// Pluggable vector stores (#18): the same knowledge flow runs on every driver, end to end. The OpenAI-compatible
+// store is served by the fixture's in-memory Vector Stores API and embeds text itself.
 const base = process.env.TEST_BASE_URL ?? 'http://localhost:8088';
 const project = process.env.TEST_COMPOSE_PROJECT ?? 'openharness-test';
 const suffix = randomUUID().slice(0, 8);
+const fixture = process.env.TEST_FIXTURE_URL ?? 'http://localhost:19090';
+const stores = ['weaviate', 'qdrant', 'opensearch', 'elasticsearch', 'openai'] as const;
 const admin = { email: 'admin@openharness.test', password: 'Integration-test-password-42' };
 let cookie = '';
 let provider: any;
@@ -38,11 +41,9 @@ async function until<T>(read: () => Promise<T>, done: (value: T) => boolean, wha
   }
   throw new Error(`Timed out waiting for ${what}`);
 }
-/** Lists Qdrant collections from inside the stack (the store has no host port). */
-async function qdrantCollections(): Promise<string[]> {
+/** Runs a small script inside the api container, where the stores are reachable. */
+async function insideStack(script: string) {
   if (!project.startsWith('openharness-test')) throw new Error('Only isolated test projects are inspected');
-  const script =
-    "fetch('http://qdrant:6333/collections',{headers:{'api-key':process.env.QDRANT_API_KEY||''}}).then(r=>r.json()).then(j=>console.log(JSON.stringify(j.result.collections.map(c=>c.name))))";
   const { stdout } = await promisify(execFile)(
     'docker',
     [
@@ -62,7 +63,38 @@ async function qdrantCollections(): Promise<string[]> {
     ],
     { timeout: 30000 },
   );
-  return JSON.parse(stdout.trim());
+  return stdout.trim();
+}
+/** Whether the store still holds the knowledge base's index. */
+async function indexExists(store: (typeof stores)[number], kbId: string) {
+  const name = `Knowledge_${kbId.replace(/-/g, '')}`;
+  switch (store) {
+    case 'qdrant':
+      return JSON.parse(
+        await insideStack(
+          "fetch('http://qdrant:6333/collections',{headers:{'api-key':process.env.QDRANT_API_KEY||''}}).then(r=>r.json()).then(j=>console.log(JSON.stringify(j.result.collections.map(c=>c.name))))",
+        ),
+      ).includes(name);
+    case 'opensearch':
+    case 'elasticsearch':
+      return (
+        (await insideStack(
+          `fetch('http://${store}:9200/${name.toLowerCase()}').then(r=>console.log(r.status))`,
+        )) === '200'
+      );
+    case 'openai': {
+      const r = await fetch(`${fixture}/openai/v1/vector_stores`, {
+        headers: { Authorization: 'Bearer test-vector-stores-key' },
+      });
+      return ((await r.json()) as any).data.some((v: any) => v.name === name);
+    }
+    default:
+      return (
+        (await insideStack(
+          `fetch('http://weaviate:8080/v1/schema/${name}',{headers:{Authorization:'Bearer '+process.env.WEAVIATE_API_KEY}}).then(r=>console.log(r.status))`,
+        )) === '200'
+      );
+  }
 }
 before(async () => {
   const status = await (await fetch(base + '/api/auth/status')).json();
@@ -93,15 +125,17 @@ before(async () => {
   });
 });
 
-test('the deployment reports both stores, with Weaviate as the default', async () => {
+test('the deployment reports every configured store, with Weaviate as the default', async () => {
   const cfg = await ok('/config');
-  assert.deepEqual(cfg.vectorStores, { available: ['weaviate', 'qdrant'], default: 'weaviate' });
+  assert.deepEqual(cfg.vectorStores, { available: [...stores], default: 'weaviate' });
   const health = await (await fetch(`${base}/openharness/v1/harnesses/openharness/health`)).json();
-  const qdrant = health.checks.find((c: any) => c.name === 'vector_store:qdrant');
-  assert.equal(qdrant?.status, 'pass');
+  for (const store of stores.filter((s) => s !== 'weaviate')) {
+    const check = health.checks.find((c: any) => c.name === `vector_store:${store}`);
+    assert.equal(check?.status, 'pass', `${store}: ${JSON.stringify(check)}`);
+  }
 });
 
-for (const store of ['weaviate', 'qdrant'] as const)
+for (const store of stores)
   test(`knowledge on ${store}: index, search within the tenant's base, delete a document and the base`, async () => {
     const kb = await ok('/knowledge', {
       name: `${store} handbook ${suffix}`,
@@ -165,7 +199,7 @@ for (const store of ['weaviate', 'qdrant'] as const)
 
     const moved = await request(
       `/knowledge/${kb.id}`,
-      { ...kb, vectorStore: store === 'qdrant' ? 'weaviate' : 'qdrant' },
+      { ...kb, vectorStore: store === 'weaviate' ? 'qdrant' : 'weaviate' },
       'PUT',
     );
     assert.equal(moved.status, 409, 'a base with documents keeps its store');
@@ -179,12 +213,9 @@ for (const store of ['weaviate', 'qdrant'] as const)
     assert.deepEqual(await ok(`/knowledge/${kb.id}/search`, { query: 'release stages owner' }), []);
 
     await ok(`/workflows/${flow.id}`, undefined, 'DELETE');
-    if (store === 'qdrant') {
-      const collection = `Knowledge_${kb.id.replace(/-/g, '')}`;
-      assert.ok((await qdrantCollections()).includes(collection));
-      await ok(`/knowledge/${kb.id}`, undefined, 'DELETE');
-      assert.ok(!(await qdrantCollections()).includes(collection), 'deleting the base drops its index');
-    } else await ok(`/knowledge/${kb.id}`, undefined, 'DELETE');
+    assert.ok(await indexExists(store, kb.id), `${store} holds the index`);
+    await ok(`/knowledge/${kb.id}`, undefined, 'DELETE');
+    assert.ok(!(await indexExists(store, kb.id)), `deleting the base drops its ${store} index`);
   });
 
 test('an unknown store is rejected, and edits that omit the store keep it', async () => {
@@ -202,4 +233,35 @@ test('an unknown store is rejected, and edits that omit the store keep it', asyn
     'PUT',
   );
   assert.equal(kept.vectorStore, 'weaviate');
+});
+
+test('a store that embeds text itself needs no embedding model', async () => {
+  const chatOnly = await ok('/providers', {
+    name: `Chat only ${suffix}`,
+    kind: 'openai-compatible',
+    baseUrl: 'http://fixtures:9090/v1',
+    model: 'test-chat',
+  });
+  const refused = await request('/knowledge', {
+    name: `Needs embeddings ${suffix}`,
+    providerId: chatOnly.id,
+    vectorStore: 'qdrant',
+  });
+  assert.equal(refused.status, 400);
+  const managed = await ok('/knowledge', {
+    name: `Managed ${suffix}`,
+    providerId: chatOnly.id,
+    vectorStore: 'openai',
+  });
+  await ok(`/knowledge/${managed.id}/notes`, {
+    title: 'Hours',
+    content: 'The support desk is open from nine to five on weekdays.',
+  });
+  await until(
+    () => ok(`/knowledge/${managed.id}/documents`),
+    (docs: any[]) => docs.length > 0 && docs.every((d) => d.status === 'ready'),
+    'managed indexing',
+  );
+  const hits = await ok(`/knowledge/${managed.id}/search`, { query: 'when is the support desk open' });
+  assert.match(hits[0].content, /nine to five/);
 });

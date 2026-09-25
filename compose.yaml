@@ -14,12 +14,22 @@ x-app-environment: &app-environment
   VECTOR_STORE: ${VECTOR_STORE:-weaviate}
   QDRANT_URL: ${QDRANT_URL:-}
   QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+  # Optional OpenSearch / Elasticsearch stores (profiles below, or a managed cluster) and any OpenAI-compatible
+  # Vector Stores API (OpenAI, Llama Stack, managed services).
+  OPENSEARCH_URL: ${OPENSEARCH_URL:-}
+  OPENSEARCH_USERNAME: ${OPENSEARCH_USERNAME:-}
+  OPENSEARCH_PASSWORD: ${OPENSEARCH_PASSWORD:-}
+  ELASTICSEARCH_URL: ${ELASTICSEARCH_URL:-}
+  ELASTICSEARCH_API_KEY: ${ELASTICSEARCH_API_KEY:-}
+  OPENAI_VECTOR_STORES_URL: ${OPENAI_VECTOR_STORES_URL:-}
+  OPENAI_VECTOR_STORES_API_KEY: ${OPENAI_VECTOR_STORES_API_KEY:-}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Run ./start.sh first}
   SETUP_TOKEN: ${SETUP_TOKEN:?Run ./start.sh first}
   DATA_DIR: /data
   WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
   MAX_ACTIVE_RUNS: ${MAX_ACTIVE_RUNS:-20}
   MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+  LOGIN_RATE_LIMIT: ${LOGIN_RATE_LIMIT:-20}
   ALLOW_PRIVATE_URLS: ${ALLOW_PRIVATE_URLS:-false}
   ALLOWED_PRIVATE_HOSTS: ${ALLOWED_PRIVATE_HOSTS:-host.docker.internal,ollama,gateway}
   TRUST_PROXY: ${TRUST_PROXY:-0}
@@ -209,9 +219,53 @@ services:
       retries: 15
       start_period: 10s
 
+  # Local single-node search engines for evaluation, reachable only on the Compose network. For production, point
+  # OPENSEARCH_URL or ELASTICSEARCH_URL at a secured or managed cluster instead.
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0
+    profiles: ['opensearch']
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: 'true'
+      DISABLE_INSTALL_DEMO_CONFIG: 'true'
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes: ['opensearch:/usr/share/opensearch/data']
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'curl -fs http://127.0.0.1:9200/_cluster/health | grep -Eq "\"status\":\"(green|yellow)\""',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.4
+    profiles: ['elasticsearch']
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: 'false'
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes: ['elasticsearch:/usr/share/elasticsearch/data']
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'curl -fs http://127.0.0.1:9200/_cluster/health | grep -Eq "\"status\":\"(green|yellow)\""',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
 volumes:
   mongodb:
   rabbitmq:
   weaviate:
   qdrant:
+  opensearch:
+  elasticsearch:
   files:

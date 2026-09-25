@@ -640,7 +640,13 @@ export function KnowledgeEditor({ value, data, onClose, onSaved }: Props) {
       .then((c) => c.vectorStores && setStores(c.vectorStores))
       .catch(() => {});
   }, []);
-  const storeLabels: Record<string, string> = { weaviate: 'Weaviate', qdrant: 'Qdrant' };
+  const storeLabels: Record<string, string> = {
+    weaviate: 'Weaviate',
+    qdrant: 'Qdrant',
+    opensearch: 'OpenSearch',
+    elasticsearch: 'Elasticsearch',
+    openai: 'OpenAI-compatible Vector Stores (embeds text itself)',
+  };
   return (
     <Modal title={value ? 'Edit knowledge base' : 'Create a knowledge base'} onClose={onClose}>
       <SaveForm

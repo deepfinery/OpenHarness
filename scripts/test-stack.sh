@@ -15,7 +15,7 @@ cleanup() {
   exit "$result"
 }
 trap cleanup EXIT
-compose up --build -d --wait --wait-timeout 240
+compose up --build -d --wait --wait-timeout 480
 npm test
 npm run test:integration
 if [ "${BROWSER_TESTS:-0}" = '1' ]; then
