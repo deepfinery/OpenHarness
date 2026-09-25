@@ -76,7 +76,7 @@ test('crashed runs resume only when the in-flight step cannot have acted externa
 });
 
 test('context compaction fits a dialog under budget without separating tool calls from their results', async () => {
-  const { compactDialog, contextLimitFromError, dialogTokens, isContextLengthError } =
+  const { compactDialog, contextLimitFromError, dialogTokens, isContextLengthError, promptTokensFromError } =
     await import('../../packages/core/src/context.js');
   const big = 'x'.repeat(20000);
   const messages = [
@@ -130,6 +130,20 @@ test('context compaction fits a dialog under budget without separating tool call
   assert.equal(isContextLengthError('Invalid API key'), false);
   assert.equal(contextLimitFromError("This model's maximum context length is 32768 tokens. However"), 32768);
   assert.equal(contextLimitFromError('prompt is too long'), undefined);
+  assert.equal(
+    promptTokensFromError(
+      "This model's maximum context length is 32768 tokens. However, you requested 4096 output tokens and your prompt contains at least 28673 input tokens, for a total of at least 32769 tokens.",
+    ),
+    28673,
+  );
+  assert.equal(
+    promptTokensFromError(
+      'However, you requested 33000 tokens (28904 in the messages, 4096 in the completion).',
+    ),
+    28904,
+  );
+  assert.equal(promptTokensFromError('prompt is too long: 210000 tokens > 200000 maximum'), 210000);
+  assert.equal(promptTokensFromError('context length exceeded'), undefined);
 });
 test('effort presets carry loop and token budgets, and auto resolves a level from the request', async () => {
   const { budgetedAgent, effortPresets, resolveEffort } = await import('../../packages/core/src/patterns.js');

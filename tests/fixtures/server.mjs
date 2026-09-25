@@ -553,7 +553,23 @@ app.post('/v1/chat/completions', async (req, res) => {
   if (JSON.stringify(req.body).includes('delay-model')) await new Promise((r) => setTimeout(r, 15000));
   // Behave like a 32k-class model that rejects oversized prompts, so context compaction can be tested.
   const promptChars = req.body.messages.reduce((n, m) => n + String(m.content ?? '').length, 0);
-  if (promptChars > 24000) {
+  // test-dense counts about 2.5 characters per token and includes the tool definitions, as vLLM does with URL- and
+  // JSON-heavy search results, so the studio's character-based estimate undershoots it.
+  if (req.body.model === 'test-dense') {
+    const counted = Math.ceil(
+      (JSON.stringify(req.body.messages).length + JSON.stringify(req.body.tools ?? []).length) / 2.5,
+    );
+    const requested = req.body.max_tokens ?? 4096;
+    if (counted + requested > 12000) {
+      stats.denseRejections = (stats.denseRejections ?? 0) + 1;
+      return res.status(400).json({
+        error: {
+          message: `This model's maximum context length is 12000 tokens. However, you requested ${requested} output tokens and your prompt contains at least ${counted} input tokens, for a total of at least ${counted + requested} tokens. Please reduce the length of the input prompt or the number of requested output tokens. (parameter=input_tokens, value=${counted})`,
+          type: 'BadRequestError',
+        },
+      });
+    }
+  } else if (promptChars > 24000) {
     stats.contextRejections = (stats.contextRejections ?? 0) + 1;
     return res.status(400).json({
       error: {

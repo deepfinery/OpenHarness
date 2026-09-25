@@ -153,19 +153,24 @@ export function Playground({
   data,
   target,
   onTargetChange,
-  deviceId = '',
-  onDeviceChange,
 }: {
   data: Data;
   /** `workflow:<id>` or `agent:<id>`; the selector lives in the app's top bar. */
   target: string;
   onTargetChange: (target: string) => void;
-  /** Machine whose tools the run's agents receive; chosen in the top bar as well. */
-  deviceId?: string;
-  onDeviceChange?: (deviceId: string) => void;
 }) {
   const targets = playgroundTargets(data);
-  const machine = data.machines.find((m) => m.device_id === deviceId);
+  // Machines are tools of the workflow: the ones its cards attach, named in the welcome text.
+  const machines = (() => {
+    const [type, id] = target.split(':');
+    const workflow =
+      type === 'workflow'
+        ? (data.workflows.find((w) => w.id === id) as
+            { resources?: { type: string; connectionId?: string }[] } | undefined)
+        : undefined;
+    const ids = new Set((workflow?.resources ?? []).map((r) => r.connectionId));
+    return data.machines.filter((m) => m.connectionId && ids.has(m.connectionId));
+  })();
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string>();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -250,7 +255,6 @@ export function Playground({
       const c = await api(`/conversations/${id}`);
       setConversationId(id);
       setMessages(c.messages);
-      if (c.deviceId !== undefined && c.deviceId !== deviceId) onDeviceChange?.(c.deviceId ?? '');
       if (c.activeRunId) {
         setMessages((m) => m);
         follow(c.activeRunId);
@@ -273,7 +277,8 @@ export function Playground({
         [current.type === 'agent' ? 'agentId' : 'workflowId']: current.id,
         message: text,
         conversationId,
-        deviceId: deviceId || null,
+        // Machines come from the workflow's own cards; this also clears one an older conversation remembered.
+        deviceId: null,
       });
       setConversationId(r.conversationId);
       setRun({ id: r.id, status: r.status, events: [] });
@@ -361,8 +366,8 @@ export function Playground({
               <h2>{current ? current.name : 'No workflow selected'}</h2>
               <p>
                 {current
-                  ? machine
-                    ? `Operating ${machine.name} (${machine.platform}${machine.online ? '' : ', offline'}). Every command shows up in the trace.`
+                  ? machines.length
+                    ? `Operating ${machines.map((m) => `${m.name} (${m.platform}${m.online ? '' : ', offline'})`).join(', ')}. Every command shows up in the trace.`
                     : 'Send a message. Every step shows up in the trace.'
                   : 'Create a workflow first.'}
               </p>
