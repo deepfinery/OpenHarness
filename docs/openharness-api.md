@@ -145,14 +145,49 @@ session), is rate limited, and is recorded in `tool_invocations`. `/invoke/strea
 Custom tools are not registered through this API, because external tools are served over MCP here: `POST /tools`
 answers 501. Built-in and MCP tools cannot be unregistered (409).
 
+## Hooks, events and webhooks
+
+Hooks are workspace-wide webhooks called at fixed points of every run.
+
+| Event           | When                                                                  | The hook may answer                                                                                                              |
+| --------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `pre_tool`      | Before an MCP or machine tool call, from an agent or a workflow step. | `{"decision":"allow"}`, `{"decision":"deny","reason":"..."}`, or `{"decision":"modify","input":{...}}` to replace the arguments. |
+| `post_tool`     | After the tool answered.                                              | `allow`, or `{"decision":"modify","output":"..."}` to replace what the agent sees.                                               |
+| `stop`, `error` | When a run ends successfully, or unsuccessfully.                      | Nothing; these are notifications.                                                                                                |
+
+A denied call reaches the agent as `Blocked by a hook: <reason>`, and the tool is never called. In a workflow tool
+step, a denied call fails the run. Hooks run in registration order, and each `modify` feeds the next hook. Every
+decision is recorded in the run trace as a `hook` event and in the event feed as `hook.triggered`.
+
+- **Failure mode.** Set `x-openharness.fail_mode` to `closed` or `open`. A `closed` hook that times out or fails
+  blocks the call. An `open` hook is skipped. Tool hooks default to `closed` and notifications to `open`.
+  `x-openharness.timeout_ms` defaults to 10 seconds.
+- **Handlers.** Only `webhook` handlers are accepted; `command` handlers answer 400, because the harness never runs
+  shell commands for API callers. URLs must be HTTPS, unless the host is listed in `ALLOWED_PRIVATE_HOSTS`, and pass
+  the same SSRF checks as MCP servers.
+- **Signing.** Every request carries `X-OpenHarness-Timestamp` and
+  `X-OpenHarness-Signature: sha256=<hex HMAC-SHA256 of "<timestamp>.<raw body>">`, keyed with the secret that
+  registration returns once in `x-openharness.secret`.
+
+The **event feed** (`GET /events`, `GET /events/stream`) records these events for seven days:
+`execution.started`, `execution.completed` (with `status` and `result_url`), `hook.triggered`, `skill.installed`
+and `skill.uninstalled`. Stream ids sort by time. Pass `Last-Event-ID` to replay what a client missed, and
+`?events=a,b` to filter.
+
+**Webhooks** (`POST /webhooks` with `url`, `events`, and an optional `secret`) receive matching feed events through
+a durable outbox. The payload has `id`, `event`, `harness_id`, the event's fields and `timestamp`, signed like
+hooks. A failed delivery is retried after 1, 5, 30 and 120 minutes, then marked failed. Hooks, the feed and
+webhooks need manage access: a workspace key or a studio session.
+
 ## Support
 
-| Domain                                                                   | Status    | Notes                                                                                                                                                                                                                                                                                                                                    |
-| ------------------------------------------------------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Harness registry                                                         | Supported | List, get, capabilities, health and validate-credentials. The registry is read-only (register, update and unregister return 501) because one installation serves one harness. `validate-credentials` tests a model API key against the workspace default provider. `store: true` saves it and needs a workspace key or a studio session. |
-| Agents                                                                   | Supported | Create (multipart or JSON), list, get, update, delete, clone, and OAF export and import with merge strategies.                                                                                                                                                                                                                           |
-| Tools                                                                    | Supported | List, get, invoke and invoke/stream for MCP and built-in tools. Registering custom tools returns 501; serve them over MCP.                                                                                                                                                                                                               |
-| Execution                                                                | Supported | Execute, stream, list, get, attach with `Last-Event-ID`, cancel, result and tool calls. Artifacts and input come with issue #7.                                                                                                                                                                                                          |
-| Models                                                                   | Supported | Multiple providers, and a per-execution `model` switch.                                                                                                                                                                                                                                                                                  |
-| Skills, MCP servers, sessions, memory, subagents, files, hooks, planning | Planned   | See the roadmap issue #26.                                                                                                                                                                                                                                                                                                               |
-| Conformance and diagnostics                                              | Planned   | Issue #16.                                                                                                                                                                                                                                                                                                                               |
+| Domain                                                            | Status    | Notes                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Harness registry                                                  | Supported | List, get, capabilities, health and validate-credentials. The registry is read-only (register, update and unregister return 501) because one installation serves one harness. `validate-credentials` tests a model API key against the workspace default provider. `store: true` saves it and needs a workspace key or a studio session. |
+| Agents                                                            | Supported | Create (multipart or JSON), list, get, update, delete, clone, and OAF export and import with merge strategies.                                                                                                                                                                                                                           |
+| Tools                                                             | Supported | List, get, invoke and invoke/stream for MCP and built-in tools. Registering custom tools returns 501; serve them over MCP.                                                                                                                                                                                                               |
+| Execution                                                         | Supported | Execute, stream, list, get, attach with `Last-Event-ID`, cancel, result and tool calls. Artifacts and input come with issue #7.                                                                                                                                                                                                          |
+| Hooks and events                                                  | Supported | `pre_tool`, `post_tool`, `stop` and `error` webhook hooks with allow, deny and modify; the event feed and its stream; signed webhooks with retries. `custom` hooks are accepted but never fired.                                                                                                                                         |
+| Models                                                            | Supported | Multiple providers, and a per-execution `model` switch.                                                                                                                                                                                                                                                                                  |
+| Skills, MCP servers, sessions, memory, subagents, files, planning | Planned   | See the roadmap issue #26.                                                                                                                                                                                                                                                                                                               |
+| Conformance and diagnostics                                       | Planned   | Issue #16.                                                                                                                                                                                                                                                                                                                               |

@@ -13,6 +13,7 @@ import {
   type Workflow,
 } from '../../../../packages/core/src/schema.js';
 import { agentWithResources } from '../../../../packages/core/src/workflow.js';
+import { emitHarnessEvent } from '../../../../packages/core/src/harnessEvents.js';
 import { validateReferences } from '../resources.js';
 import { defaultProviderId } from '../tenant.js';
 import { requireAccess } from './access.js';
@@ -232,6 +233,7 @@ async function resolveSkills(ctx: ImportContext, names: string[]) {
       updatedAt: now,
     };
     await skills.insertOne(record);
+    await emitHarnessEvent(ctx.tenantId, 'skill.installed', { skill_id: record._id, name: record.name });
     ids.push(record._id);
   }
   return ids;

@@ -8,6 +8,12 @@ import { deleteDocument, indexDocument } from '../../../packages/core/src/knowle
 import { safeError } from '../../../packages/core/src/security.js';
 import type { KnowledgeDocument, Run } from '../../../packages/core/src/schema.js';
 import { settleConversation } from '../../../packages/core/src/conversations.js';
+import { emitHarnessEvent } from '../../../packages/core/src/harnessEvents.js';
+import { runEnded } from '../../../packages/core/src/hooks.js';
+
+/** The Open Harness execution state of a run state (see apps/api/src/openharness/events.ts). */
+const executionStatusOf = (status: string) =>
+  status === 'succeeded' ? 'completed' : status === 'interrupted' ? 'failed' : status;
 
 await connectDatabase();
 const channel = await queueChannel();
@@ -33,6 +39,10 @@ async function processJob(job: Job, controller: AbortController) {
       { returnDocument: 'after' },
     );
     if (!run) return;
+    await emitHarnessEvent(run.ownerId, 'execution.started', {
+      execution_id: run._id,
+      agent_id: run.workflowId ?? run.agentId,
+    });
     const filter = { _id: run._id, status: 'running' as const, leaseId };
     let beating = false;
     const timer = setInterval(async () => {
@@ -103,7 +113,19 @@ async function processJob(job: Job, controller: AbortController) {
       { $set: { status: 'cancelled', finishedAt: new Date() } },
     );
     const finished = await runs.findOne({ _id: run._id });
-    if (finished) await settleConversation(finished);
+    if (finished) {
+      await settleConversation(finished);
+      if (['succeeded', 'failed', 'cancelled', 'interrupted'].includes(finished.status)) {
+        await emitHarnessEvent(finished.ownerId, 'execution.completed', {
+          execution_id: finished._id,
+          agent_id: finished.workflowId ?? finished.agentId,
+          status: executionStatusOf(finished.status),
+          result_url: `${config.PUBLIC_URL.replace(/\/$/, '')}${config.OPENHARNESS_BASE_PATH}/harnesses/${config.OPENHARNESS_HARNESS_ID}/executions/${finished._id}/result`,
+          completed_at: (finished.finishedAt ?? new Date()).toISOString(),
+        });
+        await runEnded(finished).catch((error) => console.warn('End-of-run hooks failed:', safeError(error)));
+      }
+    }
   } else {
     const docs = collection<KnowledgeDocument>('documents');
     const doc = await docs.findOneAndUpdate(

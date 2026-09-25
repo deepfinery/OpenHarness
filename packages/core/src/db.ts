@@ -42,5 +42,12 @@ export async function connectDatabase() {
       'webhooks',
       'conversations',
     ].map((n) => db.collection(n).createIndex({ ownerId: 1, createdAt: -1 })),
+    db.collection('hooks').createIndex({ ownerId: 1, enabled: 1, createdAt: 1 }),
+    db.collection('harness_webhooks').createIndex({ ownerId: 1, enabled: 1 }),
+    // The harness event feed keeps seven days; ids sort by time, so streams page with _id.
+    db.collection('harness_events').createIndex({ createdAt: 1 }, { expireAfterSeconds: 7 * 86400 }),
+    db.collection('harness_events').createIndex({ ownerId: 1, _id: 1 }),
+    db.collection('webhook_deliveries').createIndex({ status: 1, nextAttemptAt: 1 }),
+    db.collection('webhook_deliveries').createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 86400 }),
   ]);
 }

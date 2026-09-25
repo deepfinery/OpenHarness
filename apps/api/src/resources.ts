@@ -26,6 +26,7 @@ import {
   replaceFile,
   saveFile,
 } from '../../../packages/core/src/storage.js';
+import { emitHarnessEvent } from '../../../packages/core/src/harnessEvents.js';
 import { rateLimit } from './auth.js';
 
 type Resource = { _id: string; ownerId: string; createdAt: Date; updatedAt: Date; [key: string]: any };
@@ -242,6 +243,8 @@ for (const [kind, schema] of Object.entries(definitions)) {
           createdAt: now,
           updatedAt: now,
         });
+      if (kind === 'skills' && method === 'post')
+        await emitHarnessEvent(ownerId, 'skill.installed', { skill_id: id, name: body.name });
       res
         .status(method === 'post' ? 201 : 200)
         .json(publicResource((await records().findOne({ _id: id, ownerId }))!));
@@ -296,6 +299,7 @@ for (const [kind, schema] of Object.entries(definitions)) {
       await dropKnowledgeIndex(removed as { _id: string; vectorStore?: 'weaviate' | 'qdrant' }).catch(
         (error) => console.warn('Could not remove a knowledge index:', safeError(error)),
       );
+    if (kind === 'skills') await emitHarnessEvent(ownerId, 'skill.uninstalled', { skill_id: id });
     res.status(204).end();
   });
 }

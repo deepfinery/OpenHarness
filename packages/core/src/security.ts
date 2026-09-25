@@ -109,7 +109,7 @@ export async function validateRemoteUrl(value: string) {
       'Private endpoint blocked. Add its hostname to ALLOWED_PRIVATE_HOSTS to use a trusted local server.',
     );
 }
-function privateHostAllowed(host: string) {
+export function privateHostAllowed(host: string) {
   return (
     config.ALLOW_PRIVATE_URLS === 'true' ||
     config.ALLOWED_PRIVATE_HOSTS.split(',')
