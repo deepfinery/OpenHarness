@@ -109,12 +109,18 @@ export async function validateRemoteUrl(value: string) {
       'Private endpoint blocked. Add its hostname to ALLOWED_PRIVATE_HOSTS to use a trusted local server.',
     );
 }
+/**
+ * Whether a connection may resolve to a private address. The configured device gateway is always trusted, as in
+ * validateRemoteUrl: installs whose ALLOWED_PRIVATE_HOSTS predates the gateway would otherwise have every machine
+ * tool call and tool discovery refused at connect time.
+ */
 export function privateHostAllowed(host: string) {
   return (
     config.ALLOW_PRIVATE_URLS === 'true' ||
     config.ALLOWED_PRIVATE_HOSTS.split(',')
       .map((s) => s.trim().toLowerCase())
-      .includes(host.toLowerCase())
+      .includes(host.toLowerCase()) ||
+    gatewayHost() === host.toLowerCase()
   );
 }
 // Validate the addresses used by the socket itself, closing the DNS-rebinding gap

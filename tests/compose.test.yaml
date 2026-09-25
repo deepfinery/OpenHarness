@@ -1,7 +1,8 @@
 services:
   api:
-    environment: &test-stores
-      ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal,gateway
+    environment:
+      &test-stores # No gateway here, like installs created before machines existed: the configured gateway is trusted on its own.
+      ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal
       SMTP_TRANSPORT: json
       QDRANT_URL: http://qdrant:6333
       OPENSEARCH_URL: http://opensearch:9200
