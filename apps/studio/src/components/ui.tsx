@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type ReactElement,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertCircle, ArrowUpRight, Check, LoaderCircle, Plus, X } from 'lucide-react';
 export function Button({
   children,
@@ -227,5 +228,47 @@ export function CopyButton({ value }: { value: string }) {
     >
       {copied ? <Check size={14} /> : <ArrowUpRight size={14} />} {copied ? 'Copied' : 'Copy'}
     </Button>
+  );
+}
+
+/** The entry script this tab is running, e.g. /assets/index-CVK1N869.js; undefined on the dev server. */
+const runningBuild = () =>
+  document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/"]')?.getAttribute('src') ??
+  undefined;
+/**
+ * Tells a tab that stays open across a deploy that a newer studio is live. Without it the tab keeps running the old
+ * code, and fixes that are already deployed seem not to work until the page is reloaded.
+ */
+export function UpdateNotice() {
+  const [stale, setStale] = useState(false);
+  useEffect(() => {
+    const current = runningBuild();
+    if (!current) return;
+    const check = async () => {
+      try {
+        const html = await (await fetch('/', { cache: 'no-store' })).text();
+        const deployed = /<script\b[^>]*\bsrc="(\/assets\/[^"]+\.js)"/.exec(html)?.[1];
+        if (deployed && deployed !== current) setStale(true);
+      } catch {}
+    };
+    const visible = () => {
+      if (document.visibilityState === 'visible') void check();
+    };
+    const timer = setInterval(check, 60_000);
+    window.addEventListener('focus', visible);
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', visible);
+      document.removeEventListener('visibilitychange', visible);
+    };
+  }, []);
+  if (!stale) return null;
+  return createPortal(
+    <div className="update-notice" role="status">
+      <span>A new version of OpenHarness is available. Save your work, then reload to use it.</span>
+      <Button onClick={() => location.reload()}>Reload</Button>
+    </div>,
+    document.body,
   );
 }

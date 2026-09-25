@@ -982,3 +982,22 @@ body.dragging-tool * {
 .feedback-error {
   color: var(--danger, #b42318);
 }
+
+/* Shown above everything, including the workflow editor, when a newer studio has been deployed. */
+.update-notice {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 8px 8px 16px;
+  border: 1px solid var(--blue);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(16 32 56 / 18%);
+  font-size: 14px;
+}
