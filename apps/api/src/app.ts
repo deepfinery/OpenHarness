@@ -35,6 +35,8 @@ import { resources } from './resources.js';
 import { embedApi, integrations, publicRun, type Embed } from './integrations.js';
 import { conversationApi, webhookApi, webhookSettings } from './triggers.js';
 import { devices } from './devices.js';
+import { tenantView, type Tenant } from './tenant.js';
+import { openHarnessApi, openHarnessErrors } from './openharness/index.js';
 
 export const app = express();
 app.disable('x-powered-by');
@@ -91,6 +93,8 @@ app.use('/api', (req, res, next) => {
   }
   next();
 });
+// The Open Harness API adapter; see apps/api/src/openharness.
+app.use(config.OPENHARNESS_BASE_PATH, openHarnessApi(), openHarnessErrors);
 app.get('/api/health', async (_req, res) => {
   try {
     await db.command({ ping: 1 });
@@ -121,24 +125,12 @@ app.get('/api/auth/me', requireSession, (req, res) => res.json(publicUser(req.pr
 app.post('/api/auth/logout', requireSession, logout);
 app.put('/api/profile', requireSession, updateProfile);
 app.get('/api/config', requireSession, (_req, res) =>
-  res.json({ publicUrl: config.PUBLIC_URL, maxUploadMB: config.MAX_UPLOAD_MB }),
+  res.json({
+    publicUrl: config.PUBLIC_URL,
+    maxUploadMB: config.MAX_UPLOAD_MB,
+    openHarness: { basePath: config.OPENHARNESS_BASE_PATH, harnessId: config.OPENHARNESS_HARNESS_ID },
+  }),
 );
-type Tenant = { _id: string; name?: string; defaultProviderId?: string };
-/** The workspace default model provider: the chosen one if it still exists, otherwise the oldest provider. */
-async function tenantView(tenantId: string) {
-  const tenant = await collection<Tenant>('tenants').findOne({ _id: tenantId });
-  const providers = collection<{ _id: string; ownerId: string; createdAt: Date }>('providers');
-  let defaultProviderId = tenant?.defaultProviderId;
-  if (!defaultProviderId || !(await providers.findOne({ _id: defaultProviderId, ownerId: tenantId })))
-    defaultProviderId = (await providers.find({ ownerId: tenantId }).sort({ createdAt: 1 }).limit(1).next())
-      ?._id;
-  return {
-    id: tenantId,
-    name: tenant?.name ?? 'Team workspace',
-    members: await collection<User>('users').countDocuments({ tenantId }),
-    defaultProviderId,
-  };
-}
 app.get('/api/tenant', requireSession, async (req, res) =>
   res.json(await tenantView(req.principal!.tenantId)),
 );

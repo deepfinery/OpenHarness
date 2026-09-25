@@ -54,15 +54,22 @@ integrations.post('/tokens', async (req, res) => {
       agentIds: z.array(id).max(100).default([]),
       workflowIds: z.array(id).max(100).default([]),
       scopes: z
-        .array(z.enum(['execute', 'read']))
+        .array(z.enum(['execute', 'read', 'harness']))
         .min(1)
         .default(['read', 'execute']),
       expiresDays: z.number().int().min(1).max(365).default(30),
     })
     .parse(req.body);
   const ownerId = req.principal!.tenantId;
-  await validateTargets(ownerId, body.agentIds, body.workflowIds);
-  const token = `ao_${randomToken()}`;
+  // A harness key reaches the whole workspace through the Open Harness API, so only administrators create one.
+  const harness = body.scopes.includes('harness');
+  if (harness) {
+    if (req.principal!.user.role !== 'admin')
+      throw new HttpError(403, 'Only administrators can create workspace-wide Open Harness keys');
+    if (body.agentIds.length || body.workflowIds.length)
+      throw new HttpError(400, 'A workspace-wide key does not take targets');
+  } else await validateTargets(ownerId, body.agentIds, body.workflowIds);
+  const token = harness ? `oh_sk_${randomToken()}` : `ao_${randomToken()}`;
   const { expiresDays, ...rest } = body;
   const record: ApiToken = {
     _id: randomUUID(),

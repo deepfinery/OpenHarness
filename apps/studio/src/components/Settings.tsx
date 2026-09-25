@@ -763,7 +763,11 @@ export function EmailSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'act'>) {
+export function IntegrationsPage({
+  data,
+  act,
+  isAdmin = false,
+}: Pick<SettingsProps, 'data' | 'act'> & { isAdmin?: boolean }) {
   const [tokens, setTokens] = useState<Entity[]>([]);
   const [embeds, setEmbeds] = useState<Entity[]>([]);
   const [tab, setTab] = useState('api');
@@ -771,6 +775,7 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
   const [form, setForm] = useState({ name: '', target: '', origins: '', expiresDays: 7 });
   const [secret, setSecret] = useState<{ type: string; value: string } | null>(null);
   const [publicUrl, setPublicUrl] = useState(location.origin);
+  const [harness, setHarness] = useState({ basePath: '/openharness/v1', harnessId: 'openharness' });
   async function load() {
     const [t, e] = await Promise.all([api('/integrations/tokens'), api('/integrations/embeds')]);
     setTokens(t);
@@ -779,7 +784,10 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
   useEffect(() => {
     void act(load);
     void api('/config')
-      .then((c) => setPublicUrl(c.publicUrl))
+      .then((c) => {
+        setPublicUrl(c.publicUrl);
+        if (c.openHarness) setHarness(c.openHarness);
+      })
       .catch(() => {});
   }, []);
   const targets = [
@@ -790,6 +798,8 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
     ? `"workflowId": "${data.workflows[0].id}"`
     : `"workflowId": "YOUR_WORKFLOW_ID"`;
   const curl = `curl -X POST '${publicUrl}/api/runs' \\\n  -H 'Authorization: Bearer YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -H 'Idempotency-Key: unique-request-id' \\\n  -d '{${exampleTarget}, "input": "Hello"}'`;
+  const harnessBase = `${publicUrl}${harness.basePath}/harnesses/${harness.harnessId}`;
+  const openHarnessExample = `# Open Harness API: needs a workspace-wide key (oh_sk_…)\ncurl '${harnessBase}/capabilities' \\\n  -H 'Authorization: Bearer YOUR_OPEN_HARNESS_KEY'\n\ncurl '${harnessBase}/health'`;
   const chat = `curl -X POST '${publicUrl}/api/chat' \\\n  -H 'Authorization: Bearer YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{${exampleTarget}, "message": "Research this topic"}'\n\n# stream status, trace and the answer as it is written\ncurl -N '${publicUrl}/api/runs/RUN_ID/stream' -H 'Authorization: Bearer YOUR_API_KEY'`;
   const ways = [
     {
@@ -877,9 +887,12 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
                       <strong>{t.name}</strong>
                     </td>
                     <td>
-                      {targets.find(
-                        (a) => a.id === (t.agentId ?? t.workflowId ?? t.agentIds?.[0] ?? t.workflowIds?.[0]),
-                      )?.name ?? 'Target unavailable'}
+                      {t.scopes?.includes('harness')
+                        ? 'Whole workspace · Open Harness API'
+                        : (targets.find(
+                            (a) =>
+                              a.id === (t.agentId ?? t.workflowId ?? t.agentIds?.[0] ?? t.workflowIds?.[0]),
+                          )?.name ?? 'Target unavailable')}
                     </td>
                     <td>{timestamp(t.expiresAt)}</td>
                     <td>
@@ -941,6 +954,13 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
                   </div>
                   <pre>{chat}</pre>
                 </div>
+                <div className="code-card">
+                  <div>
+                    <span>Open Harness API</span>
+                    <CopyButton value={openHarnessExample} />
+                  </div>
+                  <pre>{openHarnessExample}</pre>
+                </div>
               </div>
             </div>
           ) : (
@@ -964,23 +984,25 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
                   const [type, id] = form.target.split(':');
                   if (!id) throw new Error('Choose a target');
                   const body =
-                    tab === 'api'
-                      ? {
-                          name: form.name,
-                          agentIds: type === 'agent' ? [id] : [],
-                          workflowIds: type === 'workflow' ? [id] : [],
-                          scopes: ['execute', 'read'],
-                          expiresDays: form.expiresDays,
-                        }
-                      : {
-                          name: form.name,
-                          [type === 'agent' ? 'agentId' : 'workflowId']: id,
-                          origins: form.origins
-                            .split(',')
-                            .map((o) => o.trim())
-                            .filter(Boolean),
-                          expiresDays: form.expiresDays,
-                        };
+                    tab === 'api' && type === 'harness'
+                      ? { name: form.name, scopes: ['harness'], expiresDays: form.expiresDays }
+                      : tab === 'api'
+                        ? {
+                            name: form.name,
+                            agentIds: type === 'agent' ? [id] : [],
+                            workflowIds: type === 'workflow' ? [id] : [],
+                            scopes: ['execute', 'read'],
+                            expiresDays: form.expiresDays,
+                          }
+                        : {
+                            name: form.name,
+                            [type === 'agent' ? 'agentId' : 'workflowId']: id,
+                            origins: form.origins
+                              .split(',')
+                              .map((o) => o.trim())
+                              .filter(Boolean),
+                            expiresDays: form.expiresDays,
+                          };
                   const result = await send(`/integrations/${tab === 'api' ? 'tokens' : 'embeds'}`, body);
                   await load();
                   setAdding(false);
@@ -1012,6 +1034,9 @@ export function IntegrationsPage({ data, act }: Pick<SettingsProps, 'data' | 'ac
                     <option value="" disabled>
                       Select a workflow
                     </option>
+                    {tab === 'api' && isAdmin && (
+                      <option value="harness:workspace">Whole workspace · Open Harness API</option>
+                    )}
                     {targets.map((t) => (
                       <option key={`${t.type}:${t.id}`} value={`${t.type}:${t.id}`}>
                         {t.name}

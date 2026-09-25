@@ -224,6 +224,8 @@ The response is `202 Accepted` with an `id`. Poll `GET /api/runs/:id`, or open `
 - **Webhooks:** **Integrations → Webhooks** creates an authenticated URL. Send JSON with the bearer secret; the chosen field becomes `{{input}}` and every field is available as `{{payload.field}}`. Poll `/api/hooks/:id/runs/:runId` with the same secret. Retries may carry an `Idempotency-Key`.
 - **Embeds:** **Integrations → Embedded chat** issues an iframe snippet scoped to one target and your site's origins. Visitors see the conversation only — never traces, prompts or your studio. Treat the link as a credential; revoke it any time.
 
+- **Open Harness API:** OpenHarness implements the open [Open Harness API](https://github.com/jeffrschneider/OpenHarness) under `/openharness/v1`, so clients written for that spec can drive it. An administrator creates a workspace key (`oh_sk_…`) under **Integrations → API key**. The capability manifest at `/openharness/v1/harnesses/openharness/capabilities` lists what is supported; see [the adapter guide](docs/openharness-api.md).
+
 See [the API reference](docs/api.md) for every request shape and permission.
 
 ## Architecture
