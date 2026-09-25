@@ -4,6 +4,7 @@ import { connectDatabase, mongo } from '../../../packages/core/src/db.js';
 import { closeQueue } from '../../../packages/core/src/queue.js';
 import { dispatchPending, dispatchSchedules, recoverStaleJobs } from '../../../packages/core/src/runs.js';
 import { deliverWebhooks } from '../../../packages/core/src/harnessEvents.js';
+import { dispatchReflections } from '../../../packages/core/src/experience.js';
 import { safeError } from '../../../packages/core/src/security.js';
 
 await connectDatabase();
@@ -19,6 +20,7 @@ async function tick() {
     await dispatchPending();
     await dispatchSchedules();
     await deliverWebhooks();
+    await dispatchReflections();
   } catch (e) {
     console.error('Dispatcher will retry:', safeError(e));
   } finally {

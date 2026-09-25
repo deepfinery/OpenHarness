@@ -915,3 +915,35 @@ td {
     padding: 7px 9px;
   }
 }
+
+/* Feedback on assistant answers */
+.feedback-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.feedback-bar .icon-button {
+  width: 26px;
+  height: 26px;
+  color: var(--muted, #6b7785);
+}
+.feedback-bar.given {
+  font-size: 12px;
+  color: var(--muted, #6b7785);
+}
+.feedback-form {
+  display: flex;
+  gap: 6px;
+  flex: 1 1 240px;
+}
+.feedback-form input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  padding: 4px 8px;
+}
+.feedback-error {
+  color: var(--danger, #b42318);
+}

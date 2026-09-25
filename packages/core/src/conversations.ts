@@ -7,7 +7,8 @@ export type Conversation = {
   agentId?: string;
   workflowId?: string;
   deviceId?: string;
-  messages: Run['history'];
+  // Assistant messages carry the run that produced them, for feedback.
+  messages: (Run['history'][number] & { runId?: string })[];
   createdAt: Date;
   updatedAt: Date;
   pending?: { runId: string; since: Date };
@@ -26,7 +27,8 @@ export async function settleConversation(run: Run) {
               messages: {
                 $each: [
                   { role: 'user' as const, content: run.input },
-                  { role: 'assistant' as const, content: (run.output ?? '').slice(0, 32000) },
+                  // The run id lets the studio attach feedback to this answer.
+                  { role: 'assistant' as const, content: (run.output ?? '').slice(0, 32000), runId: run._id },
                 ],
                 $slice: -20,
               },

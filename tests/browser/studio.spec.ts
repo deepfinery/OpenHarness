@@ -443,3 +443,48 @@ test('a webhook created in the studio runs a workflow through its scoped secret'
   expect(result.output).toContain('MCP lookup');
   expect(result.events).toBeUndefined();
 });
+
+test('workflow settings set a knowledge workspace and learning, agents allow sub-agents, and answers take feedback', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const kb = await api(page.request, '/knowledge', 'POST', { name: `Browser workspace ${tag}`, providerId });
+  await page.reload();
+  await expect(page.locator('.sidebar nav')).toBeVisible();
+  const name = `Browser learner ${tag}`;
+  await newBlankWorkflow(page, name);
+  await page.getByRole('button', { name: 'Add AI agent', exact: true }).click();
+  const agent = page.locator('.harness-card.kind-agent');
+  await agent.dblclick();
+  const modal = page.locator('.modal');
+  await selectProvider(page, modal);
+  await modal.getByLabel('Can start sub-agents').check();
+  await modal.getByLabel('Sub-agents per run').fill('3');
+  await modal.getByRole('button', { name: 'Done' }).click();
+  await page.locator('.workflow-header').getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByLabel('Knowledge workspace').selectOption(kb.id);
+  await page.getByLabel('Learn from experience').check();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Save & test', exact: true }).click();
+  const saved = (await api(page.request, '/workflows')).find((w: any) => w.name === name);
+  expect(saved.workspace.knowledgeBaseId).toBe(kb.id);
+  expect(saved.experience.enabled).toBe(true);
+  const node = saved.nodes.find((n: any) => n.type === 'agent');
+  expect(node.config.delegation).toEqual({ enabled: true, maxAgents: 3 });
+
+  await expect(await chat(page, 'Summarize the browser test plan')).toContainText('Completed:', {
+    timeout: 30000,
+  });
+  await page.getByRole('button', { name: 'Bad answer' }).last().click();
+  await page.getByLabel('What should change').fill('Shorter, please');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.feedback-bar.given').last()).toHaveText('Feedback saved');
+  const runs = await api(page.request, '/runs');
+  const rated = runs.find((r: any) => r.workflowId === saved.id);
+  await expect
+    .poll(async () => (await api(page.request, `/runs/${rated.id}`)).reflection?.status, { timeout: 30000 })
+    .toBe('done');
+  expect((await api(page.request, `/runs/${rated.id}`)).feedback.comment).toBe('Shorter, please');
+  expect(errors).toEqual([]);
+});

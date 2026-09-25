@@ -10,6 +10,7 @@ import { hash, HttpError, passwordHash, safeError } from '../../../packages/core
 import { queueChannel, JOB_QUEUE } from '../../../packages/core/src/queue.js';
 import { createRun, requestCancel, terminalStatuses } from '../../../packages/core/src/runs.js';
 import { configuredVectorStores, vectorStore } from '../../../packages/core/src/vectorstores/index.js';
+import { learns, requestReflection } from '../../../packages/core/src/experience.js';
 import { runSchema, type Run } from '../../../packages/core/src/schema.js';
 import { finishOAuth } from '../../../packages/core/src/mcp.js';
 import {
@@ -254,6 +255,72 @@ app.get('/api/runs/:id/stream', async (req, res) => {
   const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 15000);
   const deadline = setTimeout(end, 35 * 60000);
   req.on('close', end);
+});
+/**
+ * Human feedback on a finished run. With learning from experience on, it becomes a lesson in the workflow's
+ * experience folder; either way it is kept on the run.
+ */
+app.post('/api/runs/:id/feedback', async (req, res) => {
+  const body = z
+    .object({ rating: z.enum(['up', 'down']), comment: z.string().trim().max(2000).optional() })
+    .parse(req.body);
+  const filter = {
+    _id: String(req.params.id),
+    ownerId: req.principal!.tenantId,
+    ...(req.principal!.token && !req.principal!.token.scopes.includes('harness')
+      ? { tokenId: req.principal!.token._id }
+      : {}),
+  };
+  const run = await collection<Run>('runs').findOne(filter);
+  if (!run) throw new HttpError(404, 'Run not found');
+  checkTokenScope(req, 'execute', run);
+  if (!terminalStatuses.includes(run.status)) throw new HttpError(409, 'Wait for the run to finish');
+  const feedback = {
+    rating: body.rating,
+    ...(body.comment ? { comment: body.comment } : {}),
+    at: new Date(),
+    by: req.principal!.user._id,
+  };
+  await collection<Run>('runs').updateOne(filter, { $set: { feedback } });
+  const learning = learns(run.snapshot.workflow);
+  if (learning) await requestReflection(run._id, 'feedback');
+  res.status(202).json({ feedback, learning });
+});
+/** Runs with feedback or lessons as JSON Lines, for evaluation or later fine-tuning. */
+app.get('/api/workflows/:id/experience.jsonl', requireSession, async (req, res) => {
+  const runs = await collection<Run>('runs')
+    .find(
+      {
+        ownerId: req.principal!.tenantId,
+        workflowId: String(req.params.id),
+        $or: [{ feedback: { $exists: true } }, { 'reflection.status': 'done' }],
+      },
+      { projection: { snapshot: 0, outputs: 0, history: 0, events: 0 } },
+    )
+    .sort({ createdAt: 1 })
+    .limit(10000)
+    .toArray();
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="experience-${String(req.params.id).slice(0, 8)}.jsonl"`,
+  );
+  res.end(
+    runs
+      .map((r) =>
+        JSON.stringify({
+          run_id: r._id,
+          created_at: r.createdAt,
+          input: r.input,
+          output: r.output ?? null,
+          status: r.status,
+          error: r.error ?? null,
+          feedback: r.feedback ? { rating: r.feedback.rating, comment: r.feedback.comment ?? null } : null,
+          lesson: r.reflection?.status === 'done' ? r.reflection.lesson : null,
+        }),
+      )
+      .join('\n') + (runs.length ? '\n' : ''),
+  );
 });
 app.post('/api/runs/:id/cancel', async (req, res) => {
   const filter = {

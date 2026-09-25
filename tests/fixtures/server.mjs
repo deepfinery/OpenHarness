@@ -312,6 +312,23 @@ function answer(messages, tools) {
   if (spawnTool && String(input).includes('delegate a crowd'))
     return spawn([1, 2, 3].map((n) => ({ task: `Sub-task: crowd member ${n}` })));
   const system = messages.find((m) => m.role === 'system')?.content ?? '';
+  // Reflection: turn a run into a deterministic lesson that names what the feedback asked for.
+  if (system.startsWith('You turn one run of an AI agent into a lesson')) {
+    const task = /Task: (.*)/.exec(String(input))?.[1]?.slice(0, 60) ?? 'this task';
+    const comment = /Comment: (.*)/.exec(String(input))?.[1];
+    const verdict = String(input).includes('the user rejected')
+      ? `avoid what the user rejected${comment ? ` (${comment})` : ''}`
+      : String(input).includes('the user approved')
+        ? 'repeat the approach the user approved'
+        : 'check the failing step before relying on it';
+    return { content: `Lesson: for requests like "${task}", ${verdict}.` };
+  }
+  if (String(input).includes('what did we learn'))
+    return {
+      content: system.includes('<lessons>')
+        ? `Recalled: ${system.split('<lessons>')[1].split('</lessons>')[0].trim()}`
+        : 'Recalled: nothing yet',
+    };
   if (String(input).includes('follow the skill') && system.includes('<skill>'))
     return { content: `Following skill: ${system.split('<skill>')[1].split('</skill>')[0].trim()}` };
   if (String(input).includes('record a finding')) {
