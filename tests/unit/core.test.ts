@@ -392,3 +392,51 @@ test('workspace notes carry provenance and live in clean folders', () => {
   assert.equal(workspaceModule.notePath({ filename: 'A.md' }), 'A.md');
   assert.equal(workspaceModule.folderFor.finding, 'research');
 });
+
+const subagents = await import('../../packages/core/src/subagents.js');
+test('sub-agent budgets split 80% of what is left, capped by each effort preset', () => {
+  assert.deepEqual(subagents.childBudgets(100_000, [{ task: 'a' }, { task: 'b' }]), [30_000, 30_000]);
+  assert.deepEqual(
+    subagents.childBudgets(50_000, [{ task: 'a' }, { task: 'b', effort: 'high' }]),
+    [20_000, 20_000],
+  );
+  assert.deepEqual(subagents.childBudgets(1_000_000, [{ task: 'a', effort: 'high' }]), [400_000]);
+  assert.deepEqual(subagents.childBudgets(-5, [{ task: 'a' }]), [0]);
+});
+test('a sub-agent gets a fresh prompt, the chosen skill and only the requested tools', () => {
+  const parent = agentSchema.parse({
+    name: 'Lead',
+    systemPrompt: 'Lead the work.',
+    providerId: randomUUID(),
+    connections: [{ connectionId: randomUUID(), tools: ['lookup', 'calculate'] }],
+  });
+  parent.skills = [
+    {
+      id: randomUUID(),
+      name: 'Checklist',
+      description: 'd',
+      instructions: 'Use the checklist.',
+      enabled: true,
+    },
+  ];
+  const child = subagents.childAgent(
+    parent,
+    { task: 'Find prices', skill: 'Checklist', tools: ['lookup'], effort: 'medium' },
+    12_000,
+    true,
+  );
+  assert.equal(child.connections[0].tools.join(), 'lookup');
+  assert.equal(child.tokenBudget, 12_000);
+  assert.equal(child.effort, 'medium');
+  assert.equal(child.delegation, undefined, 'sub-agents are never delegators');
+  assert.match(child.systemPrompt, /sub-agent working for "Lead"/);
+  assert.match(child.systemPrompt, /<skill>\nUse the checklist\.\n<\/skill>/);
+  assert.match(child.systemPrompt, /kb_write/);
+  assert.doesNotMatch(child.systemPrompt, /Lead the work/, 'the parent prompt is not inherited');
+  assert.throws(
+    () => subagents.childAgent(parent, { task: 'x', skill: 'Missing' }, 5000, false),
+    /Unknown skill/,
+  );
+  const all = subagents.childAgent(parent, { task: 'x' }, 5000, false);
+  assert.deepEqual(all.connections[0].tools, ['lookup', 'calculate']);
+});

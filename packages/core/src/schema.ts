@@ -99,6 +99,17 @@ export const agentSchema = z.object({
   ),
   /** Total tokens (prompt + completion) per run; defaults to the effort preset. */
   tokenBudget: z.number().int().min(1000).max(50_000_000).optional(),
+  /**
+   * Lets the agent hand focused tasks to sub-agents it spins up itself (the spawn_agents tool). Each sub-agent
+   * gets a fresh context, a share of this agent's remaining budget, and reports back a summary and note ids.
+   */
+  delegation: z
+    .object({
+      enabled: z.boolean().default(false),
+      /** Sub-agents this agent may start in one run. */
+      maxAgents: z.number().int().min(1).max(12).default(4),
+    })
+    .optional(),
   enabled: z.boolean().default(true),
 });
 export const emailSettingsSchema = z.object({
@@ -392,7 +403,12 @@ export type Run = Stored<RunInput> & {
   embedId?: string;
   scheduleKey?: string;
   initiatedBy?: string;
-  trigger?: 'studio' | 'api' | 'chat' | 'webhook' | 'embed' | 'schedule';
+  trigger?: 'studio' | 'api' | 'chat' | 'webhook' | 'embed' | 'schedule' | 'subagent';
+  /** Set on sub-agent runs: the run and step of the agent that spawned them. */
+  parentRunId?: string;
+  parentNodeId?: string;
+  /** Tokens a sub-agent run used; they also count against its parent. */
+  tokensUsed?: number;
   webhookId?: string;
   conversationId?: string;
   overrides?: RunOverrides;

@@ -286,6 +286,34 @@ function answer(messages, tools) {
           ],
         }
       : undefined;
+  // Delegation: the spawn_agents tool is built in, so it keeps its plain name.
+  const spawnTool = tools?.find((t) => t.function.name === 'spawn_agents');
+  const spawn = (agents) => ({
+    content: '',
+    tool_calls: [
+      {
+        id: randomUUID(),
+        type: 'function',
+        function: { name: 'spawn_agents', arguments: JSON.stringify({ agents }) },
+      },
+    ],
+  });
+  if (spawnTool && String(input).includes('research with sub-agents'))
+    return spawn([
+      { task: 'Sub-task: record a finding about the sky', effort: 'light' },
+      { task: 'Sub-task: check the widget price list' },
+    ]);
+  if (spawnTool && String(input).includes('delegate with a skill')) {
+    const skill = spawnTool.function.parameters.properties.agents.items.properties.skill?.enum?.[0];
+    return spawn([{ task: 'Sub-task: follow the skill for this report', ...(skill ? { skill } : {}) }]);
+  }
+  if (spawnTool && String(input).includes('delegate recursively'))
+    return spawn([{ task: 'Sub-task: research with sub-agents one level deeper' }]);
+  if (spawnTool && String(input).includes('delegate a crowd'))
+    return spawn([1, 2, 3].map((n) => ({ task: `Sub-task: crowd member ${n}` })));
+  const system = messages.find((m) => m.role === 'system')?.content ?? '';
+  if (String(input).includes('follow the skill') && system.includes('<skill>'))
+    return { content: `Following skill: ${system.split('<skill>')[1].split('</skill>')[0].trim()}` };
   if (String(input).includes('record a finding')) {
     const call = builtin('kb_write', {
       title: 'Sky colour',
@@ -358,7 +386,6 @@ function answer(messages, tools) {
     const iterations = String(input).match(/Iteration \d+:/g)?.length ?? 0;
     return { content: iterations >= 1 ? 'Finished the task.\nDONE' : 'Did the first half.' };
   }
-  const system = messages.find((m) => m.role === 'system')?.content ?? '';
   return {
     content: system.includes('<knowledge>')
       ? `Grounded answer: ${system.split('<knowledge>')[1].split('</knowledge>')[0].slice(0, 1000)}`

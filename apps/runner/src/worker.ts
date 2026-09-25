@@ -116,6 +116,18 @@ async function processJob(job: Job, controller: AbortController) {
     if (finished) {
       await settleConversation(finished);
       if (['succeeded', 'failed', 'cancelled', 'interrupted'].includes(finished.status)) {
+        // Sub-agents run inside their parent; any still marked running lost their parent.
+        await runs.updateMany(
+          { parentRunId: finished._id, status: 'running' },
+          {
+            $set: {
+              status: 'interrupted',
+              error: 'The parent run ended first',
+              finishedAt: new Date(),
+              updatedAt: new Date(),
+            },
+          },
+        );
         await emitHarnessEvent(finished.ownerId, 'execution.completed', {
           execution_id: finished._id,
           agent_id: finished.workflowId ?? finished.agentId,
