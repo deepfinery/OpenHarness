@@ -138,7 +138,13 @@ test('Streamable HTTP MCP token authentication and real tool discovery', async (
   assert.equal(connection.hasToken, true);
   assert.equal(JSON.stringify(connection).includes('test-mcp-secret'), false);
   const tools = await ok(`/connections/${connection.id}/discover`, {});
-  assert.deepEqual(tools.map((t: any) => t.name).sort(), ['calculate', 'fail', 'lookup', 'strict']);
+  assert.deepEqual(tools.map((t: any) => t.name).sort(), [
+    'bigdata',
+    'calculate',
+    'fail',
+    'lookup',
+    'strict',
+  ]);
   assert.equal(tools.find((t: any) => t.name === 'lookup').inputSchema.required.includes('query'), true);
 });
 test('legacy SSE servers can expose tools through the same connector', async () => {
@@ -147,7 +153,7 @@ test('legacy SSE servers can expose tools through the same connector', async () 
     url: 'http://fixtures:9090/sse',
     transport: 'sse',
   });
-  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 4);
+  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 5);
 });
 test('MCP OAuth discovery, registration, PKCE, state binding and token refresh', async () => {
   const c = await ok('/connections', {
@@ -168,14 +174,14 @@ test('MCP OAuth discovery, registration, PKCE, state binding and token refresh',
   const result = await request(callback.pathname.replace('/api', '') + callback.search);
   assert.equal(result.status, 302, JSON.stringify(result.data));
   assert.equal((await ok(`/connections/${c.id}`)).authorized, true);
-  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 4);
+  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 5);
   assert.equal(
     (await request(callback.pathname.replace('/api', '') + callback.search)).status,
     400,
     'state cannot be replayed',
   );
   await fetch(`${fixture}/expire-token`, { method: 'POST' });
-  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 4);
+  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 5);
   const stats = (await (await fetch(`${fixture}/stats`)).json()) as any;
   assert.ok(stats.refreshes >= 1);
 });

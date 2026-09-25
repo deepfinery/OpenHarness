@@ -231,6 +231,17 @@ export const workflowSchema = z
       .default([]),
     maxSteps: z.number().int().min(1).max(500).default(100),
     resumePolicy: z.enum(resumePolicies).default('safe'),
+    /**
+     * The knowledge base agents use as shared working memory: they search and read it selectively and write
+     * findings, decisions and feedback into folders there instead of carrying everything in their context.
+     */
+    workspace: z
+      .object({
+        knowledgeBaseId: id,
+        /** Large tool results are saved as notes and replaced in the context by a summary and a reference. */
+        offloadToolResults: z.boolean().default(true),
+      })
+      .optional(),
     schedule: scheduleSchema.optional(),
   })
   .superRefine((w, ctx) => {
@@ -393,6 +404,10 @@ export type KnowledgeDocument = Stored<{
   size: number;
   /** Notes are written in the studio and stay editable; uploads are files. */
   kind?: 'upload' | 'note';
+  /** Workspace folder such as research, decisions, feedback or experience; empty for the base's root. */
+  folder?: string;
+  /** Provenance of notes that agents write: run, agent, kind, sources, confidence. */
+  meta?: Record<string, unknown>;
   status: 'queued' | 'indexing' | 'ready' | 'failed' | 'deleting';
   chunks?: number;
   error?: string;

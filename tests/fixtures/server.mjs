@@ -70,6 +70,11 @@ function mcpServer() {
       return { content: [{ type: 'text', text: String(a + b) }], structuredContent: { sum: a + b } };
     },
   );
+  server.registerTool('bigdata', { description: 'Return a very large result', inputSchema: {} }, async () => {
+    stats.tools++;
+    const rows = Array.from({ length: 400 }, (_, i) => `row ${i}: telemetry value ${i * 7} within limits`);
+    return { content: [{ type: 'text', text: `BIGDATA START\n${rows.join('\n')}\nBIGDATA END` }] };
+  });
   server.registerTool('fail', { description: 'Return a tool error', inputSchema: {} }, async () => ({
     isError: true,
     content: [{ type: 'text', text: 'Intentional fixture failure' }],
@@ -268,6 +273,54 @@ function answer(messages, tools) {
             type: 'function',
             function: { name: cmd.function.name, arguments: JSON.stringify({ argv: ['uname', '-a'] }) },
           },
+        ],
+      };
+  }
+  // Knowledge workspace tools are built in, so they keep their plain names.
+  const builtin = (name, args) =>
+    tools?.some((t) => t.function.name === name)
+      ? {
+          content: '',
+          tool_calls: [
+            { id: randomUUID(), type: 'function', function: { name, arguments: JSON.stringify(args) } },
+          ],
+        }
+      : undefined;
+  if (String(input).includes('record a finding')) {
+    const call = builtin('kb_write', {
+      title: 'Sky colour',
+      kind: 'finding',
+      content: 'The sky looks blue because of Rayleigh scattering of sunlight.',
+      sources: ['fixture://physics'],
+      confidence: 0.9,
+    });
+    if (call) return call;
+  }
+  if (String(input).includes('record a decision')) {
+    const call = builtin('kb_write', {
+      title: 'Use the blue palette',
+      kind: 'decision',
+      content: 'We use the blue palette for the report.',
+      reasons: 'It matches the sky finding and the brand.',
+    });
+    if (call) return call;
+  }
+  if (String(input).includes('search the workspace')) {
+    const call = builtin('kb_search', { query: 'why is the sky blue rayleigh scattering' });
+    if (call) return call;
+  }
+  const readRequest = /read note ([0-9a-f-]{36})/.exec(String(input));
+  if (readRequest) {
+    const call = builtin('kb_read', { note_id: readRequest[1], limit: 500 });
+    if (call) return call;
+  }
+  if (String(input).includes('use big tool') && tools?.length) {
+    const big = tools.find((t) => t.function.description.includes('/ bigdata:'));
+    if (big)
+      return {
+        content: '',
+        tool_calls: [
+          { id: randomUUID(), type: 'function', function: { name: big.function.name, arguments: '{}' } },
         ],
       };
   }

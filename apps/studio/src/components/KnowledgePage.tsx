@@ -331,6 +331,7 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
                     <span>
                       <strong>{displayName(d)}</strong>
                       <small>
+                        {d.folder ? `${d.folder}/ · ` : ''}
                         {d.status === 'ready'
                           ? `${d.chunks ?? 0} passages`
                           : d.status === 'failed'

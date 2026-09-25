@@ -180,6 +180,10 @@ On the canvas, drag the knowledge base from the toolbox onto an agent to give it
 
 Email is sent by the **Email** workflow step. Recipients, subject and body are templates (`{{last}}`, `{{steps.analyst}}`, `{{payload.email}}`). Because sending is an external side effect, a run that crashes inside an Email step is not replayed under the default resume policy.
 
+### 6b. Give a workflow a knowledge workspace
+
+In **Workflow settings → Knowledge workspace**, pick a knowledge base. The workflow's agents then search it (`kb_search`), read only what they need (`kb_read`), and record findings, decisions with their reasons, and feedback (`kb_write`) as notes in folders such as `research/` and `decisions/`. Large tool results are saved there too, and the agent keeps a summary. See [docs/knowledge-workspace.md](docs/knowledge-workspace.md).
+
 ### 7. Give agents skills
 
 **Skills → New skill**: name it, write one line saying _when_ it applies (“Use when someone reports an outage or error spike”), and the instructions to follow — steps, checklists, output formats, examples. In any agent's settings, **Skills** lists the library; tick as many as the agent should have, or create one in place.

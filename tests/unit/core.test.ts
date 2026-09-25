@@ -366,3 +366,29 @@ test('layout places graph cards without changing links or dropping nodes', () =>
   assert.equal(new Set(result.map((n) => `${n.x},${n.y}`)).size, 4);
   assert.ok(result.find((n) => n.id === 'end')!.x > result.find((n) => n.id === 'start')!.x);
 });
+
+const workspaceModule = await import('../../packages/core/src/workspace.js');
+test('workspace notes carry provenance and live in clean folders', () => {
+  const note = workspaceModule.agentNote({
+    title: 'Pricing',
+    kind: 'decision',
+    content: 'Use tiered pricing.',
+    runId: 'run-1',
+    agent: 'Planner',
+    sources: ['https://example.com'],
+    confidence: 0.7,
+    reasons: 'Customers asked for it.',
+  });
+  assert.equal(note.meta.kind, 'decision');
+  assert.equal(note.meta.run_id, 'run-1');
+  assert.match(note.text, /^---\nkind: decision\n/);
+  assert.match(
+    note.text,
+    /# Pricing\n\nUse tiered pricing\.\n\n\*\*Reasons:\*\* Customers asked for it\.\n$/,
+  );
+  assert.equal(workspaceModule.cleanFolder('/Research//Q3 Notes/'), 'research/q3-notes');
+  assert.equal(workspaceModule.cleanFolder('../../etc'), 'etc');
+  assert.equal(workspaceModule.notePath({ folder: 'research', filename: 'A.md' }), 'research/A.md');
+  assert.equal(workspaceModule.notePath({ filename: 'A.md' }), 'A.md');
+  assert.equal(workspaceModule.folderFor.finding, 'research');
+});
