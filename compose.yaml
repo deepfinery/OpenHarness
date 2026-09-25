@@ -40,7 +40,8 @@ services:
     init: true
     environment: *app-environment
     ports: ['${STUDIO_BIND:-127.0.0.1}:${STUDIO_PORT:-8088}:8088']
-    volumes: ['files:/data']
+    # storage-init prepares the volume; skipping Docker's copy-up avoids a race when both services start at once.
+    volumes: ['files:/data:nocopy']
     extra_hosts: ['host.docker.internal:host-gateway']
     depends_on:
       storage-init: { condition: service_completed_successfully }
@@ -69,7 +70,7 @@ services:
     command: ['node', 'dist/apps/runner/src/worker.js']
     init: true
     environment: *app-environment
-    volumes: ['files:/data']
+    volumes: ['files:/data:nocopy']
     extra_hosts: ['host.docker.internal:host-gateway']
     depends_on:
       storage-init: { condition: service_completed_successfully }
