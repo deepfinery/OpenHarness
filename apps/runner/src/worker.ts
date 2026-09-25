@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { config } from '../../../packages/core/src/config.js';
 import { collection, connectDatabase, mongo } from '../../../packages/core/src/db.js';
 import { closeQueue, JOB_QUEUE, queueChannel, type Job } from '../../../packages/core/src/queue.js';
-import { executeRun } from '../../../packages/core/src/runtime.js';
+import { executeRun, type DeltaWriter } from '../../../packages/core/src/runtime.js';
 import { deleteDocument, indexDocument } from '../../../packages/core/src/knowledge.js';
 import { safeError } from '../../../packages/core/src/security.js';
 import type { KnowledgeDocument, Run } from '../../../packages/core/src/schema.js';
@@ -51,15 +51,39 @@ async function processJob(job: Job, controller: AbortController) {
         beating = false;
       }
     }, 5000);
+    // Streamed model text is buffered and flushed to the run document a few times a second.
+    let partial = '';
+    let dirty = false;
+    let flushing = false;
+    const onDelta: DeltaWriter = (text, reset) => {
+      partial = reset ? '' : partial + text;
+      dirty = true;
+    };
+    const flush = setInterval(async () => {
+      if (!dirty || flushing) return;
+      flushing = true;
+      dirty = false;
+      try {
+        await runs.updateOne(filter, { $set: { partial: partial.slice(-32000) } });
+      } catch {
+      } finally {
+        flushing = false;
+      }
+    }, 300);
     try {
       const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(1800000)]);
-      const output = await executeRun(run, signal);
+      const output = await executeRun(run, signal, onDelta);
       signal.throwIfAborted();
+      clearInterval(flush);
       await runs.updateOne(
         { ...filter, cancelRequested: { $ne: true } },
-        { $set: { status: 'succeeded', output, finishedAt: new Date(), updatedAt: new Date() } },
+        {
+          $set: { status: 'succeeded', output, finishedAt: new Date(), updatedAt: new Date() },
+          $unset: { partial: '', 'checkpoint.cursor': '' },
+        },
       );
     } catch (error) {
+      clearInterval(flush);
       const current = await runs.findOne({ _id: run._id });
       const status = current?.cancelRequested
         ? 'cancelled'
@@ -68,9 +92,11 @@ async function processJob(job: Job, controller: AbortController) {
           : 'failed';
       await runs.updateOne(filter, {
         $set: { status, error: safeError(error), finishedAt: new Date(), updatedAt: new Date() },
+        $unset: { partial: '' },
       });
     } finally {
       clearInterval(timer);
+      clearInterval(flush);
     }
     await runs.updateOne(
       { ...filter, cancelRequested: true },

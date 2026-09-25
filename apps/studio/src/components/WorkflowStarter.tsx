@@ -1,10 +1,30 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, Bot, Check, GitBranch, Plug } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  Bot,
+  Check,
+  GitBranch,
+  GitFork,
+  Mail,
+  Plug,
+  Route,
+} from 'lucide-react';
 import { makeStarter, starterRecipes, type StarterKind } from '../../../../packages/core/src/starters.js';
 import type { Workflow } from '../../../../packages/core/src/schema.js';
 import { errorMessage, type Data } from '../api';
 import { Button, ErrorNotice, Field, Modal } from './ui';
 import { KnowledgeControl, McpControl, ProviderControl } from './ResourceControls';
+const starterIcons: Record<StarterKind, typeof Bot> = {
+  research: BookOpen,
+  mcp: Plug,
+  review: Bot,
+  team: GitFork,
+  router: Route,
+  notify: Mail,
+  blank: GitBranch,
+};
 export function WorkflowStarter({
   data,
   refresh,
@@ -16,9 +36,9 @@ export function WorkflowStarter({
   onClose: () => void;
   onChoose: (workflow: Workflow) => void;
 }) {
-  const [kind, setKind] = useState<StarterKind>('research'),
+  const [kind, setKind] = useState<StarterKind>('mcp'),
     [stage, setStage] = useState(0),
-    [name, setName] = useState('Knowledge research'),
+    [name, setName] = useState('MCP tool assistant'),
     [providerId, setProviderId] = useState(data.providers[0]?.id ?? ''),
     [knowledgeBaseId, setKnowledge] = useState(data.knowledge[0]?.id ?? ''),
     [connectionId, setConnection] = useState(data.connections[0]?.id ?? ''),
@@ -51,18 +71,13 @@ export function WorkflowStarter({
           <>
             <h3>Start with a working structure.</h3>
             <p>
-              Each template includes Start and Finish. Your tools and knowledge attach directly to the agent.
+              Every template includes Start and Finish. Multi-agent templates pass results between agents with{' '}
+              <code>{'{{last}}'}</code> and <code>{'{{steps.id}}'}</code>; you can add, rewire or remove steps
+              afterwards.
             </p>
-            <div className="starter-grid">
+            <div className="starter-grid three">
               {starterRecipes.map((r) => {
-                const Icon =
-                  r.id === 'research'
-                    ? BookOpen
-                    : r.id === 'mcp'
-                      ? Plug
-                      : r.id === 'review'
-                        ? Bot
-                        : GitBranch;
+                const Icon = starterIcons[r.id];
                 return (
                   <button
                     key={r.id}
@@ -74,16 +89,17 @@ export function WorkflowStarter({
                       setError('');
                     }}
                   >
-                    <Icon size={25} />
+                    <span className="starter-card-top">
+                      <Icon size={22} />
+                      {r.agents > 0 && (
+                        <span className="status next">
+                          {r.agents} agent{r.agents === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </span>
                     <strong>{r.name}</strong>
                     <span>{r.description}</span>
-                    <small>
-                      {r.id === 'blank'
-                        ? 'Start → Finish'
-                        : r.id === 'review'
-                          ? 'Start → Research → Review → Finish'
-                          : 'Start → Agent → Finish'}
-                    </small>
+                    <small>{r.shape}</small>
                   </button>
                 );
               })}
@@ -120,6 +136,15 @@ export function WorkflowStarter({
                   setTools(t);
                 }}
               />
+            )}
+            {kind === 'notify' && (
+              <div className="notice">
+                <Mail size={16} />
+                <span>
+                  The Email step sends through Settings → Email (SMTP). Set its recipient on the canvas; it
+                  starts as a placeholder address.
+                </span>
+              </div>
             )}
           </>
         )}

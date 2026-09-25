@@ -227,6 +227,43 @@ conversationApi.post('/chat', async (req, res) => {
     throw error;
   }
 });
+conversationApi.get('/conversations', async (req, res) => {
+  const principal = req.principal!;
+  const query = z.object({ agentId: id.optional(), workflowId: id.optional() }).parse(req.query);
+  checkTokenScope(req, 'read', query);
+  const rows = await collection<Conversation>('conversations')
+    .find({
+      ownerId: principal.tenantId,
+      actor: principal.token ? `token:${principal.token._id}` : `user:${principal.user._id}`,
+      ...(query.agentId ? { agentId: query.agentId } : {}),
+      ...(query.workflowId ? { workflowId: query.workflowId } : {}),
+    })
+    .sort({ updatedAt: -1 })
+    .limit(100)
+    .toArray();
+  res.json(
+    rows.map((c) => ({
+      id: c._id,
+      agentId: c.agentId,
+      workflowId: c.workflowId,
+      title: (c.messages.find((m) => m.role === 'user')?.content ?? 'New conversation').slice(0, 80),
+      messageCount: c.messages.length,
+      updatedAt: c.updatedAt,
+      createdAt: c.createdAt,
+      activeRunId: c.pending?.runId,
+    })),
+  );
+});
+conversationApi.delete('/conversations/:id', async (req, res) => {
+  const principal = req.principal!;
+  const result = await collection<Conversation>('conversations').deleteOne({
+    _id: String(req.params.id),
+    ownerId: principal.tenantId,
+    actor: principal.token ? `token:${principal.token._id}` : `user:${principal.user._id}`,
+  });
+  if (!result.deletedCount) throw new HttpError(404, 'Conversation not found');
+  res.status(204).end();
+});
 conversationApi.get('/conversations/:id', async (req, res) => {
   const principal = req.principal!;
   const filter = {

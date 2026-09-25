@@ -71,6 +71,19 @@ export function McpControl({
     [busy, setBusy] = useState(false),
     [search, setSearch] = useState('');
   const connection = data.connections.find((c) => c.id === connectionId);
+  // The OAuth popup posts back when the provider redirects to the callback; finish with discovery.
+  useEffect(() => {
+    const listener = (event: MessageEvent) => {
+      if (event.origin !== location.origin || event.data?.type !== 'agentic-oauth' || !event.data.connection)
+        return;
+      void action(async () => {
+        await send(`/connections/${event.data.connection}/discover`, {});
+        await refresh();
+      });
+    };
+    addEventListener('message', listener);
+    return () => removeEventListener('message', listener);
+  }, []);
   async function action(task: () => Promise<void>) {
     setBusy(true);
     setError('');

@@ -150,6 +150,7 @@ export async function finishOAuth(state: string, code: string, ownerId: string, 
     fetchFn: safeFetch,
   });
   if (result !== 'AUTHORIZED') throw new HttpError(400, 'MCP authorization was not completed');
+  return connection._id;
 }
 export async function ownedConnection(ownerId: string, id: string) {
   const connection = await connections().findOne({ _id: id, ownerId });

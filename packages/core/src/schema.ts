@@ -19,6 +19,7 @@ export const providerSchema = z.object({
   embeddingModel: z.string().trim().max(150).default(''),
   outputTokenParameter: z.enum(['max_tokens', 'max_completion_tokens']).default('max_tokens'),
   maxOutputTokens: z.number().int().min(128).max(32768).default(4096),
+  streaming: z.boolean().default(true),
 });
 export const connectionSchema = z.object({
   name,
@@ -256,7 +257,12 @@ export type Stored<T> = T & { _id: string; ownerId: string; createdAt: Date; upd
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type RunEvent = { at: string; type: string; nodeId?: string; message: string; data?: unknown };
 /** Durable progress marker written at every node boundary so a replacement runner can resume. */
-export type RunCheckpoint = { cursor?: string; last: unknown; steps: number; nodeAttempts: Record<string, number> };
+export type RunCheckpoint = {
+  cursor?: string;
+  last: unknown;
+  steps: number;
+  nodeAttempts: Record<string, number>;
+};
 export type Run = Stored<RunInput> & {
   status: RunStatus;
   label: string;

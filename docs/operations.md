@@ -77,7 +77,13 @@ service must be listening on an interface reachable from Docker. Do not use
 - Broker outage: new submissions remain in MongoDB. The dispatcher republishes
   queued work when the broker returns.
 - Runner outage: RabbitMQ redelivers unacknowledged work, but the persisted run
-  lease prevents replay. After lease expiration the run becomes `interrupted`.
+  lease prevents a second runner from executing an active run. After lease
+  expiration the workflow's `resumePolicy` decides: `safe` (default) re-queues
+  the run to continue from its checkpoint unless the in-flight step could have
+  acted externally (MCP action, Email step, or an agent with tools), which
+  yields `interrupted` with the reason; `always` resumes regardless; `never`
+  always interrupts. `MAX_RESUMES` (default 3) caps automatic resumes; the
+  trace records each `resumed` event.
 - Indexer outage: expired indexing leases return to the queue. Deterministic
   vector IDs and replacement of partial vectors allow reindexing.
 - A malformed queue message goes to `agentic.jobs.dead`. Normal agent/model
@@ -88,7 +94,16 @@ service must be listening on an interface reachable from Docker. Do not use
   scheduled-run settings and retries after one minute. Other schedules continue.
 
 Review an interrupted run's trace before submitting a new run. Node checkpoints
-are for inspection, not an assertion that an external action is safe to replay.
+let a replacement runner skip completed steps; they are not an assertion that
+the step that was in flight is safe to replay, which is why external actions
+interrupt under the default policy. Every MCP call carries
+`_meta.idempotencyKey` so servers that deduplicate can absorb a replay under
+`resumePolicy: always`.
+
+SMTP for the Email step comes from Settings → Email in the studio or the
+`SMTP_*` variables in `.env`; the studio settings win. Only the SMTP host and
+port are validated against the private-network rules; verify the From address
+with your provider.
 
 ## Release checks
 

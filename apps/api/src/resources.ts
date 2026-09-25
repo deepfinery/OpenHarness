@@ -13,9 +13,9 @@ import {
   workflowSchema,
   type KnowledgeDocument,
 } from '../../../packages/core/src/schema.js';
-import { encrypt, HttpError, validateRemoteUrl } from '../../../packages/core/src/security.js';
+import { encrypt, HttpError, safeError, validateRemoteUrl } from '../../../packages/core/src/security.js';
 import { discoverTools, startOAuth } from '../../../packages/core/src/mcp.js';
-import { chat, ownedProvider } from '../../../packages/core/src/llm.js';
+import { chat, embed, ownedProvider } from '../../../packages/core/src/llm.js';
 import { searchKnowledge } from '../../../packages/core/src/knowledge.js';
 import { filePath, removeFile, saveFile } from '../../../packages/core/src/storage.js';
 import { rateLimit } from './auth.js';
@@ -249,6 +249,44 @@ for (const [kind, schema] of Object.entries(definitions)) {
     res.status(204).end();
   });
 }
+/** Tests a provider definition before it is saved; an existing provider's stored key is reused when `providerId` is set. */
+resources.post('/providers/test-config', async (req, res) => {
+  const ownerId = req.principal!.tenantId;
+  await rateLimit(`provider-test:${ownerId}`, 10);
+  const body = providerSchema.extend({ providerId: z.string().uuid().optional() }).parse(req.body);
+  await validateRemoteUrl(body.baseUrl);
+  const stored = body.providerId ? await ownedProvider(ownerId, body.providerId) : undefined;
+  const { apiKey, providerId, ...rest } = body;
+  const candidate = {
+    ...rest,
+    _id: providerId ?? 'draft',
+    ownerId,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    apiKeyEncrypted: apiKey ? encrypt(apiKey) : stored?.apiKeyEncrypted,
+  };
+  const result: {
+    chat: { ok: boolean; text?: string; error?: string };
+    embedding?: { ok: boolean; dimensions?: number; error?: string };
+  } = {
+    chat: { ok: false },
+  };
+  try {
+    const response = await chat(candidate, [{ role: 'user', content: 'Reply with the word Connected.' }], []);
+    result.chat = { ok: true, text: response.text.slice(0, 200) };
+  } catch (error) {
+    result.chat = { ok: false, error: safeError(error) };
+  }
+  if (candidate.embeddingModel) {
+    try {
+      const vector = await embed(candidate, 'Embedding connectivity test');
+      result.embedding = { ok: true, dimensions: vector.length };
+    } catch (error) {
+      result.embedding = { ok: false, error: safeError(error) };
+    }
+  }
+  res.json(result);
+});
 resources.post('/providers/:id/test', async (req, res) => {
   await rateLimit(`provider-test:${req.principal!.tenantId}`, 10);
   const provider = await ownedProvider(req.principal!.tenantId, String(req.params.id));

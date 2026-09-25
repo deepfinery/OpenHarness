@@ -6,6 +6,8 @@ import { publish } from './queue.js';
 import type { Agent, KnowledgeDocument, Run, RunInput, Stored, Workflow } from './schema.js';
 import { workflowSchema } from './schema.js';
 import { agentWithResources } from './workflow.js';
+import { resumeDecision } from './runtime.js';
+import { settleConversation } from './conversations.js';
 
 export async function createRun(
   ownerId: string,
@@ -135,20 +137,64 @@ export async function dispatchPending() {
     );
   }
 }
+/**
+ * Runs whose lease expired belong to a runner that died. Resume them from the last checkpoint when the
+ * in-flight step cannot have acted on an external system (or the workflow opts in); otherwise fail safe.
+ */
 export async function recoverStaleJobs() {
   const now = new Date();
-  await collection<Run>('runs').updateMany(
-    { status: 'running', leaseUntil: { $lt: now } },
-    {
-      $set: {
-        status: 'interrupted',
-        finishedAt: now,
-        updatedAt: now,
-        error:
-          'Runner interrupted. An external tool may already have acted. Review the trace before starting a new run.',
-      },
-    },
-  );
+  const runs = collection<Run>('runs');
+  const stale = await runs
+    .find({ status: 'running', leaseUntil: { $lt: now } })
+    .limit(100)
+    .toArray();
+  for (const run of stale) {
+    const claim = {
+      _id: run._id,
+      status: 'running' as const,
+      leaseId: run.leaseId,
+      leaseUntil: { $lt: now },
+    };
+    if (run.cancelRequested) {
+      await runs.updateOne(claim, {
+        $set: { status: 'cancelled', finishedAt: now, updatedAt: now },
+        $unset: { leaseId: '', leaseUntil: '', partial: '' },
+      });
+      continue;
+    }
+    const decision = resumeDecision(run);
+    if (decision.resume) {
+      await runs.updateOne(claim, {
+        $set: { status: 'queued', updatedAt: now },
+        $unset: { leaseId: '', leaseUntil: '', publishedAt: '', partial: '' },
+        $inc: { resumeCount: 1 },
+        $push: {
+          events: {
+            $each: [
+              {
+                at: now.toISOString(),
+                type: 'resumed',
+                ...(run.checkpoint?.cursor ? { nodeId: run.checkpoint.cursor } : {}),
+                message: `Runner lost mid-run. Resuming from the last checkpoint because ${decision.reason}.`,
+              },
+            ],
+            $slice: -500,
+          },
+        },
+      });
+    } else {
+      const error = `Runner interrupted and not resumed because ${decision.reason}. An external tool may already have acted. Review the trace before starting a new run.`;
+      await runs.updateOne(claim, {
+        $set: { status: 'interrupted', finishedAt: now, updatedAt: now, error },
+        $unset: { leaseId: '', leaseUntil: '', partial: '' },
+        $push: {
+          events: { $each: [{ at: now.toISOString(), type: 'interrupted', message: error }], $slice: -500 },
+        },
+      });
+      const finished = await runs.findOne({ _id: run._id });
+      if (finished) await settleConversation(finished);
+    }
+  }
   await collection<KnowledgeDocument>('documents').updateMany(
     { status: 'indexing', leaseUntil: { $lt: now } },
     {

@@ -155,6 +155,39 @@ test(
   },
 );
 test(
+  'a run without external side effects resumes on a replacement runner after a crash',
+  { skip: !enabled, timeout: 150000 },
+  async () => {
+    const before = ((await (await fetch(fixture + '/stats')).json()) as any).models;
+    // No tools: the agent only talks to the model, so resuming is safe by the default policy.
+    const agent = await request('/agents', {
+      name: 'Resumable agent',
+      providerId,
+      systemPrompt: 'Answer accurately.',
+    });
+    const run = await request('/runs', { agentId: agent.id, input: 'Resume after delay-model' });
+    await until(
+      async () => ((await (await fetch(fixture + '/stats')).json()) as any).models,
+      (n) => n > before,
+      30000,
+    );
+    try {
+      await compose('kill', '-s', 'SIGKILL', 'runner');
+    } finally {
+      await compose('up', '-d', 'runner');
+    }
+    const result = await until(
+      () => request(`/runs/${run.id}`),
+      (r) => ['succeeded', 'failed', 'interrupted'].includes(r.status),
+      120000,
+    );
+    assert.equal(result.status, 'succeeded', result.error);
+    assert.equal(result.resumeCount, 1);
+    assert.ok(result.events.some((e: any) => e.type === 'resumed'));
+    assert.match(result.output, /Resume after delay-model/);
+  },
+);
+test(
   'scheduled workflows persist and dispatch a run without browser activity',
   { skip: !enabled, timeout: 30000 },
   async () => {

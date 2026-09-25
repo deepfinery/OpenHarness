@@ -125,6 +125,8 @@ export function defaultAgent(data: Data): Agent {
     enabled: true,
     maxTurns: 12,
     timeoutSeconds: 300,
+    pattern: 'react',
+    patternConfig: { reflections: 1, iterations: 3, doneMarker: 'DONE', maxPlanSteps: 5 },
   };
 }
 /** Upgrade the editable graph without rewriting saved workflows until the user saves. */

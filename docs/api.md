@@ -35,11 +35,15 @@ uses this precondition. Legacy resources without revisions use `If-Match: 0`.
 
 | Collection    | Required fields                      | Optional fields                                                                                                                                        |
 | ------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `providers`   | `name`, `kind`, `baseUrl`, `model`   | `apiKey`, `embeddingModel`, `maxOutputTokens`, `outputTokenParameter` (`max_tokens` or `max_completion_tokens`)                                        |
+| `providers`   | `name`, `kind`, `baseUrl`, `model`   | `apiKey`, `embeddingModel`, `maxOutputTokens`, `outputTokenParameter` (`max_tokens` or `max_completion_tokens`), `streaming` (default `true`)          |
 | `connections` | `name`, `url`                        | `transport` (`http`/`sse`), `authType` (`none`/`token`/`oauth`), `token`, `tokenHeader`, `oauthClientId`, `oauthClientSecret`, `oauthScope`, `enabled` |
-| `agents`      | `name`, `providerId`, `systemPrompt` | `description`, `connections`, `knowledgeBaseIds`, `maxTurns`, `timeoutSeconds`, `enabled`                                                              |
+| `agents`      | `name`, `providerId`, `systemPrompt` | `description`, `connections`, `knowledgeBaseIds`, `maxTurns`, `timeoutSeconds`, `pattern`, `patternConfig`, `enabled`                                  |
 | `knowledge`   | `name`, `providerId`                 | `description`                                                                                                                                          |
-| `workflows`   | `name`, `startAt`, `nodes`           | `description`, `enabled`, `schedule`, `resources`, `bindings`, `maxSteps`                                                                              |
+| `workflows`   | `name`, `startAt`, `nodes`           | `description`, `enabled`, `schedule`, `resources`, `bindings`, `maxSteps`, `resumePolicy` (`safe`/`always`/`never`)                                    |
+
+Agent `pattern` is one of `react` (default), `plan-execute`, `reflection`, or `loop`.
+`patternConfig` holds `maxPlanSteps` (1–8), `reflections` (1–3), `iterations` (1–10), and
+`doneMarker`; unused fields are ignored.
 
 Secret fields are write-only. Omit them on PUT to preserve an existing secret;
 an explicit empty string clears it. Responses expose `hasApiKey`, `hasToken`,
@@ -55,18 +59,22 @@ Agent MCP bindings are explicit:
 
 Discover tools before selecting them. Empty lists grant no tool permissions.
 
-| Method   | Path                          | Purpose                                                            |
-| -------- | ----------------------------- | ------------------------------------------------------------------ |
-| POST     | `/providers/:id/test`         | Runs a short chat request against the configured model.            |
-| POST     | `/connections/:id/discover`   | Lists and persists the MCP server's tools.                         |
-| POST     | `/connections/:id/oauth`      | Returns `authorizationUrl` or `authorized: true`.                  |
-| GET      | `/mcp/oauth/callback`         | Browser OAuth callback, bound to local session and one-time state. |
-| POST     | `/connections/:id/disconnect` | Removes stored MCP OAuth credentials and tool discovery.           |
-| GET/POST | `/knowledge/:id/documents`    | List documents or upload one multipart `file`.                     |
-| POST     | `/knowledge/:id/search`       | Search with `{ "query": "question" }`.                             |
-| GET      | `/documents/:id/download`     | Download the owner's original file.                                |
-| POST     | `/documents/:id/reindex`      | Queue a ready or failed document for reindexing.                   |
-| DELETE   | `/documents/:id`              | Mark for asynchronous vector and filesystem deletion.              |
+| Method   | Path                          | Purpose                                                                                                               |
+| -------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| POST     | `/providers/test-config`      | Tests an unsaved provider body (chat, and embeddings when `embeddingModel` is set); `providerId` reuses a stored key. |
+| POST     | `/providers/:id/test`         | Runs a short chat request against the configured model.                                                               |
+| GET/PUT  | `/settings/email`             | Workspace SMTP settings (PUT is administrator-only; `password` is write-only).                                        |
+| DELETE   | `/settings/email`             | Removes workspace SMTP settings, falling back to `.env` defaults.                                                     |
+| POST     | `/settings/email/test`        | Sends a test email to `{ "to": "address" }` (administrator-only).                                                     |
+| POST     | `/connections/:id/discover`   | Lists and persists the MCP server's tools.                                                                            |
+| POST     | `/connections/:id/oauth`      | Returns `authorizationUrl` or `authorized: true`.                                                                     |
+| GET      | `/mcp/oauth/callback`         | Browser OAuth callback, bound to local session and one-time state.                                                    |
+| POST     | `/connections/:id/disconnect` | Removes stored MCP OAuth credentials and tool discovery.                                                              |
+| GET/POST | `/knowledge/:id/documents`    | List documents or upload one multipart `file`.                                                                        |
+| POST     | `/knowledge/:id/search`       | Search with `{ "query": "question" }`.                                                                                |
+| GET      | `/documents/:id/download`     | Download the owner's original file.                                                                                   |
+| POST     | `/documents/:id/reindex`      | Queue a ready or failed document for reindexing.                                                                      |
+| DELETE   | `/documents/:id`              | Mark for asynchronous vector and filesystem deletion.                                                                 |
 
 ## Workflow definitions
 
@@ -111,15 +119,16 @@ every step needs a possible path to Finish. Cycles are permitted with a bounded
 `maxSteps` (default 100, maximum 500). Exhaustion fails the run. Execution cannot
 return to Start. Legacy graphs without Start keep their acyclic validation.
 
-| Type        | Fields                                                                           |
-| ----------- | -------------------------------------------------------------------------------- |
-| `start`     | `next`                                                                           |
-| `agent`     | Exactly one of `agentId` or inline `config` (agent definition), `prompt`, `next` |
-| `tool`      | `connectionId`, `tool`, object `arguments`, `next`                               |
-| `parallel`  | `agentIds` (up to 8), `prompt`, `next`                                           |
-| `condition` | `value`, `operator`, `compare`, `onTrue`, `onFalse`                              |
-| `finish`    | `template`                                                                       |
-| `output`    | Legacy alias for Finish                                                          |
+| Type        | Fields                                                                              |
+| ----------- | ----------------------------------------------------------------------------------- |
+| `start`     | `next`                                                                              |
+| `agent`     | Exactly one of `agentId` or inline `config` (agent definition), `prompt`, `next`    |
+| `tool`      | `connectionId`, `tool`, object `arguments`, `next`                                  |
+| `parallel`  | `agentIds` (up to 8), `prompt`, `next`                                              |
+| `email`     | `to` (comma-separated templates), `subject`, `body`, `next`; sent via SMTP settings |
+| `condition` | `value`, `operator`, `compare`, `onTrue`, `onFalse`                                 |
+| `finish`    | `template`                                                                          |
+| `output`    | Legacy alias for Finish                                                             |
 
 Every node has `id`, `name`, and optional `position: {x,y}`. Resources use
 `type: mcp`, `connectionId`, and a nonempty `tools` selection, or
@@ -158,16 +167,17 @@ messages. These runs are independent; use `/chat` for server-managed history.
 An optional `payload` object exposes structured fields to workflow templates. An `Idempotency-Key` header reuses the existing run
 for an identical request. Reusing it for a different payload returns 409.
 
-| Method   | Path                       | Access                                                           |
-| -------- | -------------------------- | ---------------------------------------------------------------- |
-| POST     | `/runs`                    | Session or API token with `execute` for the target; returns 202. |
-| GET      | `/runs?page=0`             | Session or API token with `read`; 50 runs per page.              |
-| GET      | `/runs/:id`                | Tenant session, or the creating API token with `read`.           |
-| POST     | `/runs/:id/cancel`         | Tenant session, or the creating API token with `execute`.        |
-| GET/POST | `/integrations/tokens`     | Session only; list/create a scoped API key.                      |
-| DELETE   | `/integrations/tokens/:id` | Session only; revoke immediately.                                |
-| GET/POST | `/integrations/embeds`     | Session only; list/create a scoped embed.                        |
-| DELETE   | `/integrations/embeds/:id` | Session only; revoke immediately.                                |
+| Method   | Path                       | Access                                                                                                                                               |
+| -------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST     | `/runs`                    | Session or API token with `execute` for the target; returns 202.                                                                                     |
+| GET      | `/runs?page=0`             | Session or API token with `read`; 50 runs per page.                                                                                                  |
+| GET      | `/runs/:id`                | Tenant session, or the creating API token with `read`.                                                                                               |
+| GET      | `/runs/:id/stream`         | Server-sent events (`event: run`) with the same body as `/runs/:id` on every change, including `partial` streamed text; closes on a terminal status. |
+| POST     | `/runs/:id/cancel`         | Tenant session, or the creating API token with `execute`.                                                                                            |
+| GET/POST | `/integrations/tokens`     | Session only; list/create a scoped API key.                                                                                                          |
+| DELETE   | `/integrations/tokens/:id` | Session only; revoke immediately.                                                                                                                    |
+| GET/POST | `/integrations/embeds`     | Session only; list/create a scoped embed.                                                                                                            |
+| DELETE   | `/integrations/embeds/:id` | Session only; revoke immediately.                                                                                                                    |
 
 Token creation: `name`, `agentIds`, `workflowIds`, `scopes` (`read`, `execute`),
 and `expiresDays` (1–365). At least one target is required. The token is returned
@@ -218,7 +228,10 @@ instead for an agent. Poll `/runs/:id` as usual. The next turn sends:
 
 The target cannot change. Only the initiating user or API key can continue or
 read the conversation. `GET /conversations/:id` returns its successful user and
-assistant messages (last 20) and `activeRunId` if a turn is pending. A second
+assistant messages (last 20) and `activeRunId` if a turn is pending.
+`GET /conversations?agentId=…` (or `workflowId=…`) lists the caller's
+conversations for that target, newest first, with a `title` taken from the first
+message; `DELETE /conversations/:id` removes one. Run history is unaffected. A second
 concurrent turn receives 409. Failed/cancelled turns are omitted from memory.
 `/chat` does not accept `Idempotency-Key`; use one turn at a time and retain its
 returned IDs. API keys require `execute` to submit and `read` to poll.

@@ -1,4 +1,4 @@
-// Provider-neutral chat/tool contract adapted from the source workflow llmClient.
+// Provider-neutral chat/tool contract with optional token streaming.
 import { randomUUID } from 'node:crypto';
 import { collection } from './db.js';
 import { decrypt, HttpError, safeFetch } from './security.js';
@@ -15,6 +15,9 @@ export type ChatMessage = {
   name?: string;
 };
 export type ChatResult = { text: string; toolCalls: ToolCall[]; usage?: { input: number; output: number } };
+/** Receives text as the model produces it. Tool calls are never streamed; they arrive in the result. */
+export type DeltaListener = (text: string) => void;
+
 export async function ownedProvider(ownerId: string, id: string) {
   const p = await collection<ProviderRecord>('providers').findOne({ _id: id, ownerId });
   if (!p) throw new HttpError(404, 'Model provider not found');
@@ -23,33 +26,38 @@ export async function ownedProvider(ownerId: string, id: string) {
 function endpoint(p: Provider, path: string) {
   return `${p.baseUrl.replace(/\/+$/, '')}${path}`;
 }
-async function jsonRequest(
-  url: string,
-  payload: unknown,
-  headers: Record<string, string>,
-  signal?: AbortSignal,
-) {
-  const deadline = AbortSignal.timeout(120000);
+async function failedResponse(response: Response) {
+  const body = await response.text().catch(() => '');
+  let detail = body;
+  try {
+    const parsed = JSON.parse(body);
+    const message = parsed.error?.message ?? parsed.error ?? parsed.message ?? body;
+    detail = typeof message === 'string' ? message : JSON.stringify(message);
+  } catch {
+    // Not JSON; keep the raw body text.
+  }
+  return new Error(
+    `Model provider returned HTTP ${response.status}${detail ? `: ${detail.slice(0, 500)}` : ''}. Check the endpoint, model, credentials and quota.`,
+  );
+}
+async function post(url: string, payload: unknown, headers: Record<string, string>, signal?: AbortSignal) {
+  const deadline = AbortSignal.timeout(180000);
   const response = await safeFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(payload),
     signal: signal ? AbortSignal.any([deadline, signal]) : deadline,
   });
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    let detail = body;
-    try {
-      const parsed = JSON.parse(body);
-      const message = parsed.error?.message ?? parsed.error ?? parsed.message ?? body;
-      detail = typeof message === 'string' ? message : JSON.stringify(message);
-    } catch {
-      // Not JSON; fall back to the raw body text.
-    }
-    throw new Error(
-      `Model provider returned HTTP ${response.status}${detail ? `: ${detail.slice(0, 500)}` : ''}. Check the endpoint, model, credentials and quota.`,
-    );
-  }
+  if (!response.ok) throw await failedResponse(response);
+  return response;
+}
+async function jsonRequest(
+  url: string,
+  payload: unknown,
+  headers: Record<string, string>,
+  signal?: AbortSignal,
+) {
+  const response = await post(url, payload, headers, signal);
   // Each provider has its own wire format; normalized and validated below before use.
   return (await response.json()) as any;
 }
@@ -59,13 +67,57 @@ function argumentsObject(input: unknown): Record<string, unknown> {
     throw new Error('The model returned invalid tool arguments');
   return value as Record<string, unknown>;
 }
+/** Yields one complete line at a time from a streaming body. */
+async function* lines(response: Response, signal?: AbortSignal) {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let index;
+      while ((index = buffer.indexOf('\n')) >= 0) {
+        yield buffer.slice(0, index).replace(/\r$/, '');
+        buffer = buffer.slice(index + 1);
+      }
+    }
+    if (buffer.trim()) yield buffer;
+  } finally {
+    reader.releaseLock();
+  }
+}
+/** Yields parsed JSON `data:` payloads from a server-sent-events body, with the preceding event name. */
+async function* sse(response: Response, signal?: AbortSignal): AsyncGenerator<{ event: string; data: any }> {
+  let event = '';
+  for await (const line of lines(response, signal)) {
+    if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('data:')) {
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      try {
+        yield { event, data: JSON.parse(payload) };
+      } catch {
+        // Keep-alive comments and partial lines are ignored.
+      }
+      event = '';
+    }
+  }
+}
+const isStream = (response: Response, ...types: string[]) =>
+  types.some((t) => (response.headers.get('content-type') ?? '').includes(t));
+
 export async function chat(
   p: ProviderRecord,
   messages: ChatMessage[],
   tools: ToolDefinition[],
   signal?: AbortSignal,
+  onDelta?: DeltaListener,
 ): Promise<ChatResult> {
   const key = decrypt(p.apiKeyEncrypted);
+  const streaming = Boolean(onDelta) && p.streaming !== false;
   const system = messages
     .filter((m) => m.role === 'system')
     .map((m) => m.content)
@@ -88,38 +140,73 @@ export async function chat(
                 })),
               ],
       }));
-    const data = await jsonRequest(
-      endpoint(p, '/messages'),
-      {
-        model: p.model,
-        system,
-        messages: dialog,
-        max_tokens: p.maxOutputTokens,
-        ...(tools.length
-          ? {
-              tools: tools.map((t) => ({
-                name: t.name,
-                description: t.description,
-                input_schema: t.inputSchema,
-              })),
-            }
-          : {}),
-      },
-      { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-      signal,
-    );
-    if (data.stop_reason === 'max_tokens')
-      throw new Error('Model output limit reached; increase the provider output budget');
-    return {
-      text: (data.content ?? [])
-        .filter((c: any) => c.type === 'text')
-        .map((c: any) => c.text)
-        .join('\n'),
-      toolCalls: (data.content ?? [])
-        .filter((c: any) => c.type === 'tool_use')
-        .map((c: any) => ({ id: c.id, name: c.name, arguments: argumentsObject(c.input) })),
-      usage: { input: data.usage?.input_tokens ?? 0, output: data.usage?.output_tokens ?? 0 },
+    const payload = {
+      model: p.model,
+      system,
+      messages: dialog,
+      max_tokens: p.maxOutputTokens,
+      ...(tools.length
+        ? {
+            tools: tools.map((t) => ({
+              name: t.name,
+              description: t.description,
+              input_schema: t.inputSchema,
+            })),
+          }
+        : {}),
     };
+    const headers = { 'x-api-key': key, 'anthropic-version': '2023-06-01' };
+    const url = endpoint(p, '/messages');
+    if (streaming) {
+      const response = await post(url, { ...payload, stream: true }, headers, signal);
+      if (isStream(response, 'text/event-stream')) {
+        let text = '';
+        const blocks = new Map<number, { id: string; name: string; json: string }>();
+        const usage = { input: 0, output: 0 };
+        let stopReason = '';
+        for await (const { data } of sse(response, signal)) {
+          switch (data.type) {
+            case 'message_start':
+              usage.input = data.message?.usage?.input_tokens ?? 0;
+              break;
+            case 'content_block_start':
+              if (data.content_block?.type === 'tool_use')
+                blocks.set(data.index, {
+                  id: data.content_block.id,
+                  name: data.content_block.name,
+                  json: '',
+                });
+              break;
+            case 'content_block_delta':
+              if (data.delta?.type === 'text_delta') {
+                text += data.delta.text;
+                onDelta!(data.delta.text);
+              } else if (data.delta?.type === 'input_json_delta') {
+                const block = blocks.get(data.index);
+                if (block) block.json += data.delta.partial_json;
+              }
+              break;
+            case 'message_delta':
+              stopReason = data.delta?.stop_reason ?? stopReason;
+              usage.output = data.usage?.output_tokens ?? usage.output;
+              break;
+          }
+        }
+        if (stopReason === 'max_tokens')
+          throw new Error('Model output limit reached; increase the provider output budget');
+        return {
+          text,
+          toolCalls: [...blocks.values()].map((b) => ({
+            id: b.id,
+            name: b.name,
+            arguments: argumentsObject(b.json),
+          })),
+          usage,
+        };
+      }
+      return anthropicResult(await response.json());
+    }
+    return anthropicResult(await jsonRequest(url, payload, headers, signal));
   }
   if (p.kind === 'gemini') {
     const contents = messages
@@ -137,51 +224,69 @@ export async function chat(
                 })),
               ],
       }));
-    const data = await jsonRequest(
-      endpoint(p, `/models/${encodeURIComponent(p.model)}:generateContent`),
-      {
-        systemInstruction: { parts: [{ text: system }] },
-        contents,
-        generationConfig: { maxOutputTokens: p.maxOutputTokens },
-        ...(tools.length
-          ? {
-              tools: [
-                {
-                  functionDeclarations: tools.map((t) => ({
-                    name: t.name,
-                    description: t.description,
-                    parametersJsonSchema: t.inputSchema,
-                  })),
-                },
-              ],
-            }
-          : {}),
-      },
-      { 'x-goog-api-key': key },
-      signal,
-    );
-    const candidate = data.candidates?.[0];
-    if (!candidate || ['MAX_TOKENS', 'SAFETY', 'RECITATION'].includes(candidate.finishReason))
-      throw new Error(`Model did not complete: ${candidate?.finishReason ?? 'no candidate'}`);
-    const parts = candidate.content?.parts ?? [];
-    return {
-      text: parts
-        .filter((c: any) => typeof c.text === 'string' && !c.thought)
-        .map((c: any) => c.text)
-        .join('\n'),
-      toolCalls: parts
-        .filter((c: any) => c.functionCall)
-        .map((c: any) => ({
-          id: randomUUID(),
-          name: c.functionCall.name,
-          arguments: argumentsObject(c.functionCall.args),
-          signature: c.thoughtSignature,
-        })),
-      usage: {
-        input: data.usageMetadata?.promptTokenCount ?? 0,
-        output: data.usageMetadata?.candidatesTokenCount ?? 0,
-      },
+    const payload = {
+      systemInstruction: { parts: [{ text: system }] },
+      contents,
+      generationConfig: { maxOutputTokens: p.maxOutputTokens },
+      ...(tools.length
+        ? {
+            tools: [
+              {
+                functionDeclarations: tools.map((t) => ({
+                  name: t.name,
+                  description: t.description,
+                  parametersJsonSchema: t.inputSchema,
+                })),
+              },
+            ],
+          }
+        : {}),
     };
+    const headers = { 'x-goog-api-key': key };
+    const model = encodeURIComponent(p.model);
+    if (streaming) {
+      const response = await post(
+        endpoint(p, `/models/${model}:streamGenerateContent?alt=sse`),
+        payload,
+        headers,
+        signal,
+      );
+      if (isStream(response, 'text/event-stream')) {
+        let text = '';
+        const toolCalls: ToolCall[] = [];
+        let finish = '';
+        let usage = { input: 0, output: 0 };
+        for await (const { data } of sse(response, signal)) {
+          const candidate = data.candidates?.[0];
+          for (const part of candidate?.content?.parts ?? []) {
+            if (typeof part.text === 'string' && !part.thought) {
+              text += part.text;
+              onDelta!(part.text);
+            }
+            if (part.functionCall)
+              toolCalls.push({
+                id: randomUUID(),
+                name: part.functionCall.name,
+                arguments: argumentsObject(part.functionCall.args),
+                signature: part.thoughtSignature,
+              });
+          }
+          finish = candidate?.finishReason ?? finish;
+          if (data.usageMetadata)
+            usage = {
+              input: data.usageMetadata.promptTokenCount ?? usage.input,
+              output: data.usageMetadata.candidatesTokenCount ?? usage.output,
+            };
+        }
+        if (['MAX_TOKENS', 'SAFETY', 'RECITATION'].includes(finish))
+          throw new Error(`Model did not complete: ${finish}`);
+        return { text, toolCalls, usage };
+      }
+      return geminiResult(await response.json());
+    }
+    return geminiResult(
+      await jsonRequest(endpoint(p, `/models/${model}:generateContent`), payload, headers, signal),
+    );
   }
   const nativeOllama = p.kind === 'ollama';
   const dialog = messages.map((m) => ({
@@ -198,27 +303,137 @@ export async function chat(
         }
       : {}),
   }));
-  const data = await jsonRequest(
-    endpoint(p, nativeOllama ? '/api/chat' : '/chat/completions'),
-    {
-      model: p.model,
-      messages: dialog,
-      stream: false,
-      ...(nativeOllama
-        ? { options: { num_predict: p.maxOutputTokens } }
-        : { [p.outputTokenParameter ?? 'max_tokens']: p.maxOutputTokens }),
-      ...(tools.length
-        ? {
-            tools: tools.map((t) => ({
-              type: 'function',
-              function: { name: t.name, description: t.description, parameters: t.inputSchema },
-            })),
-          }
-        : {}),
+  const payload = {
+    model: p.model,
+    messages: dialog,
+    stream: streaming,
+    ...(nativeOllama
+      ? { options: { num_predict: p.maxOutputTokens } }
+      : { [p.outputTokenParameter ?? 'max_tokens']: p.maxOutputTokens }),
+    ...(tools.length
+      ? {
+          tools: tools.map((t) => ({
+            type: 'function',
+            function: { name: t.name, description: t.description, parameters: t.inputSchema },
+          })),
+        }
+      : {}),
+  };
+  const headers: Record<string, string> = key ? { Authorization: `Bearer ${key}` } : {};
+  const url = endpoint(p, nativeOllama ? '/api/chat' : '/chat/completions');
+  if (!streaming) return openAiResult(await jsonRequest(url, payload, headers, signal), nativeOllama);
+  const response = await post(url, payload, headers, signal);
+  if (nativeOllama && isStream(response, 'application/x-ndjson', 'application/json')) {
+    let text = '';
+    const toolCalls: ToolCall[] = [];
+    let usage = { input: 0, output: 0 };
+    let doneReason = '';
+    let sawChunk = false;
+    for await (const line of lines(response, signal)) {
+      if (!line.trim()) continue;
+      const data = JSON.parse(line);
+      sawChunk = true;
+      if (data.message?.content) {
+        text += data.message.content;
+        onDelta!(data.message.content);
+      }
+      for (const t of data.message?.tool_calls ?? [])
+        toolCalls.push({
+          id: t.id || randomUUID(),
+          name: t.function.name,
+          arguments: argumentsObject(t.function.arguments),
+        });
+      if (data.done) {
+        doneReason = data.done_reason ?? '';
+        usage = { input: data.prompt_eval_count ?? 0, output: data.eval_count ?? 0 };
+      }
+      if (!data.done && data.message === undefined && data.choices) {
+        // An OpenAI-style body on the Ollama endpoint: treat it as a single JSON response.
+        return openAiResult(data, false);
+      }
+    }
+    if (!sawChunk) throw new Error('Model provider returned an empty stream');
+    if (doneReason === 'length')
+      throw new Error('Model output limit reached; increase the provider output budget');
+    return { text, toolCalls, usage };
+  }
+  if (!nativeOllama && isStream(response, 'text/event-stream')) {
+    let text = '';
+    const pending = new Map<number, { id: string; name: string; arguments: string }>();
+    let usage: ChatResult['usage'];
+    let finish = '';
+    for await (const { data } of sse(response, signal)) {
+      const choice = data.choices?.[0];
+      if (choice?.delta?.content) {
+        text += choice.delta.content;
+        onDelta!(choice.delta.content);
+      }
+      for (const call of choice?.delta?.tool_calls ?? []) {
+        const index = call.index ?? pending.size;
+        const entry = pending.get(index) ?? { id: '', name: '', arguments: '' };
+        if (call.id) entry.id = call.id;
+        if (call.function?.name) entry.name += call.function.name;
+        if (call.function?.arguments) entry.arguments += call.function.arguments;
+        pending.set(index, entry);
+      }
+      if (choice?.finish_reason) finish = choice.finish_reason;
+      if (data.usage)
+        usage = { input: data.usage.prompt_tokens ?? 0, output: data.usage.completion_tokens ?? 0 };
+    }
+    if (finish === 'length')
+      throw new Error('Model output limit reached; increase the provider output budget');
+    return {
+      text,
+      toolCalls: [...pending.values()].map((t) => ({
+        id: t.id || randomUUID(),
+        name: t.name,
+        arguments: argumentsObject(t.arguments),
+      })),
+      usage,
+    };
+  }
+  // The server ignored `stream`; read the complete JSON body instead.
+  return openAiResult(await response.json(), nativeOllama);
+}
+function anthropicResult(data: any): ChatResult {
+  if (data.stop_reason === 'max_tokens')
+    throw new Error('Model output limit reached; increase the provider output budget');
+  return {
+    text: (data.content ?? [])
+      .filter((c: any) => c.type === 'text')
+      .map((c: any) => c.text)
+      .join('\n'),
+    toolCalls: (data.content ?? [])
+      .filter((c: any) => c.type === 'tool_use')
+      .map((c: any) => ({ id: c.id, name: c.name, arguments: argumentsObject(c.input) })),
+    usage: { input: data.usage?.input_tokens ?? 0, output: data.usage?.output_tokens ?? 0 },
+  };
+}
+function geminiResult(data: any): ChatResult {
+  const candidate = data.candidates?.[0];
+  if (!candidate || ['MAX_TOKENS', 'SAFETY', 'RECITATION'].includes(candidate.finishReason))
+    throw new Error(`Model did not complete: ${candidate?.finishReason ?? 'no candidate'}`);
+  const parts = candidate.content?.parts ?? [];
+  return {
+    text: parts
+      .filter((c: any) => typeof c.text === 'string' && !c.thought)
+      .map((c: any) => c.text)
+      .join('\n'),
+    toolCalls: parts
+      .filter((c: any) => c.functionCall)
+      .map((c: any) => ({
+        id: randomUUID(),
+        name: c.functionCall.name,
+        arguments: argumentsObject(c.functionCall.args),
+        signature: c.thoughtSignature,
+      })),
+    usage: {
+      input: data.usageMetadata?.promptTokenCount ?? 0,
+      output: data.usageMetadata?.candidatesTokenCount ?? 0,
     },
-    key ? { Authorization: `Bearer ${key}` } : {},
-    signal,
-  );
+  };
+}
+function openAiResult(data: any, nativeOllama: boolean): ChatResult {
   if (data.choices?.[0]?.finish_reason === 'length' || data.done_reason === 'length')
     throw new Error('Model output limit reached; increase the provider output budget');
   const message = nativeOllama ? data.message : data.choices?.[0]?.message;

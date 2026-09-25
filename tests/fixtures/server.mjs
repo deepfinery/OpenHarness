@@ -221,6 +221,24 @@ function answer(messages, tools) {
         },
       ],
     };
+  // Deterministic replies for the agentic patterns exercised by the integration tests.
+  if (String(input).includes('write a numbered plan'))
+    return { content: '1. Gather the facts about the request\n2. Summarize the findings' };
+  if (String(input).includes('Now carry out step'))
+    return {
+      content: `Step result for: ${String(input).split('Now carry out step')[1].split('\n')[0].trim()}`,
+    };
+  if (String(input).includes('Write the final answer to the original request'))
+    return {
+      content: `Planned answer: ${String(input).split('Original request:')[1].split('\n')[0].trim()}`,
+    };
+  if (String(input).startsWith('Critique the answer above')) return { content: 'Critique: add a source.' };
+  if (String(input).startsWith('Revise your answer using this critique'))
+    return { content: 'Revised answer with a source.' };
+  if (String(input).includes('Work on this in iterations')) {
+    const iterations = String(input).match(/Iteration \d+:/g)?.length ?? 0;
+    return { content: iterations >= 1 ? 'Finished the task.\nDONE' : 'Did the first half.' };
+  }
   const system = messages.find((m) => m.role === 'system')?.content ?? '';
   return {
     content: system.includes('<knowledge>')
@@ -232,13 +250,35 @@ app.post('/v1/chat/completions', async (req, res) => {
   stats.models++;
   if (JSON.stringify(req.body).includes('delay-model')) await new Promise((r) => setTimeout(r, 15000));
   const message = answer(req.body.messages, req.body.tools);
+  const finish = message.tool_calls ? 'tool_calls' : 'stop';
+  if (req.body.stream) {
+    stats.streams = (stats.streams ?? 0) + 1;
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
+    const send = (chunk) => res.write(`data: ${JSON.stringify({ choices: [chunk] })}\n\n`);
+    const words = (message.content ?? '').split(/(?<= )/);
+    for (const word of words) if (word) send({ index: 0, delta: { content: word } });
+    for (const [index, call] of (message.tool_calls ?? []).entries()) {
+      // Real providers split arguments across several deltas; do the same here.
+      const args = call.function.arguments;
+      send({
+        index: 0,
+        delta: {
+          tool_calls: [
+            { index, id: call.id, type: 'function', function: { name: call.function.name, arguments: '' } },
+          ],
+        },
+      });
+      send({ index: 0, delta: { tool_calls: [{ index, function: { arguments: args.slice(0, 5) } }] } });
+      send({ index: 0, delta: { tool_calls: [{ index, function: { arguments: args.slice(5) } }] } });
+    }
+    res.write(
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: finish }], usage: { prompt_tokens: 10, completion_tokens: 5 } })}\n\n`,
+    );
+    res.write('data: [DONE]\n\n');
+    return res.end();
+  }
   res.json({
-    choices: [
-      {
-        message: { role: 'assistant', ...message },
-        finish_reason: message.tool_calls ? 'tool_calls' : 'stop',
-      },
-    ],
+    choices: [{ message: { role: 'assistant', ...message }, finish_reason: finish }],
     usage: { prompt_tokens: 10, completion_tokens: 5 },
   });
 });

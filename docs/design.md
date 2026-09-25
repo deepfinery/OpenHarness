@@ -84,12 +84,23 @@ work, including work accepted while the broker was unavailable. Workers
 atomically claim jobs and heartbeat a lease; duplicate deliveries cannot claim
 an active or terminal run.
 
-The runner checkpoints node outputs and events. It never claims exactly-once
-delivery to external services. When a worker dies mid-run, the expired lease
-causes an `interrupted` terminal state rather than blind replay. Indexing jobs
-can be retried because document vectors use deterministic IDs and partial
-vectors are replaced. Documents being removed are immediately excluded from
-retrieval and are deleted by a background job.
+The runner writes a checkpoint (cursor, previous result, step count, per-step
+attempts) before each workflow step and the step's output after it. It never
+claims exactly-once delivery to external services. When a worker dies mid-run,
+the expired lease is handled by the workflow's `resumePolicy`: `safe` (default)
+re-queues the run so a replacement runner continues at the cursor, unless the
+step in flight could have acted externally (an MCP action, an Email step, or an
+agent with tools), in which case the run becomes `interrupted` with the reason;
+`always` resumes regardless; `never` always interrupts. `MAX_RESUMES` bounds
+automatic resumes. Every MCP call carries `_meta.idempotencyKey`
+(`runId:nodeId:call`) so deduplicating servers can neutralize a replay.
+Indexing jobs can be retried because document vectors use deterministic IDs and
+partial vectors are replaced. Documents being removed are immediately excluded
+from retrieval and are deleted by a background job.
+
+Model responses stream by default; the runner buffers deltas into the run's
+`partial` field a few times a second and clears it when the answer is final. The
+API exposes the run through `GET /runs/:id/stream` as server-sent events.
 
 ## Excluded surfaces
 

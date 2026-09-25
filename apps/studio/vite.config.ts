@@ -7,6 +7,8 @@ export default defineConfig({
   build: {
     outDir: '../../dist/studio',
     emptyOutDir: true,
+    // The API serves a strict CSP (font-src 'self'); inlined data: fonts would be blocked.
+    assetsInlineLimit: 0,
     rollupOptions: {
       output: {
         manualChunks: { flow: ['@xyflow/react', 'yaml'], markdown: ['react-markdown', 'remark-gfm'] },

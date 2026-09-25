@@ -21,13 +21,30 @@ const mcp = () => makeStarter({ kind: 'mcp', ...options });
 test('every starter has an explicit Start and Finish and usable resource bindings', () => {
   for (const recipe of starterRecipes) {
     const w = makeStarter({ kind: recipe.id, ...options });
-    assert.equal(workflowSchema.safeParse(w).success, true);
+    assert.equal(workflowSchema.safeParse(w).success, true, recipe.id);
     assert.equal(w.nodes.find((n) => n.id === w.startAt)?.type, 'start');
     assert.ok(w.nodes.some((n) => n.type === 'finish'));
-    assert.equal(w.bindings.length, recipe.id === 'blank' ? 0 : 1);
+    assert.equal(w.nodes.filter((n) => n.type === 'agent').length, recipe.agents);
+    const expectedBindings = (recipe.needsKnowledge ? 1 : 0) + (recipe.needsTools ? 1 : 0);
+    assert.equal(w.bindings.length, expectedBindings, recipe.id);
+    for (const r of w.resources)
+      assert.ok(
+        w.bindings.some((b) => b.resourceId === r.id),
+        `${recipe.id} binds ${r.id}`,
+      );
   }
   assert.throws(() => makeStarter({ kind: 'mcp', providerId }));
   assert.throws(() => makeStarter({ kind: 'research', providerId }));
+  assert.throws(() => makeStarter({ kind: 'notify', providerId }));
+  const team = makeStarter({ kind: 'team', ...options });
+  assert.deepEqual(
+    team.nodes.filter((n) => n.type === 'agent').map((n) => n.config?.pattern),
+    ['react', 'plan-execute', 'reflection'],
+  );
+  assert.equal(
+    makeStarter({ kind: 'notify', ...options }).nodes.some((n) => n.type === 'email'),
+    true,
+  );
 });
 test('canvas connects controls and resources in either drag direction without conflating their edges', () => {
   let w = mcp();

@@ -32,34 +32,76 @@ Allow approximately 4 GB of available memory for the application stack, plus the
 
 ## What is included
 
-- **Agent studio:** instructions, descriptions, model choice, explicit tool permissions, multiple MCP connections, knowledge bindings, execution limits, and enable/disable controls.
-- **Workflow harness:** explicit Start and Finish, inline agents, MCP tool and knowledge attachments, conditions, parallel agents, bounded cycles, and explicit MCP actions. Drag the labelled ports to connect components, reconnect or delete edges, undo/redo, auto-arrange, or edit/export YAML.
-- **Runner:** durable RabbitMQ jobs, persisted execution snapshots and traces, bounded agent loops, cancellation, run history, and interval schedules.
-- **One tool connector: MCP.** Streamable HTTP or legacy SSE, unauthenticated servers, bearer/API-key authentication, and OAuth discovery, PKCE, dynamic registration or a pre-registered client, and refresh tokens.
-- **Model providers:** OpenAI-compatible APIs, Anthropic, Gemini, and Ollama. Model IDs and endpoints are configurable. Model providers are inference services; all external agent tools use MCP.
+- **Agent studio:** agent templates (assistant, researcher, planner, reflective writer, autonomous worker, reviewer, support), four agentic patterns (ReAct, plan-and-execute, reflection, autonomous loop), instructions, model choice, explicit tool permissions, multiple MCP connections, knowledge bindings, execution limits, and enable/disable controls.
+- **Workflow harness:** seven starters including multi-agent ones (plan → research → write, route to a specialist, research → email), explicit Start and Finish, inline agents, MCP tool and knowledge attachments, conditions, parallel agents, Email steps, bounded cycles, and explicit MCP actions. Drag the labelled ports to connect components, reconnect or delete edges, undo/redo, auto-arrange, or edit/export YAML.
+- **Runner:** durable RabbitMQ jobs, persisted execution snapshots, per-step checkpoints, automatic resume on a replacement runner under a per-workflow resume policy, idempotency keys on every tool call, bounded agent loops, cancellation, run history, and interval schedules.
+- **Playground:** saved conversations per agent or workflow (like a chat history), token-by-token streaming, a live execution trace, and a run history tab.
+- **One tool connector: MCP.** Streamable HTTP or legacy SSE, unauthenticated servers, bearer/API-key authentication, and OAuth discovery, PKCE, dynamic registration or a pre-registered client (for servers such as Finnhub), and refresh tokens. Every call is validated against the server's tool schema before it is sent.
+- **Model providers:** guided setup for OpenAI, Anthropic, Gemini, Ollama, or any OpenAI-compatible server, with a connection test for the chat and embedding models before saving. Model providers are inference services; all external agent tools use MCP.
 - **Knowledge bases:** filesystem uploads, asynchronous ingestion, Weaviate hybrid search, source citations in the prompt, and retrieval testing. TXT, Markdown, CSV, JSON, YAML, text PDFs, and DOCX are supported.
+- **Outgoing email:** workspace SMTP settings (Amazon SES, Google Workspace, SendGrid, Mailgun, Postmark, or any relay) with `.env` defaults, a test send, and an Email workflow step.
 - **Shared workspaces:** MongoDB-backed local accounts, administrator-managed teammates, shared agents/workflows/tools/knowledge within a tenant, profile settings, tenant isolation, and workflow edit-conflict detection.
-- **Integrations:** target-scoped API keys, persistent conversational API, authenticated JSON webhooks, and revocable iframe links with allowed frame origins.
+- **Integrations:** target-scoped API keys, persistent conversational API, server-sent event streams per run, authenticated JSON webhooks, and revocable iframe links with allowed frame origins.
 
 No provider-specific tool connectors, external account login, website builder, business setup wizards, reports, customer management, product/service management, billing, or customer portal are included.
 
 ## Start with a template
 
-Choose **Create workflow**, then **Knowledge research**, **MCP tool assistant**, or **Research and review**. Select or create your model provider and resources in the starter. You can discover MCP tools or upload knowledge files there, then open a connected canvas. **Blank canvas** starts with Start → Finish.
+Choose **Create workflow**, then a starter (each opens a connected canvas you can edit):
 
-An agent's left/right ports control execution. Its bottom **Tools** and **Knowledge** ports attach resources available during its reasoning loop. Tools are not forced into the execution sequence: the model chooses when to call the tools you selected. Use an **MCP action** step when a specific call must happen in a fixed order. Clicking a palette item adds and connects it; dragging a port creates or replaces a connection. Select an edge and press Delete to disconnect it, or use the inspector. **Save & test** opens the workflow in the playground.
+| Starter               | Shape                                                  | Agents | Needs               |
+| --------------------- | ------------------------------------------------------ | ------ | ------------------- |
+| Knowledge research    | Start → Researcher → Finish                            | 1      | a knowledge base    |
+| MCP tool assistant    | Start → Tool assistant → Finish                        | 1      | an MCP connection   |
+| Research and review   | Start → Researcher → Reviewer → Finish                 | 2      | a knowledge base    |
+| Plan, research, write | Start → Planner → Researcher → Writer → Finish         | 3      | an MCP connection   |
+| Route to a specialist | Start → Triage → Condition → Specialist A / B → Finish | 3      | nothing             |
+| Research and email    | Start → Analyst → Email → Finish                       | 1      | MCP + SMTP settings |
+| Blank canvas          | Start → Finish                                         | 0      | nothing             |
+
+Select or create your model provider and resources in the starter, then open a connected canvas. Agents in a workflow pass results to each other through templates: `{{last}}` is the previous step's result and `{{steps.<id>}}` any earlier one, so a Writer can read `{{steps.researcher}}` while a Reviewer reads `{{last}}`.
+
+An agent's left/right ports control execution. Its bottom **Tools** and **Knowledge** ports attach resources available during its reasoning loop; one agent can attach several MCP servers and knowledge bases, and the inspector of any attached card offers **+ MCP tools** / **+ Knowledge** to add more. Tools are not forced into the execution sequence: the model chooses when to call the tools you selected. Use an **MCP action** step when a specific call must happen in a fixed order, and an **Email** step to send a result through your SMTP settings. Clicking a palette item adds and connects it; dragging a port creates or replaces a connection. Select an edge and press Delete to disconnect it, or use the inspector. **Save & test** opens the workflow in the playground.
+
+## Agentic patterns
+
+Every agent, reusable or inline on the canvas, runs one of four patterns. Tools and knowledge are available in all of them; the pattern decides how the agent organizes its passes over the model.
+
+| Pattern              | How it works                                                                                                                                | Use it for                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| **ReAct** (default)  | Each turn the model either calls tools or answers. Tool results feed the next turn, bounded by the agent's turn limit.                      | Assistants, most workflow steps                  |
+| **Plan and execute** | One pass writes a short numbered plan without tools; each step then runs with tools and records its result; a final pass writes the answer. | Multi-step research, comparisons, reports        |
+| **Reflection**       | Draft, critique as a strict reviewer, revise with tools for verification. One to three rounds.                                              | Writing, analysis, anything that must be checked |
+| **Autonomous loop**  | Work in iterations, carrying progress forward, until the agent ends a message with the done marker or hits the iteration limit.             | Long tasks with a clear completion condition     |
+
+Patterns beyond ReAct receive up to four times the agent's turn limit in total model calls. Every pass is visible in the trace as `plan`, `plan_step`, `reflection`, and `iteration` events.
 
 In **Settings → Team & workspace**, administrators can name the workspace and add teammates. Teammates share resources and run history. Model/MCP credentials stay write-only. Conversation histories are scoped to their initiating user or API key; workspace members can still inspect the shared execution history.
 
 ## First agent
 
-1. In **Settings → Model providers**, add a provider, its API base URL, and a chat model ID. Add an embedding model if you want to use that provider for knowledge.
-2. In **MCP connections**, save an MCP endpoint. Authorize it if required, then select **Discover tools**.
-3. In **Agents**, define instructions, choose a model, and select the exact tools the agent may use. An empty tool selection grants no tool access.
+1. In **Settings → Model providers**, pick where your models run (OpenAI, Anthropic, Gemini, Ollama, or another OpenAI-compatible server), paste the key, choose a chat model and, if this provider will index knowledge, an embedding model. **Test connection** checks both against the real endpoint before you save and shows the provider's exact error message if something is wrong.
+2. In **MCP connections**, paste the server URL. Use an API key, or choose OAuth and click **Authorize** after saving: a window opens for the provider's login, returns here, and tools are discovered automatically. Discovered tools appear on the connection card, each with its input schema.
+3. In **Agents**, start from a template, adjust the instructions and pattern, choose a model, and select the exact tools the agent may use. An empty tool selection grants no tool access.
 4. Optionally create a **Knowledge base**, upload documents, wait for their `ready` status, and attach it to the agent.
-5. Use the **Playground**, or add the agent to a workflow.
+5. Use the **Playground**: conversations are saved per agent, answers stream as they are written, and the side panel shows the live trace or the run history.
 
 The studio starts without API keys. Actual model runs and vector embeddings require a configured provider. Local Ollama needs the selected models pulled in advance.
+
+## Outgoing email
+
+**Settings → Email (SMTP)** configures one outgoing mail server per workspace, with presets for Amazon SES, Google Workspace, SendGrid, Mailgun and Postmark, a **Send test** action, and the same private-network rules as other endpoints. Operators can preconfigure every workspace through `.env`:
+
+```sh
+SMTP_HOST=email-smtp.eu-west-1.amazonaws.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=AKIA...          # SES SMTP credentials, not IAM keys
+SMTP_PASSWORD=...
+SMTP_FROM=reports@example.com
+```
+
+Workspace settings saved in the studio take precedence over `.env`. Email is sent by the **Email** workflow step (recipients, subject and body are templates such as `{{last}}` or `{{payload.email}}`). Because sending is an external side effect, a run that crashes inside an Email step is not replayed under the default resume policy.
 
 ## Model endpoints
 
@@ -76,7 +118,7 @@ Private endpoints are denied unless their hostname is explicitly listed in `ALLO
 docker compose up -d api runner
 ```
 
-MCP OAuth callback URL: `PUBLIC_URL/api/mcp/oauth/callback`. Configure the public URL before authorizing a server. OAuth here authorizes tools; studio users always use local accounts. Servers without dynamic registration can use a pre-registered client ID and optional client secret. A remote stdio-only MCP server should be exposed through an HTTP/SSE MCP gateway; the application does not execute arbitrary shell commands supplied in the UI.
+MCP OAuth callback URL: `PUBLIC_URL/api/mcp/oauth/callback` (shown, with a copy button, in the connection form). Configure the public URL before authorizing a server. OAuth here authorizes tools; studio users always use local accounts. Servers without dynamic registration can use a pre-registered client ID and optional client secret: for example, Finnhub's remote server at `https://mcp.finnhub.io/mcp` uses Streamable HTTP with OAuth and a published client ID, and its 70 tools appear on the connection card after authorizing. A remote stdio-only MCP server should be exposed through an HTTP/SSE MCP gateway; the application does not execute arbitrary shell commands supplied in the UI.
 
 ## API, conversation, webhooks, and iframe
 
@@ -90,9 +132,9 @@ curl -X POST http://localhost:8088/api/runs \
   -d '{"agentId":"YOUR_AGENT_ID","input":"Summarize the available knowledge."}'
 ```
 
-The response is `202 Accepted` with an `id`. Poll `GET /api/runs/:id` using the same key. Terminal statuses are `succeeded`, `failed`, `cancelled`, and `interrupted`. Cancel with `POST /api/runs/:id/cancel`. Use `workflowId` instead of `agentId` for workflows.
+The response is `202 Accepted` with an `id`. Poll `GET /api/runs/:id` using the same key, or open `GET /api/runs/:id/stream` for server-sent events that deliver the status, the trace, and the answer text as it streams from the model. Terminal statuses are `succeeded`, `failed`, `cancelled`, and `interrupted`. Cancel with `POST /api/runs/:id/cancel`. Use `workflowId` instead of `agentId` for workflows.
 
-For a conversation, call `POST /api/chat` with `workflowId` (or `agentId`) and `message`. Subsequent turns send the returned `conversationId` and a new `message`; history is maintained on the server. Each turn is queued and returns a run ID to poll.
+For a conversation, call `POST /api/chat` with `workflowId` (or `agentId`) and `message`. Subsequent turns send the returned `conversationId` and a new `message`; history is maintained on the server. Each turn is queued and returns a run ID to poll or stream. `GET /api/conversations?agentId=…` lists the caller's conversations for a target.
 
 For event-driven workflows, use **Integrations → Webhooks**. Choose a target and optionally a JSON input field such as `event.message`. Send JSON to the generated URL with its bearer secret. The input field becomes `{{input}}`; all event fields are available through `{{payload.field}}`. Poll `/api/hooks/:id/runs/:runId` with the same secret. Webhook retries support `Idempotency-Key`.
 
@@ -196,7 +238,7 @@ sequenceDiagram
   A-->>C: status + output + trace
 ```
 
-If the runner process dies mid-run, its message is never acked and its lease is never renewed. A periodic sweep (`recoverStaleJobs`) finds runs whose `leaseUntil` has passed and marks them `interrupted` once it does — no other replica resumes the run from its last checkpoint. See [Run states](#run-states) and [design notes](docs/design.md) for why.
+If the runner process dies mid-run, its message is never acked and its lease is never renewed. A periodic sweep (`recoverStaleJobs`) finds runs whose `leaseUntil` has passed and applies the workflow's **resume policy**: under the default `safe` policy the run goes back to `queued` and a replacement runner continues from the checkpoint written before the in-flight step, unless that step could have acted on an external system (an MCP action, an Email step, or an agent with tools), in which case the run is marked `interrupted` for review. `always` resumes regardless; `never` always interrupts. Automatic resumes are capped by `MAX_RESUMES` (default 3). See [Run states](#run-states) and [Idempotency, resiliency, and what "handled" actually means](#idempotency-resiliency-and-what-handled-actually-means).
 
 ### Run states
 
@@ -208,14 +250,15 @@ stateDiagram-v2
   running --> succeeded : executeRun resolves
   running --> failed : executeRun throws
   running --> cancelled : cancellation observed by the runner
-  running --> interrupted : lease expires - runner crashed or lost
+  running --> queued : lease expires and the resume policy allows it - resumeCount + 1
+  running --> interrupted : lease expires and the in-flight step may have acted externally
   succeeded --> [*]
   failed --> [*]
   cancelled --> [*]
   interrupted --> [*]
 ```
 
-`interrupted` is terminal, not retried automatically: a tool call before the crash may already have taken effect, so replaying blind is unsafe. Review the run's trace and start a new run deliberately.
+`interrupted` is terminal: a tool call before the crash may already have taken effect, so replaying it blind is unsafe. Review the run's trace and start a new run deliberately. Steps without external side effects are resumed automatically instead, and the trace records a `resumed` event with the reason.
 
 ### Workflow node types
 
@@ -225,6 +268,7 @@ stateDiagram-v2
 | `agent`     | Runs an agent's bounded reasoning loop; the model chooses when to call its bound MCP tools | one `next`, plus bottom-port MCP tool / knowledge bindings |
 | `tool`      | Makes one fixed MCP call with templated arguments, no model involved                       | one `next`                                                 |
 | `parallel`  | Runs 2-8 agents concurrently on the same prompt and waits for all                          | one `next`                                                 |
+| `email`     | Sends a templated email through the workspace SMTP settings                                | one `next`                                                 |
 | `condition` | Evaluates a templated comparison                                                           | `onTrue` and `onFalse`                                     |
 | `output`    | Renders a template from accumulated state and ends that path                               | none - terminal                                            |
 | `finish`    | Same as `output`; the canonical end of a workflow                                          | none - terminal                                            |
@@ -245,15 +289,17 @@ An agent's bound MCP tools and knowledge bases are available throughout its own 
 
 ### Idempotency, resiliency, and what "handled" actually means
 
-Three distinct guarantees exist today, and one deliberately doesn't:
+Six mechanisms cover this, each with a stated limit:
 
 - **Submission idempotency.** `POST /runs` and webhook deliveries accept an `Idempotency-Key`. The same key with the same payload returns the original run; the same key with a different payload is rejected with `409` (`createRun` in `packages/core/src/runs.ts`). Scheduled workflows dedup the same way on a `scheduleKey`, so a scheduler restart cannot double-fire an interval.
 - **Durable delivery (the outbox).** A run is written to MongoDB with `status: queued` _before_ anything is published to RabbitMQ. If the broker is down at that instant, the write still succeeds, and a periodic dispatcher (`dispatchPending`) republishes it once the broker is reachable again. No run is lost to a broker outage — the fault-injection test in `tests/integration/reliability.test.ts` stops the RabbitMQ container mid-submission to verify exactly this.
 - **Exclusive execution.** A runner claims a run with an atomic `findOneAndUpdate` (`queued` → `running`, tagged with a `leaseId`). A duplicate delivery of the same message finds the run already claimed and no-ops instead of executing it twice. A 5-second heartbeat keeps the lease alive; if the runner process dies, the lease simply stops renewing.
 
-What is **not** built is automatic replay of a crashed run from its last checkpoint. The runner does checkpoint every node's output to MongoDB as it goes (see [Run lifecycle](#run-lifecycle)), but those checkpoints exist for inspection and for a fast `interrupted` verdict — they are not proof that resuming is safe. MCP defines no generic way to ask "did that tool call already take effect?" A blind replay risks doing it twice (sending a second email, filing a duplicate ticket); silently skipping it risks not doing it at all. Neither is a decision this platform makes on an operator's behalf, so a run whose lease expires is swept to a terminal `interrupted` state with an error pointing at the trace, instead ([Run states](#run-states)).
+- **Checkpointed resume.** Before each workflow step runs, the runner writes a checkpoint (`cursor`, the previous result, the step count, and per-step attempt counts) to the run document, and after it completes the step's output is stored. When a lease expires, the sweep re-queues the run and a replacement runner rebuilds its scope from those checkpoints and continues at the cursor, so completed steps are never repeated. A `resumed` event names the reason; `resumeCount` caps runaway crash loops (`MAX_RESUMES`, default 3).
+- **Side-effect-aware policy.** The one thing a checkpoint cannot prove is whether the step that was in flight already acted on the outside world. MCP defines no generic way to ask "did that call take effect?", so the default `safe` policy resumes only when the in-flight step has no external side effects (`start`, `condition`, `finish`, agents without tools) and otherwise fails to `interrupted` with the reason spelled out. Workflows that call idempotent tools can opt into `always`; audited pipelines can choose `never`.
+- **Idempotency keys on every tool call.** Each MCP call carries `_meta.idempotencyKey = runId:nodeId:callNumber` (or `:attempt` for explicit actions), so an MCP server that deduplicates on it can make a replay harmless. Servers that ignore `_meta` are unaffected, which is why the policy above stays conservative by default.
 
-Real saga-style recovery — automatically resuming past the point of failure — needs one of two things this platform does not yet assume: either every MCP tool call carries an idempotency key that the _external_ service itself honors (outside this platform's control; MCP has no standard for it), or each workflow node declares an explicit compensating action to undo its effect. Both are real, scoped follow-up work. `docs/design.md`'s "Queue semantics" section documents the current stance as a deliberate design decision, not an oversight.
+This is the saga shape without pretending to have compensations the tools cannot offer: forward recovery for everything the platform controls, an explicit stop with a reason for the one step it cannot vouch for, and the key an external system needs to close the gap. `docs/design.md`'s "Queue semantics" section records the same rules.
 
 ### Why this design holds up
 
@@ -285,23 +331,28 @@ That loop's benefits are real: a large ecosystem of pre-built tool, memory, and 
 
 ```mermaid
 flowchart TD
-  subgraph "ReAct / tool-calling loop - built in"
-    A1["agent node: model chooses tools each turn, up to maxTurns"]
+  subgraph "Single agent patterns - per agent setting"
+    A1["ReAct: reason, call tools, observe, answer"]
+    A2["Plan and execute: plan, run each step with tools, synthesize"]
+    A3["Reflection: draft, critique, revise"]
+    A4["Autonomous loop: iterate until the done marker"]
   end
-  subgraph "Sequential pipeline - built in"
+  subgraph "Sequential pipeline - next edges"
     S1[agent] --> S2[agent] --> S3[agent]
   end
-  subgraph "Parallel multi-agent - built in"
+  subgraph "Parallel multi-agent - parallel node"
     P0[agent] --> P1{{parallel node}}
     P1 --> P2[agent A]
     P1 --> P3[agent B]
   end
-  subgraph "Plan-then-delegate - not a distinct node yet"
-    Pl["one agent with a planning prompt does both today"]
+  subgraph "Routing - condition after a triage agent"
+    R0[triage agent] --> R1{condition}
+    R1 -->|SUPPORT| R2[support agent]
+    R1 -->|SALES| R3[sales agent]
   end
 ```
 
-The `agent` node already runs a bounded ReAct loop, `next` edges already chain agents into a sequential pipeline, and the `parallel` node already fans one prompt out to 2-8 agents and waits for all of them. A dedicated **planner** pattern — a step that decomposes a task and explicitly dispatches named sub-steps to specialized agents — is not its own node type yet; today it is approximated by writing a planning instruction into a single agent's system prompt. That gap is open backlog, not shipped.
+The `agent` node runs one of the four agentic patterns above (ReAct, plan-and-execute, reflection, autonomous loop), `next` edges chain agents into a sequential pipeline, the `parallel` node fans one prompt out to 2-8 agents and waits for all of them, and a `condition` after a triage agent routes to specialists. Plan-then-delegate across _several_ agents is the **Plan, research, write** starter: a planning agent, a plan-and-execute researcher with tools, and a reflective writer, connected through `{{steps.<id>}}` templates.
 
 ### The agent and tool design, in depth
 
@@ -322,8 +373,9 @@ Why this matters in production, specifically: the failure modes above are not hy
 - The default HTTP listener binds to loopback. For a server, put a TLS reverse proxy in front of it and set `PUBLIC_URL` to the HTTPS URL. Set `TRUST_PROXY=1` only when there is exactly one trusted proxy.
 - Scale runners with `docker compose up -d --scale runner=2`. Keep the same database, broker, Weaviate instance, credentials, and filesystem for all replicas.
 - A Mongo run/document record is the durable outbox. Queue deliveries are at least once. Atomic claims prevent two workers from executing the same active run.
-- A run interrupted during external work is marked **interrupted**, not automatically replayed. A tool may have acted before the process was lost. Review the trace and start a new run deliberately. This is not an exactly-once guarantee for external side effects.
-- Agent tool errors are returned to the model for correction within its turn budget. An explicit workflow tool error fails that run. There is no automatic retry of a potentially mutating MCP tool.
+- A run whose runner dies resumes from its last checkpoint on another replica when the step in flight had no external side effects (workflow `resumePolicy: safe`, the default). A run interrupted during external work (an MCP action, an Email step, or an agent with tools) is marked **interrupted**, not replayed: a tool may have acted before the process was lost. Review the trace and start a new run deliberately. `resumePolicy: always` or `never` override this per workflow; `MAX_RESUMES` caps automatic resumes. This is not an exactly-once guarantee for external side effects.
+- Agent tool errors, including arguments that fail the tool's schema and hard MCP errors, are returned to the model for correction within its turn budget. An explicit workflow tool error fails that run. There is no automatic retry of a potentially mutating MCP tool. Every call carries an idempotency key in `_meta` for servers that deduplicate.
+- Streaming is on per provider by default and falls back to a single response when a server ignores the `stream` flag. Streamed text is kept in the run's `partial` field until the answer is final.
 - Harness workflows have one Start and at least one Finish. Every execution step needs a possible path to Finish. Cycles are permitted with a step budget (default 100, maximum 500); a run fails when it exhausts that budget. Agent turns and timeouts are bounded separately. Template bindings support `input`, `last`, `steps.<id>`, and `payload.<field>`; arbitrary code is not evaluated. Legacy graphs remain runnable and are upgraded visually when opened and saved.
 - Parallel agent steps wait for all agents. A failed sibling aborts the others' in-flight requests; it cannot undo completed external actions.
 - Interval schedules dispatch while the API is running. After downtime, an overdue schedule dispatches once; it does not replay every missed interval.

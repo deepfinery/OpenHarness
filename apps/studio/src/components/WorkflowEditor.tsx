@@ -24,6 +24,7 @@ import {
   GitBranch,
   GitFork,
   LayoutGrid,
+  Mail,
   Play,
   Plug,
   Plus,
@@ -57,6 +58,7 @@ import {
 } from '../workflowGraph';
 import { Button, ErrorNotice, Field, IconButton } from './ui';
 import { KnowledgeControl, McpControl, ProviderControl } from './ResourceControls';
+import { PatternFields } from './editors';
 
 type GraphItem = WorkflowNode | WorkflowResource;
 type FlowData = { item: GraphItem; detail: string; attached: number; warning?: string } & Record<
@@ -71,6 +73,7 @@ const icons = {
   tool: Plug,
   condition: GitBranch,
   parallel: GitFork,
+  email: Mail,
   mcp: Plug,
   knowledge: BookOpen,
 };
@@ -82,6 +85,7 @@ const labels = {
   tool: 'MCP action',
   condition: 'Condition',
   parallel: 'Parallel agents',
+  email: 'Send email',
   mcp: 'MCP tools',
   knowledge: 'Knowledge',
 };
@@ -281,17 +285,17 @@ export function WorkflowEditor({
         style: {
           stroke: edge.id.startsWith('resource:')
             ? edge.targetHandle === 'knowledge'
-              ? '#6887ae'
+              ? '#2a9d8a'
               : '#9673b7'
-            : '#4e826c',
+            : '#49a2dc',
           strokeWidth: 2,
           strokeDasharray: edge.id.startsWith('resource:') ? '6 5' : undefined,
         },
         markerEnd: edge.id.startsWith('flow:')
-          ? { type: MarkerType.ArrowClosed, color: '#4e826c', width: 18, height: 18 }
+          ? { type: MarkerType.ArrowClosed, color: '#49a2dc', width: 18, height: 18 }
           : undefined,
-        labelStyle: { fill: '#476253', fontSize: 11 },
-        labelBgStyle: { fill: '#f8faf7' },
+        labelStyle: { fill: '#526271', fontSize: 11 },
+        labelBgStyle: { fill: '#eff3f7' },
       })),
     [form, selectedEdge],
   );
@@ -327,7 +331,9 @@ export function WorkflowEditor({
                       ? `${connection?.name ?? 'MCP server'} / ${n.tool || 'Choose an action'}`
                       : n.type === 'parallel'
                         ? `${n.agentIds.length} agents`
-                        : `${n.value} ${n.operator} ${n.compare}`;
+                        : n.type === 'email'
+                          ? `To ${n.to}`
+                          : `${n.value} ${n.operator} ${n.compare}`;
         const warning =
           n.type === 'agent' && !agent?.providerId
             ? 'Select a model to run'
@@ -335,7 +341,9 @@ export function WorkflowEditor({
               ? 'Select tools'
               : n.type === 'knowledge' && !n.knowledgeBaseId
                 ? 'Select a knowledge base'
-                : undefined;
+                : n.type === 'email' && /example\.com|^\s*$/.test(n.to)
+                  ? 'Set the recipient'
+                  : undefined;
         return {
           id: n.id,
           type: 'studio',
@@ -370,7 +378,7 @@ export function WorkflowEditor({
     safely(() => change((f) => connectGraph(f, c)));
   }
   function add(
-    type: 'agent' | 'tool' | 'parallel' | 'condition' | 'finish' | 'mcp' | 'knowledge',
+    type: 'agent' | 'tool' | 'parallel' | 'condition' | 'email' | 'finish' | 'mcp' | 'knowledge',
     position?: { x: number; y: number },
     anchorId?: string,
   ) {
@@ -445,7 +453,9 @@ export function WorkflowEditor({
                   onTrue: '',
                   onFalse: '',
                 }
-              : { ...base, type: 'finish', template: '{{last}}' };
+              : type === 'email'
+                ? { ...base, type, to: '', subject: 'Report: {{input}}', body: '{{last}}' }
+                : { ...base, type: 'finish', template: '{{last}}' };
     change(type === 'finish' ? { ...f, nodes: [...f.nodes, n] } : insertStep(f, n, selected));
     select(id);
     selectEdge('');
@@ -668,7 +678,7 @@ export function WorkflowEditor({
           <span className="eyebrow">BUILD YOUR FLOW</span>
           <p>Click to insert a step, or drag it onto the canvas. Drag between the large ports to connect.</p>
           <h4>Execution steps</h4>
-          {(['agent', 'tool', 'condition', 'parallel', 'finish'] as const).map((type) => {
+          {(['agent', 'tool', 'condition', 'parallel', 'email', 'finish'] as const).map((type) => {
             const Icon = icons[type];
             return (
               <button
@@ -691,6 +701,7 @@ export function WorkflowEditor({
                         tool: 'Call one MCP action',
                         condition: 'Choose the next path',
                         parallel: 'Run agents together',
+                        email: 'Send the result by email',
                         finish: 'Return a result',
                       }[type]
                     }
@@ -754,6 +765,28 @@ export function WorkflowEditor({
               />
             </Field>
             <small>Loops stop at this limit. Agent turns have their own budget.</small>
+            <Field
+              label="If a runner crashes"
+              hint={
+                (form.resumePolicy ?? 'safe') === 'safe'
+                  ? 'Resume from the last checkpoint unless the step in flight could act on an external system.'
+                  : (form.resumePolicy ?? 'safe') === 'always'
+                    ? 'Always resume, even if a tool or email step was in flight and may already have acted.'
+                    : 'Never resume; mark the run interrupted for review.'
+              }
+            >
+              <select
+                aria-label="Resume policy"
+                value={form.resumePolicy ?? 'safe'}
+                onChange={(e) =>
+                  change({ ...form, resumePolicy: e.target.value as Workflow['resumePolicy'] })
+                }
+              >
+                <option value="safe">Resume when safe</option>
+                <option value="always">Always resume</option>
+                <option value="never">Never resume</option>
+              </select>
+            </Field>
           </div>
         </aside>
         {tab === 'yaml' ? (
@@ -774,7 +807,11 @@ export function WorkflowEditor({
             onDrop={(e) => {
               e.preventDefault();
               const type = e.dataTransfer.getData('application/agentic-node');
-              if (['agent', 'tool', 'condition', 'parallel', 'finish', 'mcp', 'knowledge'].includes(type))
+              if (
+                ['agent', 'tool', 'condition', 'parallel', 'email', 'finish', 'mcp', 'knowledge'].includes(
+                  type,
+                )
+              )
                 add(
                   type as Parameters<typeof add>[0],
                   flow?.screenToFlowPosition({ x: e.clientX, y: e.clientY }),
@@ -844,19 +881,19 @@ export function WorkflowEditor({
               deleteKeyCode={null}
               proOptions={{ hideAttribution: false }}
             >
-              <Background color="#ccd8d1" gap={24} size={1} />
+              <Background color="#d3dce6" gap={24} size={1} />
               <Controls showInteractive={false} />
               <MiniMap
                 nodeColor={(n) =>
                   n.selected
-                    ? '#3d7960'
+                    ? '#49a2dc'
                     : (n.data as FlowData).item.type === 'mcp'
                       ? '#c4b5d6'
                       : (n.data as FlowData).item.type === 'knowledge'
-                        ? '#b6c7de'
-                        : '#c7d9ce'
+                        ? '#a9dcd3'
+                        : '#c9d6e3'
                 }
-                maskColor="rgba(245,247,244,.8)"
+                maskColor="rgba(239,243,247,.8)"
                 pannable
                 zoomable
               />
@@ -1006,6 +1043,17 @@ export function WorkflowEditor({
                       onChange={(e) => patch(step.id, { prompt: e.target.value })}
                     />
                   </Field>
+                  <div className="inspector-section">
+                    <h4>Agentic pattern</h4>
+                    <PatternFields
+                      pattern={step.config?.pattern ?? 'react'}
+                      config={step.config?.patternConfig ?? {}}
+                      onPattern={(pattern) => patchAgent({ pattern })}
+                      onConfig={(patternConfig) =>
+                        patchAgent({ patternConfig: patternConfig as Agent['patternConfig'] })
+                      }
+                    />
+                  </div>
                   <div className="inspector-section">
                     <h4>Agent resources</h4>
                     <p className="field-help">
@@ -1217,6 +1265,43 @@ export function WorkflowEditor({
                   <p className="field-help">
                     This is a direct action in the execution path. Attach MCP tools to an agent when it should
                     choose its own calls.
+                  </p>
+                </>
+              )}
+              {step?.type === 'email' && (
+                <>
+                  <Field
+                    label="To"
+                    hint="One or more addresses separated by commas. Templates work: {{payload.email}}."
+                  >
+                    <input
+                      aria-label="Email recipients"
+                      placeholder="team@example.com"
+                      value={step.to}
+                      onChange={(e) => patch(step.id, { to: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Subject">
+                    <input
+                      aria-label="Email subject"
+                      value={step.subject}
+                      onChange={(e) => patch(step.id, { subject: e.target.value })}
+                    />
+                  </Field>
+                  <Field
+                    label="Body"
+                    hint="Plain text. {{last}} is the previous step’s result; {{steps.id}} any earlier one."
+                  >
+                    <textarea
+                      aria-label="Email body"
+                      rows={6}
+                      value={step.body}
+                      onChange={(e) => patch(step.id, { body: e.target.value })}
+                    />
+                  </Field>
+                  <p className="field-help">
+                    Sends through Settings → Email (SMTP). This step acts on the outside world, so a crashed
+                    run does not replay it under the default resume policy.
                   </p>
                 </>
               )}

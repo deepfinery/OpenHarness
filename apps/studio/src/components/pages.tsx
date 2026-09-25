@@ -6,15 +6,14 @@ import {
   BookOpen,
   Bot,
   Check,
-  CircleCheck,
+  ChevronDown,
+  ChevronRight,
   Clock3,
-  Code2,
   Download,
   FileText,
   GitBranch,
   KeyRound,
   LoaderCircle,
-  MoreHorizontal,
   Play,
   Plug,
   Plus,
@@ -24,22 +23,12 @@ import {
   ShieldCheck,
   Trash2,
   Upload,
-  X,
+  Wrench,
 } from 'lucide-react';
 import { api, errorMessage, send, timestamp, type Data, type Entity } from '../api';
-import {
-  Button,
-  CopyButton,
-  Empty,
-  ErrorNotice,
-  Field,
-  IconButton,
-  Modal,
-  PageTitle,
-  SaveForm,
-  Status,
-} from './ui';
+import { Button, Empty, ErrorNotice, Field, IconButton, Modal, PageTitle, Status } from './ui';
 import { Markdown, Trace } from './Playground';
+import { patternDescriptions } from '../../../../packages/core/src/patterns.js';
 
 type PageProps = {
   data: Data;
@@ -54,7 +43,7 @@ export function WorkflowsPage({ data, edit, navigate, act, refresh }: PageProps)
   return (
     <>
       <PageTitle
-        eyebrow="YOUR ORCHESTRATION WORKSPACE"
+        eyebrow="Your orchestration workspace"
         title="From intent to action."
         text="Build focused agents. Connect their tools. Bring it all together."
         action={
@@ -141,9 +130,8 @@ export function WorkflowsPage({ data, edit, navigate, act, refresh }: PageProps)
           </div>
           <h2>Your first workflow starts here.</h2>
           <p>
-            Bring agents, tools, and knowledge into one clear flow.
-            <br />
-            Start simple and build as your ideas grow.
+            Start from a template: a single tool assistant, a research-and-review pair, a planner with
+            specialists, or a router that hands requests to the right agent.
           </p>
           <Button onClick={() => edit('workflows')}>
             <Plus size={16} />
@@ -180,8 +168,8 @@ export function WorkflowsPage({ data, edit, navigate, act, refresh }: PageProps)
               </button>
               <p>{w.description || 'Agent orchestration workflow'}</p>
               <div className="flow-mini">
-                {w.nodes.slice(0, 5).map((n: any, index: number) => (
-                  <span key={n.id}>
+                {w.nodes.slice(0, 6).map((n: any, index: number) => (
+                  <span key={n.id} title={n.name}>
                     {index > 0 && <i />}
                     {n.type === 'agent' ? (
                       <Bot size={15} />
@@ -189,26 +177,23 @@ export function WorkflowsPage({ data, edit, navigate, act, refresh }: PageProps)
                       <Plug size={15} />
                     ) : n.type === 'output' || n.type === 'finish' ? (
                       <Check size={15} />
+                    ) : n.type === 'start' ? (
+                      <Play size={15} />
                     ) : (
                       <GitBranch size={15} />
                     )}
                   </span>
                 ))}
-                <small>{w.nodes.length} steps</small>
+                <small>
+                  {w.nodes.filter((n: any) => n.type === 'agent').length} agents · {w.nodes.length} steps
+                </small>
               </div>
               <div className="card-footer">
                 <small>
-                  {w.schedule?.enabled ? (
-                    <>
-                      <Clock3 size={13} />
-                      Every {w.schedule.everyMinutes} min
-                    </>
-                  ) : (
-                    <>
-                      <Clock3 size={13} />
-                      {new Date(w.updatedAt).toLocaleDateString()}
-                    </>
-                  )}
+                  <Clock3 size={13} />
+                  {w.schedule?.enabled
+                    ? `Every ${w.schedule.everyMinutes} min`
+                    : new Date(w.updatedAt).toLocaleDateString()}
                 </small>
                 <Button
                   variant="ghost"
@@ -237,9 +222,9 @@ export function AgentsPage({ data, edit, navigate, act, refresh }: PageProps) {
   return (
     <>
       <PageTitle
-        eyebrow="PURPOSE-BUILT INTELLIGENCE"
+        eyebrow="Purpose-built intelligence"
         title="Your agents."
-        text="Give each agent a role, a model, and the right tools for the job."
+        text="Give each agent a role, a model, a reasoning pattern, and the right tools for the job."
         action={
           <Button onClick={() => edit('agents')}>
             <Plus size={17} />
@@ -251,7 +236,7 @@ export function AgentsPage({ data, edit, navigate, act, refresh }: PageProps) {
         <Empty
           icon={<Bot size={30} />}
           title="A little focus goes a long way."
-          text="Create your first agent, write its instructions, and connect the tools it can use."
+          text="Start from a template: assistant, researcher, planner, reflective writer, autonomous worker, reviewer or support agent."
           action={
             <Button onClick={() => edit('agents')}>
               <Plus size={16} />
@@ -267,6 +252,10 @@ export function AgentsPage({ data, edit, navigate, act, refresh }: PageProps) {
                 <div className={`agent-avatar tone-${index % 4}`}>
                   <Bot size={24} />
                 </div>
+                <span className="status next">
+                  {patternDescriptions[(a.pattern ?? 'react') as keyof typeof patternDescriptions]?.name ??
+                    a.pattern}
+                </span>
                 <Status status={a.enabled ? 'enabled' : 'disabled'} />
                 <IconButton
                   title={`Delete ${a.name}`}
@@ -319,19 +308,101 @@ export function AgentsPage({ data, edit, navigate, act, refresh }: PageProps) {
     </>
   );
 }
+
+function ToolChips({ connection, onInspect }: { connection: Entity; onInspect: (tool: any) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const tools: any[] = connection.tools ?? [];
+  if (!tools.length)
+    return (
+      <p className="tools-empty">
+        No tools discovered yet.{' '}
+        {connection.authType === 'oauth' && !connection.authorized
+          ? 'Authorize, then discover.'
+          : 'Click Discover tools.'}
+      </p>
+    );
+  const shown = expanded ? tools : tools.slice(0, 8);
+  return (
+    <div className="tool-chips">
+      {shown.map((t) => (
+        <button
+          type="button"
+          className="tool-chip"
+          key={t.name}
+          title={t.description}
+          onClick={() => onInspect(t)}
+        >
+          <Wrench size={11} />
+          {t.name}
+        </button>
+      ))}
+      {tools.length > 8 && (
+        <button type="button" className="tool-chip more" onClick={() => setExpanded(!expanded)}>
+          {expanded ? 'Show fewer' : `+${tools.length - 8} more`}
+        </button>
+      )}
+    </div>
+  );
+}
 export function ConnectionsPage({ data, edit, act, refresh }: PageProps) {
   const [busy, setBusy] = useState('');
-  const [tools, setTools] = useState<Entity | null>(null);
+  const [inspect, setInspect] = useState<{ connection: Entity; tool: any } | null>(null);
+  const [notice, setNotice] = useState('');
   const perform = (id: string, task: () => Promise<unknown>) => {
     setBusy(id);
     void act(task).finally(() => setBusy(''));
   };
+  async function discover(id: string) {
+    const tools = await send(`/connections/${id}/discover`);
+    await refresh();
+    return tools as any[];
+  }
+  // The OAuth callback lands here (directly, or via a popup that posts a message); finish the job automatically.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const finish = async (connection?: string | null) => {
+      if (!connection) return;
+      setNotice('Authorized. Discovering tools…');
+      try {
+        const tools = await discover(connection);
+        setNotice(`Authorized and discovered ${tools.length} tools.`);
+      } catch (e) {
+        setNotice(`Authorized, but discovery failed: ${errorMessage(e)}`);
+      }
+    };
+    if (params.get('authorized') === '1') {
+      history.replaceState({}, '', '/connections');
+      void finish(params.get('connection'));
+    }
+    const listener = (event: MessageEvent) => {
+      if (event.origin === location.origin && event.data?.type === 'agentic-oauth')
+        void finish(event.data.connection);
+    };
+    addEventListener('message', listener);
+    return () => removeEventListener('message', listener);
+  }, []);
+  function authorize(c: Entity) {
+    const popup = window.open('about:blank', 'agentic-mcp-authorization', 'width=640,height=760');
+    perform(c.id, async () => {
+      try {
+        const result = await send(`/connections/${c.id}/oauth`);
+        if (result.authorizationUrl && popup) popup.location.href = result.authorizationUrl;
+        else {
+          popup?.close();
+          await discover(c.id);
+        }
+      } catch (e) {
+        popup?.close();
+        throw e;
+      }
+    });
+  }
   return (
     <>
       <PageTitle
-        eyebrow="ONE PROTOCOL. EVERY POSSIBILITY."
+        eyebrow="One protocol. Every possibility."
         title="MCP connections."
-        text="Connect any MCP server, discover its tools, and make them available to your agents."
+        text="Connect any MCP server, discover its tools, and decide exactly which ones each agent may call."
         action={
           <Button onClick={() => edit('connections')}>
             <Plus size={17} />
@@ -339,24 +410,39 @@ export function ConnectionsPage({ data, edit, act, refresh }: PageProps) {
           </Button>
         }
       />
-      <div className="connection-banner">
-        <div className="connection-banner-icon">
-          <Plug size={28} />
+      {notice && (
+        <div className="notice">
+          <Check size={16} />
+          <span>{notice}</span>
         </div>
-        <div>
-          <strong>An open door to your tools.</strong>
+      )}
+      <div className="explainer-grid">
+        <div className="explainer">
+          <span className="eyebrow">1 · Connect</span>
+          <strong>Paste the server URL</strong>
           <p>
-            Streamable HTTP and SSE, with token or OAuth authentication. Every external tool connects through
-            MCP.
+            Streamable HTTP or SSE. Add an API key, or sign in with OAuth for servers like Finnhub or GitHub.
           </p>
         </div>
-        <span className="protocol-badge">MODEL CONTEXT PROTOCOL</span>
+        <div className="explainer">
+          <span className="eyebrow">2 · Discover</span>
+          <strong>See every tool it offers</strong>
+          <p>Tools and their input schemas are read from the server and shown right here on the card.</p>
+        </div>
+        <div className="explainer">
+          <span className="eyebrow">3 · Grant</span>
+          <strong>Pick tools per agent</strong>
+          <p>
+            In an agent or on the workflow canvas, choose the exact tools that agent may call. Nothing else is
+            exposed.
+          </p>
+        </div>
       </div>
       {!data.connections.length ? (
         <Empty
           icon={<Plug size={30} />}
           title="Connect your first MCP server."
-          text="Bring search, data, internal services, and other tools into your agents through a single protocol."
+          text="Bring search, market data, internal services, and other tools into your agents through a single protocol."
           action={
             <Button onClick={() => edit('connections')}>
               <Plus size={16} />
@@ -366,95 +452,97 @@ export function ConnectionsPage({ data, edit, act, refresh }: PageProps) {
         />
       ) : (
         <div className="connection-list">
-          {data.connections.map((c) => (
-            <article className="connection-row" key={c.id}>
-              <div className="resource-icon">
-                <Plug size={23} />
-              </div>
-              <div className="connection-description">
-                <button className="card-name" onClick={() => edit('connections', c)}>
-                  {c.name}
-                </button>
-                <span>{c.url}</span>
-                <div className="tag-row">
-                  <span>{c.transport === 'http' ? 'Streamable HTTP' : 'SSE'}</span>
-                  <span>
-                    <KeyRound size={11} />
-                    {c.authType === 'oauth'
-                      ? c.authorized
-                        ? 'OAuth connected'
-                        : 'OAuth required'
-                      : c.authType === 'token'
-                        ? 'Access token'
-                        : 'No auth'}
-                  </span>
-                  <button onClick={() => setTools(c)}>{c.tools?.length ?? 0} tools</button>
+          {data.connections.map((c) => {
+            const authState =
+              c.authType === 'oauth'
+                ? c.authorized
+                  ? { label: 'OAuth connected', status: 'enabled' }
+                  : { label: 'Authorization needed', status: 'pending' }
+                : c.authType === 'token'
+                  ? { label: 'API key', status: 'enabled' }
+                  : { label: 'No auth', status: 'enabled' };
+            return (
+              <article
+                className={`connection-row connection-card ${c.enabled ? '' : 'is-disabled'}`}
+                key={c.id}
+              >
+                <div className="resource-icon">
+                  <Plug size={23} />
                 </div>
-              </div>
-              <div className="connection-actions">
-                {c.authType === 'oauth' && (
+                <div className="connection-description">
+                  <div className="connection-title">
+                    <button className="card-name" onClick={() => edit('connections', c)}>
+                      {c.name}
+                    </button>
+                    <span className={`status ${authState.status}`}>{authState.label}</span>
+                    <span className={`status ${c.tools?.length ? 'next' : 'disabled'}`}>
+                      {c.tools?.length ?? 0} tools
+                    </span>
+                    {!c.enabled && <Status status="disabled" />}
+                  </div>
+                  <span>{c.url}</span>
+                  <div className="tag-row">
+                    <span>{c.transport === 'http' ? 'Streamable HTTP' : 'Legacy SSE'}</span>
+                    {c.lastCheckedAt && <span>Discovered {timestamp(c.lastCheckedAt)}</span>}
+                  </div>
+                  <ToolChips connection={c} onInspect={(tool) => setInspect({ connection: c, tool })} />
+                </div>
+                <div className="connection-actions">
+                  {c.authType === 'oauth' && (
+                    <Button
+                      variant={c.authorized ? 'secondary' : 'primary'}
+                      disabled={busy === c.id}
+                      onClick={() => authorize(c)}
+                    >
+                      <KeyRound size={14} />
+                      {c.authorized ? 'Reauthorize' : 'Authorize'}
+                    </Button>
+                  )}
                   <Button
                     variant="secondary"
                     disabled={busy === c.id}
-                    onClick={() =>
-                      perform(c.id, async () => {
-                        const r = await send(`/connections/${c.id}/oauth`);
-                        if (r.authorizationUrl) location.assign(r.authorizationUrl);
-                        else await refresh();
-                      })
-                    }
+                    onClick={() => perform(c.id, () => discover(c.id))}
                   >
-                    <KeyRound size={14} />
-                    {c.authorized ? 'Reauthorize' : 'Authorize'}
+                    {busy === c.id ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}
+                    Discover tools
                   </Button>
-                )}
-                <Button
-                  variant="secondary"
-                  disabled={busy === c.id}
-                  onClick={() =>
-                    perform(c.id, async () => {
-                      await send(`/connections/${c.id}/discover`);
-                      await refresh();
-                    })
-                  }
-                >
-                  {busy === c.id ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}
-                  Discover tools
-                </Button>
-                <IconButton title={`Edit ${c.name}`} onClick={() => edit('connections', c)}>
-                  <Settings2 size={17} />
-                </IconButton>
-                <IconButton
-                  title={`Delete ${c.name}`}
-                  onClick={() => {
-                    if (confirm(`Delete MCP connection “${c.name}”?`))
-                      void act(async () => {
-                        await api(`/connections/${c.id}`, { method: 'DELETE' });
-                        await refresh();
-                      });
-                  }}
-                >
-                  <Trash2 size={16} />
-                </IconButton>
-              </div>
-            </article>
-          ))}
+                  <IconButton title={`Edit ${c.name}`} onClick={() => edit('connections', c)}>
+                    <Settings2 size={17} />
+                  </IconButton>
+                  <IconButton
+                    title={`Delete ${c.name}`}
+                    onClick={() => {
+                      if (confirm(`Delete MCP connection “${c.name}”?`))
+                        void act(async () => {
+                          await api(`/connections/${c.id}`, { method: 'DELETE' });
+                          await refresh();
+                        });
+                    }}
+                  >
+                    <Trash2 size={16} />
+                  </IconButton>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
-      {tools && (
-        <Modal title={`${tools.name} · discovered tools`} onClose={() => setTools(null)} wide>
+      {inspect && (
+        <Modal
+          title={`${inspect.connection.name} / ${inspect.tool.name}`}
+          onClose={() => setInspect(null)}
+          wide
+        >
           <div className="form-content">
-            {!tools.tools?.length ? (
-              <p>No tools discovered yet.</p>
-            ) : (
-              tools.tools.map((t: any) => (
-                <details className="tool-group" key={t.name}>
-                  <summary>{t.name}</summary>
-                  <p>{t.description}</p>
-                  <pre>{JSON.stringify(t.inputSchema, null, 2)}</pre>
-                </details>
-              ))
-            )}
+            <p className="field-help">
+              {inspect.tool.description || 'No description provided by the server.'}
+            </p>
+            <h3>Input schema</h3>
+            <pre className="tool-schema">{JSON.stringify(inspect.tool.inputSchema, null, 2)}</pre>
+            <p className="field-help">
+              Agents receive this schema with the tool. Every call is checked against it before it leaves the
+              runner.
+            </p>
           </div>
         </Modal>
       )}
@@ -467,9 +555,12 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
+  const [dragging, setDragging] = useState(false);
   const file = useRef<HTMLInputElement>(null);
   const kb = data.knowledge.find((k) => k.id === selected);
+  const provider = data.providers.find((p) => p.id === kb?.providerId);
   useEffect(() => {
     if (!data.knowledge.some((k) => k.id === selected)) setSelected(data.knowledge[0]?.id ?? '');
   }, [data.knowledge]);
@@ -519,12 +610,15 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
       if (file.current) file.current.value = '';
     }
   }
+  const ready = documents.filter((d) => d.status === 'ready').length;
+  const indexing = documents.filter((d) => ['queued', 'indexing'].includes(d.status)).length;
+  const chunks = documents.reduce((n, d) => n + (d.chunks ?? 0), 0);
   return (
     <>
       <PageTitle
-        eyebrow="GROUNDED IN YOUR KNOWLEDGE"
-        title="A library for your agents."
-        text="Turn documents into searchable context, stored on your own infrastructure."
+        eyebrow="Grounded in your knowledge"
+        title="Knowledge bases."
+        text="Upload documents, index them on your own infrastructure, and let agents cite them."
         action={
           <Button onClick={() => edit('knowledge')}>
             <Plus size={17} />
@@ -536,7 +630,7 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
         <Empty
           icon={<BookOpen size={30} />}
           title="Give your agents something to build on."
-          text="Create a knowledge base, choose an embedding model, and upload your source documents."
+          text="Create a knowledge base, choose an embedding model, and upload your source documents. TXT, Markdown, CSV, JSON, YAML, PDF and DOCX are supported."
           action={
             <Button onClick={() => edit('knowledge')}>
               <Plus size={16} />
@@ -547,7 +641,7 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
       ) : (
         <div className="knowledge-layout">
           <aside className="knowledge-nav">
-            <div className="eyebrow">KNOWLEDGE BASES</div>
+            <div className="eyebrow">Knowledge bases</div>
             {data.knowledge.map((k) => (
               <button
                 className={selected === k.id ? 'active' : ''}
@@ -556,16 +650,21 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
               >
                 <BookOpen size={17} />
                 <span>{k.name}</span>
-                <ArrowRight size={14} />
+                <ChevronRight size={14} />
               </button>
             ))}
+            <button className="knowledge-nav-add" onClick={() => edit('knowledge')}>
+              <Plus size={15} />
+              <span>New knowledge base</span>
+            </button>
           </aside>
           <div className="knowledge-content">
             <div className="section-toolbar">
               <div>
                 <h2>{kb?.name}</h2>
                 <p>
-                  {kb?.description || 'Documents are indexed in the background and available when ready.'}
+                  {kb?.description ||
+                    'Documents are indexed in the background and used as soon as they are ready.'}
                 </p>
               </div>
               <div className="row-actions">
@@ -585,8 +684,29 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
                   <Trash2 size={17} />
                 </IconButton>
                 <Button variant="secondary" disabled={loading} onClick={() => file.current?.click()}>
-                  {loading ? <LoaderCircle className="spin" size={15} /> : <Upload size={15} />}Upload files
+                  {loading ? <LoaderCircle className="spin" size={15} /> : <Upload size={15} />}
+                  Upload files
                 </Button>
+              </div>
+            </div>
+            <div className="kb-stats">
+              <div>
+                <span className="eyebrow">Documents</span>
+                <strong>{documents.length}</strong>
+              </div>
+              <div>
+                <span className="eyebrow">Ready</span>
+                <strong>{ready}</strong>
+                {indexing > 0 && <small>{indexing} indexing</small>}
+              </div>
+              <div>
+                <span className="eyebrow">Passages</span>
+                <strong>{chunks}</strong>
+              </div>
+              <div>
+                <span className="eyebrow">Embedding model</span>
+                <strong className="kb-provider">{provider ? provider.embeddingModel : 'Unavailable'}</strong>
+                {provider && <small>{provider.name}</small>}
               </div>
             </div>
             <input
@@ -598,22 +718,28 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
               onChange={(e) => void upload(e.target.files)}
             />
             <ErrorNotice error={error} />
-            {!documents.length ? (
-              <button
-                className="upload-dropzone"
-                onClick={() => file.current?.click()}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  void upload(e.dataTransfer.files);
-                }}
-              >
-                <Upload size={30} />
-                <strong>Drop your files here</strong>
-                <span>or click to browse</span>
-                <small>TXT, Markdown, CSV, JSON, YAML, PDF and DOCX</small>
-              </button>
-            ) : (
+            <button
+              className={`upload-dropzone ${documents.length ? 'compact' : ''} ${dragging ? 'dragging' : ''}`}
+              onClick={() => file.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                void upload(e.dataTransfer.files);
+              }}
+            >
+              <Upload size={documents.length ? 18 : 30} />
+              <strong>
+                {documents.length ? 'Drop more files here, or click to browse' : 'Drop your files here'}
+              </strong>
+              {!documents.length && <span>or click to browse</span>}
+              <small>TXT, Markdown, CSV, JSON, YAML, PDF and DOCX · up to the configured upload limit</small>
+            </button>
+            {documents.length > 0 && (
               <div className="table-wrap">
                 <table>
                   <thead>
@@ -621,7 +747,8 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
                       <th>Document</th>
                       <th>Status</th>
                       <th>Size</th>
-                      <th>Chunks</th>
+                      <th>Passages</th>
+                      <th>Added</th>
                       <th />
                     </tr>
                   </thead>
@@ -642,6 +769,7 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
                         </td>
                         <td>{Math.max(1, Math.round(d.size / 1024))} KB</td>
                         <td>{d.chunks ?? '—'}</td>
+                        <td>{timestamp(d.createdAt)}</td>
                         <td>
                           <div className="row-actions">
                             <a
@@ -683,48 +811,53 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
                 </table>
               </div>
             )}
-            <div className="knowledge-search">
-              <h3>
-                <Search size={17} />
-                Test retrieval
-              </h3>
-              <p>See which passages your agents will find for a question.</p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setLoading(true);
-                  void act(async () =>
-                    setResults(await send(`/knowledge/${selected}/search`, { query })),
-                  ).finally(() => setLoading(false));
-                }}
-              >
-                <input
-                  aria-label="Search knowledge"
-                  placeholder="Ask a question about your documents…"
-                  required
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-                <Button disabled={loading}>Search</Button>
-              </form>
-              {results && (
-                <div className="knowledge-results">
-                  {!results.length ? (
-                    <p>No passages found. Ensure your documents have finished indexing.</p>
-                  ) : (
-                    results.map((r, i) => (
-                      <article key={i}>
-                        <strong>
-                          {r.title} <small>Passage {r.chunkIndex + 1}</small>
-                        </strong>
-                        <p>{r.content}</p>
-                      </article>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
           </div>
+          <aside className="knowledge-search">
+            <h3>
+              <Search size={17} />
+              Test retrieval
+            </h3>
+            <p>Ask a question and see the exact passages an agent would receive.</p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setSearching(true);
+                void act(async () =>
+                  setResults(await send(`/knowledge/${selected}/search`, { query })),
+                ).finally(() => setSearching(false));
+              }}
+            >
+              <input
+                aria-label="Search knowledge"
+                placeholder="Ask a question about your documents…"
+                required
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <Button disabled={searching || !ready}>
+                {searching ? <LoaderCircle className="spin" size={15} /> : 'Search'}
+              </Button>
+            </form>
+            {!ready && (
+              <p className="field-help">Upload a document and wait for it to be ready to test retrieval.</p>
+            )}
+            {results && (
+              <div className="knowledge-results">
+                {!results.length ? (
+                  <p>No passages found. Ensure your documents have finished indexing.</p>
+                ) : (
+                  results.map((r, i) => (
+                    <article key={i}>
+                      <strong>
+                        {r.title} <small>Passage {r.chunkIndex + 1}</small>
+                      </strong>
+                      <p>{r.content}</p>
+                    </article>
+                  ))
+                )}
+              </div>
+            )}
+          </aside>
         </div>
       )}
     </>
@@ -733,6 +866,7 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
 export function RunsPage() {
   const [runs, setRuns] = useState<any[]>([]);
   const [page, setPage] = useState(0);
+  const [filter, setFilter] = useState('all');
   const [selected, setSelected] = useState<any>(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -770,19 +904,40 @@ export function RunsPage() {
       clearInterval(timer);
     };
   }, [selected?.id]);
+  const visible = runs.filter((r) => filter === 'all' || r.status === filter);
+  const counts = runs.reduce<Record<string, number>>(
+    (acc, r) => ({ ...acc, [r.status]: (acc[r.status] ?? 0) + 1 }),
+    {},
+  );
   return (
     <>
       <PageTitle
-        eyebrow="A CLEAR VIEW OF THE WORK"
+        eyebrow="A clear view of the work"
         title="Executions."
-        text="Inspect inputs, outputs, tool calls, and the steps behind each result."
+        text="Every run from the playground, the API, webhooks, schedules and embeds, with its full trace."
       />
       <ErrorNotice error={error} />
-      {!runs.length ? (
+      <div className="filter-row">
+        {['all', 'running', 'queued', 'succeeded', 'failed', 'interrupted', 'cancelled'].map((s) => (
+          <button
+            key={s}
+            className={`filter-chip ${filter === s ? 'active' : ''}`}
+            onClick={() => setFilter(s)}
+          >
+            {s}
+            {s !== 'all' && counts[s] ? <small>{counts[s]}</small> : null}
+          </button>
+        ))}
+      </div>
+      {!visible.length ? (
         <Empty
           icon={<Activity size={30} />}
-          title="Your runs will appear here."
-          text="Start an agent in the playground or call the API to see its execution history."
+          title={runs.length ? 'No runs match this filter.' : 'Your runs will appear here.'}
+          text={
+            runs.length
+              ? 'Pick another status.'
+              : 'Start an agent in the playground or call the API to see its execution history.'
+          }
         />
       ) : (
         <div className="table-wrap">
@@ -792,12 +947,13 @@ export function RunsPage() {
                 <th>Agent / workflow</th>
                 <th>Status</th>
                 <th>Input</th>
+                <th>Trigger</th>
                 <th>Started</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {runs.map((run) => (
+              {visible.map((run) => (
                 <tr key={run.id}>
                   <td>
                     <strong>{run.label}</strong>
@@ -805,8 +961,12 @@ export function RunsPage() {
                   </td>
                   <td>
                     <Status status={run.status} />
+                    {run.resumeCount ? (
+                      <small className="table-subtitle">resumed {run.resumeCount}×</small>
+                    ) : null}
                   </td>
                   <td className="truncate-cell">{run.input}</td>
+                  <td>{run.trigger ?? 'studio'}</td>
                   <td>{timestamp(run.createdAt)}</td>
                   <td>
                     <Button variant="ghost" onClick={() => setSelected(run)}>
@@ -848,6 +1008,11 @@ export function RunsPage() {
             <Field label="Input">
               <pre>{selected.input}</pre>
             </Field>
+            {selected.partial && !selected.output && (
+              <Field label="Streaming">
+                <Markdown text={selected.partial} />
+              </Field>
+            )}
             {selected.output && (
               <Field label="Output">
                 <Markdown text={selected.output} />

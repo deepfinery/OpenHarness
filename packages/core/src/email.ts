@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 import { collection } from './db.js';
 import { config } from './config.js';
-import { decrypt, encrypt, HttpError } from './security.js';
+import { decrypt, encrypt, HttpError, validateRemoteUrl } from './security.js';
 import { emailSettingsSchema, type EmailSettings } from './schema.js';
 
 type StoredEmailSettings = Omit<EmailSettings, 'password'> & {
@@ -25,7 +25,9 @@ function envDefaults(): EmailSettings {
 }
 
 /** Effective SMTP configuration: the workspace's saved settings, falling back to .env values. */
-export async function resolveEmailSettings(ownerId: string): Promise<EmailSettings & { source: 'workspace' | 'env' | 'none' }> {
+export async function resolveEmailSettings(
+  ownerId: string,
+): Promise<EmailSettings & { source: 'workspace' | 'env' | 'none' }> {
   const saved = await settings().findOne({ _id: `${ownerId}:email` });
   if (saved?.host) {
     const { _id, ownerId: _o, passwordEncrypted, updatedAt, ...rest } = saved;
@@ -43,6 +45,14 @@ export async function publicEmailSettings(ownerId: string) {
 
 export async function saveEmailSettings(ownerId: string, input: unknown) {
   const body = emailSettingsSchema.parse(input);
+  // The same private-network rules as model and MCP endpoints apply to the mail relay.
+  if (body.host)
+    try {
+      await validateRemoteUrl(`http://${body.host}:${body.port}`);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, `SMTP host ${body.host} could not be resolved. Check the hostname.`);
+    }
   const previous = await settings().findOne({ _id: `${ownerId}:email` });
   const { password, ...rest } = body;
   const passwordEncrypted =

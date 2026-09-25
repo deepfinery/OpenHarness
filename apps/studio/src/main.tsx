@@ -447,6 +447,18 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
   }
 }
 const embedId = /^\/embed\/([a-f0-9-]{36})$/.exec(location.pathname)?.[1];
+// An OAuth popup lands back here after authorizing an MCP server: hand the result to the opener and close.
+const oauthReturn = new URLSearchParams(location.search);
+if (oauthReturn.get('authorized') === '1' && window.opener && window.opener !== window) {
+  try {
+    window.opener.postMessage(
+      { type: 'agentic-oauth', connection: oauthReturn.get('connection') },
+      location.origin,
+    );
+  } finally {
+    window.close();
+  }
+}
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>{embedId ? <EmbedChat id={embedId} /> : <App />}</ErrorBoundary>,
 );

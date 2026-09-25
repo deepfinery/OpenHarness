@@ -12,6 +12,12 @@ import { createRun } from '../../../packages/core/src/runs.js';
 import { runSchema, type Run } from '../../../packages/core/src/schema.js';
 import { finishOAuth } from '../../../packages/core/src/mcp.js';
 import {
+  clearEmailSettings,
+  publicEmailSettings,
+  saveEmailSettings,
+  sendEmail,
+} from '../../../packages/core/src/email.js';
+import {
   authenticate,
   checkTokenScope,
   credentialsSchema,
@@ -138,8 +144,13 @@ app.get('/api/mcp/oauth/callback', requireSession, async (req, res) => {
   const query = z
     .object({ state: z.string().min(10).max(256), code: z.string().min(1).max(4096) })
     .parse(req.query);
-  await finishOAuth(query.state, query.code, req.principal!.tenantId, req.principal!.sessionHash!);
-  res.redirect('/connections?authorized=1');
+  const connectionId = await finishOAuth(
+    query.state,
+    query.code,
+    req.principal!.tenantId,
+    req.principal!.sessionHash!,
+  );
+  res.redirect(`/connections?authorized=1&connection=${encodeURIComponent(connectionId)}`);
 });
 app.get('/api/runs', async (req, res) => {
   checkTokenScope(req, 'read');
@@ -180,6 +191,57 @@ app.get('/api/runs/:id', async (req, res) => {
   if (!run) throw new HttpError(404, 'Run not found');
   checkTokenScope(req, 'read', run);
   res.json(publicRun(run));
+});
+const terminalStatuses = ['succeeded', 'failed', 'cancelled', 'interrupted'];
+/** Server-sent events: status, streamed model text and trace events as the runner writes them. */
+app.get('/api/runs/:id/stream', async (req, res) => {
+  checkTokenScope(req, 'read');
+  const filter = {
+    _id: String(req.params.id),
+    ownerId: req.principal!.tenantId,
+    ...(req.principal!.token ? { tokenId: req.principal!.token._id } : {}),
+  };
+  const runs = collection<Run>('runs');
+  const first = await runs.findOne(filter);
+  if (!first) throw new HttpError(404, 'Run not found');
+  checkTokenScope(req, 'read', first);
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-store',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  let lastKey = '';
+  let closed = false;
+  const write = (run: Run) => {
+    const key = `${run.status}:${run.events.length}:${run.partial?.length ?? 0}:${run.updatedAt?.getTime()}`;
+    if (key === lastKey) return;
+    lastKey = key;
+    res.write(`event: run\ndata: ${JSON.stringify(publicRun(run))}\n\n`);
+  };
+  const end = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(poll);
+    clearInterval(keepAlive);
+    clearTimeout(deadline);
+    res.end();
+  };
+  write(first);
+  if (terminalStatuses.includes(first.status)) return end();
+  const poll = setInterval(async () => {
+    try {
+      const run = await runs.findOne(filter);
+      if (!run) return end();
+      write(run);
+      if (terminalStatuses.includes(run.status)) end();
+    } catch {
+      // Transient database errors: keep the stream open and retry on the next tick.
+    }
+  }, 400);
+  const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 15000);
+  const deadline = setTimeout(end, 35 * 60000);
+  req.on('close', end);
 });
 app.post('/api/runs/:id/cancel', async (req, res) => {
   const filter = {
@@ -250,6 +312,27 @@ app.patch('/api/users/:id', requireAdmin, async (req, res) => {
   if (!result.matchedCount) throw new HttpError(404, 'User not found');
   await collection<{ _id: string; userId: string }>('sessions').deleteMany({ userId: id });
   res.status(204).end();
+});
+app.get('/api/settings/email', requireSession, async (req, res) =>
+  res.json(await publicEmailSettings(req.principal!.tenantId)),
+);
+app.put('/api/settings/email', requireAdmin, async (req, res) =>
+  res.json(await saveEmailSettings(req.principal!.tenantId, req.body)),
+);
+app.delete('/api/settings/email', requireAdmin, async (req, res) => {
+  await clearEmailSettings(req.principal!.tenantId);
+  res.status(204).end();
+});
+app.post('/api/settings/email/test', requireAdmin, async (req, res) => {
+  const body = z.object({ to: z.string().email().max(320) }).parse(req.body);
+  await rateLimit(`email-test:${req.principal!.tenantId}`, 5);
+  res.json(
+    await sendEmail(req.principal!.tenantId, {
+      to: body.to,
+      subject: 'Agentic Orchestration test email',
+      text: `This message confirms that outgoing email is configured for your workspace.\n\nSent from ${config.PUBLIC_URL}`,
+    }),
+  );
 });
 app.use('/api/integrations', requireSession, integrations);
 app.use('/api/integrations/webhooks', requireSession, webhookSettings);

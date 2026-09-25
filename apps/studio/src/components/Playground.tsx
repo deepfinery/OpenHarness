@@ -1,21 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  Activity,
   Bot,
   Check,
-  ChevronDown,
   CircleStop,
+  Clock3,
   CornerDownLeft,
-  LoaderCircle,
+  History,
   MessageSquare,
-  Play,
-  RotateCcw,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
   Send,
   Terminal,
+  Trash2,
   UserRound,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { api, errorMessage, send, timestamp, type Data } from '../api';
+import { api, errorMessage, send, timestamp, type Data, type Entity } from '../api';
 import { Button, Empty, ErrorNotice, IconButton, Status } from './ui';
 
 export function Markdown({ text }: { text: string }) {
@@ -32,6 +35,61 @@ export function Markdown({ text }: { text: string }) {
 }
 const terminal = ['succeeded', 'failed', 'cancelled', 'interrupted'];
 type Message = { role: 'user' | 'assistant'; content: string };
+type Conversation = {
+  id: string;
+  title: string;
+  messageCount: number;
+  updatedAt: string;
+  activeRunId?: string;
+};
+
+/**
+ * Follows a run through server-sent events, falling back to polling when the stream is unavailable.
+ * Calls `onRun` with every change until the run reaches a terminal state.
+ */
+export function followRun(runId: string, onRun: (run: any) => void, onError: (message: string) => void) {
+  let stopped = false;
+  let source: EventSource | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const poll = async () => {
+    if (stopped) return;
+    try {
+      const next = await api(`/runs/${runId}`);
+      if (stopped) return;
+      onRun(next);
+      if (!terminal.includes(next.status)) timer = setTimeout(poll, 1200);
+    } catch (e) {
+      if (!stopped) {
+        onError(errorMessage(e));
+        timer = setTimeout(poll, 4000);
+      }
+    }
+  };
+  if (typeof EventSource === 'function') {
+    source = new EventSource(`/api/runs/${runId}/stream`);
+    source.addEventListener('run', (event) => {
+      if (stopped) return;
+      const next = JSON.parse((event as MessageEvent).data);
+      onRun(next);
+      if (terminal.includes(next.status)) {
+        stopped = true;
+        source?.close();
+      }
+    });
+    source.onerror = () => {
+      // Proxies without SSE support or an expired session: switch to polling.
+      source?.close();
+      source = null;
+      if (!stopped) void poll();
+    };
+  } else void poll();
+  return () => {
+    stopped = true;
+    source?.close();
+    clearTimeout(timer);
+  };
+}
+
 export function Playground({ data, initialTarget }: { data: Data; initialTarget?: string }) {
   const targets = [
     ...data.agents.map((a) => ({ ...a, type: 'agent' })),
@@ -42,50 +100,100 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
   );
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string>();
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [showConversations, setShowConversations] = useState(true);
   const [input, setInput] = useState('');
   const [run, setRun] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [panel, setPanel] = useState<'trace' | 'history'>('trace');
+  const [historyRuns, setHistoryRuns] = useState<any[]>([]);
+  const [inspected, setInspected] = useState<any>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const stopFollowing = useRef<() => void>(() => {});
+  const current = targets.find((t) => `${t.type}:${t.id}` === target);
+  const targetKey = current ? (current.type === 'agent' ? 'agentId' : 'workflowId') : undefined;
+
   useEffect(() => {
     if (!target && targets[0]) setTarget(`${targets[0].type}:${targets[0].id}`);
   }, [data, target]);
-  const current = targets.find((t) => `${t.type}:${t.id}` === target);
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, [messages, busy]);
+  }, [messages, busy, run?.partial]);
+  useEffect(() => () => stopFollowing.current(), []);
+
+  async function loadConversations() {
+    if (!current || !targetKey) return setConversations([]);
+    try {
+      setConversations(await api(`/conversations?${targetKey}=${current.id}`));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+  async function loadHistory() {
+    if (!current) return setHistoryRuns([]);
+    try {
+      const runs: any[] = await api('/runs');
+      setHistoryRuns(runs.filter((r) => r[targetKey!] === current.id).slice(0, 30));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
   useEffect(() => {
-    if (!run?.id || terminal.includes(run.status)) return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-    async function poll() {
-      try {
-        const next = await api(`/runs/${run.id}`);
-        if (stopped) return;
+    void loadConversations();
+    void loadHistory();
+  }, [target]);
+  useEffect(() => {
+    if (panel === 'history') void loadHistory();
+  }, [panel, run?.status]);
+
+  function reset() {
+    stopFollowing.current();
+    setMessages([]);
+    setConversationId(undefined);
+    setRun(null);
+    setInspected(null);
+    setError('');
+    setBusy(false);
+  }
+  function follow(runId: string) {
+    stopFollowing.current();
+    setBusy(true);
+    stopFollowing.current = followRun(
+      runId,
+      (next) => {
         setRun(next);
         if (terminal.includes(next.status)) {
           setBusy(false);
           if (next.status === 'succeeded')
-            setMessages((m) => [...m, { role: 'assistant', content: next.output }]);
+            setMessages((m) => [...m, { role: 'assistant', content: next.output ?? '' }]);
           else setError(next.error ?? `Run ${next.status}`);
-        } else timer = setTimeout(poll, 1200);
-      } catch (e) {
-        if (!stopped) {
-          setError(errorMessage(e));
-          timer = setTimeout(poll, 4000);
+          void loadConversations();
         }
+      },
+      (message) => setError(message),
+    );
+  }
+  async function openConversation(id: string) {
+    reset();
+    try {
+      const c = await api(`/conversations/${id}`);
+      setConversationId(id);
+      setMessages(c.messages);
+      if (c.activeRunId) {
+        setMessages((m) => m);
+        follow(c.activeRunId);
       }
+    } catch (e) {
+      setError(errorMessage(e));
     }
-    timer = setTimeout(poll, 500);
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [run?.id]);
+  }
   async function submit() {
     if (!input.trim() || busy || !current) return;
     setBusy(true);
     setError('');
+    setInspected(null);
+    setPanel('trace');
     const text = input.trim();
     setInput('');
     setMessages((m) => [...m, { role: 'user', content: text }]);
@@ -96,7 +204,9 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
         conversationId,
       });
       setConversationId(r.conversationId);
-      setRun(r);
+      setRun({ id: r.id, status: r.status, events: [] });
+      follow(r.id);
+      void loadConversations();
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
@@ -104,60 +214,106 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
       setMessages((m) => m.slice(0, -1));
     }
   }
+  const streaming = busy && typeof run?.partial === 'string' && run.partial.length > 0;
+  const shown = inspected ?? run;
   return (
-    <div className="playground">
-      <div className="playground-main">
-        <div className="playground-toolbar">
-          <div>
-            <span className="eyebrow">PLAYGROUND</span>
-            <select
-              aria-label="Playground agent or workflow"
-              value={target}
-              disabled={busy}
-              onChange={(e) => {
-                setTarget(e.target.value);
-                setMessages([]);
-                setConversationId(undefined);
-                setRun(null);
-                setError('');
-              }}
-            >
-              <option value="" disabled>
-                Choose an agent or workflow
-              </option>
-              {targets.map((t) => (
-                <option key={`${t.type}:${t.id}`} value={`${t.type}:${t.id}`}>
-                  {t.name} · {t.type}
-                </option>
-              ))}
-            </select>
-          </div>
-          <IconButton
-            title="New conversation"
-            disabled={busy}
-            onClick={() => {
-              setMessages([]);
-              setConversationId(undefined);
-              setRun(null);
-              setError('');
-            }}
-          >
-            <RotateCcw size={18} />
+    <div className={`playground ${showConversations ? '' : 'conversations-hidden'}`}>
+      <aside className="conversation-list">
+        <div className="conversation-list-head">
+          <span className="eyebrow">Conversations</span>
+          <IconButton title="Hide conversations" onClick={() => setShowConversations(false)}>
+            <PanelLeftClose size={16} />
           </IconButton>
         </div>
+        <Button variant="secondary" className="new-conversation" onClick={reset} disabled={busy}>
+          <Plus size={15} />
+          New conversation
+        </Button>
+        <div className="conversation-items">
+          {!conversations.length && (
+            <p className="conversation-empty">
+              Conversations with {current?.name ?? 'this target'} are saved here, like a chat history.
+            </p>
+          )}
+          {conversations.map((c) => (
+            <div className={`conversation-item ${c.id === conversationId ? 'active' : ''}`} key={c.id}>
+              <button onClick={() => void openConversation(c.id)}>
+                <MessageSquare size={14} />
+                <span>
+                  <strong>{c.title}</strong>
+                  <small>
+                    {c.messageCount} messages · {timestamp(c.updatedAt)}
+                    {c.activeRunId ? ' · running' : ''}
+                  </small>
+                </span>
+              </button>
+              <IconButton
+                title="Delete conversation"
+                onClick={() => {
+                  if (!confirm('Delete this conversation? Its run history stays in Executions.')) return;
+                  void api(`/conversations/${c.id}`, { method: 'DELETE' })
+                    .then(() => {
+                      if (c.id === conversationId) reset();
+                      return loadConversations();
+                    })
+                    .catch((e) => setError(errorMessage(e)));
+                }}
+              >
+                <Trash2 size={13} />
+              </IconButton>
+            </div>
+          ))}
+        </div>
+      </aside>
+      <div className="playground-main">
+        <div className="playground-toolbar">
+          <div className="playground-target">
+            {!showConversations && (
+              <IconButton title="Show conversations" onClick={() => setShowConversations(true)}>
+                <PanelLeftOpen size={17} />
+              </IconButton>
+            )}
+            <div>
+              <span className="eyebrow">Playground</span>
+              <select
+                aria-label="Playground agent or workflow"
+                value={target}
+                disabled={busy}
+                onChange={(e) => {
+                  reset();
+                  setTarget(e.target.value);
+                }}
+              >
+                <option value="" disabled>
+                  Choose an agent or workflow
+                </option>
+                {targets.map((t) => (
+                  <option key={`${t.type}:${t.id}`} value={`${t.type}:${t.id}`}>
+                    {t.name} · {t.type}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {current?.type === 'agent' &&
+            (current as Entity).pattern &&
+            (current as Entity).pattern !== 'react' && (
+              <span className="status next">{String((current as Entity).pattern).replace('-', ' ')}</span>
+            )}
+        </div>
         <div className="chat-scroll">
-          {!messages.length ? (
+          {!messages.length && !busy ? (
             <div className="chat-welcome">
               <div className="welcome-orbit">
                 <Bot size={34} />
                 <span className="orbit-point one" />
                 <span className="orbit-point two" />
               </div>
-              <div className="eyebrow">A SPACE TO EXPERIMENT</div>
+              <div className="eyebrow">A space to experiment</div>
               <h2>{current ? `Meet ${current.name}.` : 'Put your agents to work.'}</h2>
               <p>
                 {current
-                  ? 'Ask a question, give it a task, and follow each step as it works.'
+                  ? 'Ask a question, give it a task, and watch each step as it works. Answers stream in as they are written.'
                   : 'Create an agent or workflow, then start a conversation here.'}
               </p>
               {current && (
@@ -172,17 +328,22 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
               )}
             </div>
           ) : (
-            messages.map((m, index) => (
-              <div className={`chat-message ${m.role}`} key={index}>
-                <div className="message-avatar">
-                  {m.role === 'user' ? <UserRound size={17} /> : <Bot size={18} />}
-                </div>
-                <div className="message-body">
-                  <strong>{m.role === 'user' ? 'You' : (current?.name ?? 'Agent')}</strong>
-                  <Markdown text={m.content} />
-                </div>
+            <>
+              <div className="chat-divider">
+                <span>{conversationId ? 'Conversation' : 'Today'}</span>
               </div>
-            ))
+              {messages.map((m, index) => (
+                <div className={`chat-message ${m.role}`} key={index}>
+                  <div className="message-avatar">
+                    {m.role === 'user' ? <UserRound size={17} /> : <Bot size={18} />}
+                  </div>
+                  <div className="message-body">
+                    <strong>{m.role === 'user' ? 'You' : (current?.name ?? 'Agent')}</strong>
+                    <Markdown text={m.content} />
+                  </div>
+                </div>
+              ))}
+            </>
           )}
           {busy && (
             <div className="chat-message assistant">
@@ -191,14 +352,25 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
               </div>
               <div className="message-body">
                 <strong>{current?.name}</strong>
-                <div className="thinking">
-                  <span />
-                  <span />
-                  <span />
-                  <small>
-                    {run?.status === 'queued' ? 'Waiting for the runner' : 'Working on your request'}
-                  </small>
-                </div>
+                {streaming ? (
+                  <div className="streaming">
+                    <Markdown text={run.partial} />
+                    <span className="caret" />
+                  </div>
+                ) : (
+                  <div className="thinking">
+                    <span />
+                    <span />
+                    <span />
+                    <small>
+                      {run?.status === 'queued'
+                        ? 'Waiting for a runner'
+                        : run?.events?.length
+                          ? run.events[run.events.length - 1].message
+                          : 'Working on your request'}
+                    </small>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -241,33 +413,100 @@ export function Playground({ data, initialTarget }: { data: Data; initialTarget?
               </button>
             )}
           </form>
-          <small>
-            Enter to send · Shift + Enter for a new line · Runs use your configured model provider
-          </small>
+          <small>Enter to send · Shift + Enter for a new line</small>
         </div>
       </div>
       <aside className="trace-panel">
-        <div className="trace-heading">
-          <Terminal size={17} />
-          <h3>Execution trace</h3>
-          {run && <Status status={run.status} />}
+        <div className="panel-tabs" role="tablist">
+          <button
+            role="tab"
+            aria-selected={panel === 'trace'}
+            className={panel === 'trace' ? 'active' : ''}
+            onClick={() => setPanel('trace')}
+          >
+            <Terminal size={15} />
+            Trace
+          </button>
+          <button
+            role="tab"
+            aria-selected={panel === 'history'}
+            className={panel === 'history' ? 'active' : ''}
+            onClick={() => setPanel('history')}
+          >
+            <History size={15} />
+            History
+          </button>
         </div>
-        {run ? (
-          <>
-            <div className="trace-meta">
-              <small>RUN ID</small>
-              <code>{run.id}</code>
-              <span>{timestamp(run.createdAt)}</span>
+        {panel === 'trace' ? (
+          shown ? (
+            <>
+              <div className="trace-meta">
+                <small>Run</small>
+                <code>{shown.id}</code>
+                <span>
+                  {timestamp(shown.createdAt)} {shown.status && <Status status={shown.status} />}
+                </span>
+                {inspected && (
+                  <button className="text-button" onClick={() => setInspected(null)}>
+                    Back to the live run
+                  </button>
+                )}
+              </div>
+              {inspected?.output && (
+                <details className="trace-output" open>
+                  <summary>Output</summary>
+                  <Markdown text={inspected.output} />
+                </details>
+              )}
+              <Trace events={shown.events ?? []} />
+              {shown.error && <ErrorNotice error={shown.error} />}
+            </>
+          ) : (
+            <div className="trace-placeholder">
+              <div className="trace-line" />
+              <div className="trace-line" />
+              <div className="trace-line" />
+              <p>
+                Model turns, tool calls, retrieved passages and step results appear here as the run works.
+              </p>
             </div>
-            <Trace events={run.events ?? []} />
-            {run.error && <ErrorNotice error={run.error} />}
-          </>
+          )
         ) : (
-          <div className="trace-placeholder">
-            <div className="trace-line" />
-            <div className="trace-line" />
-            <div className="trace-line" />
-            <p>Your agent’s steps, model calls, tools, and knowledge sources will appear here.</p>
+          <div className="history-list">
+            {!historyRuns.length && (
+              <Empty
+                icon={<Activity size={22} />}
+                title="No runs yet"
+                text={`Runs of ${current?.name ?? 'this target'} from every trigger show up here.`}
+              />
+            )}
+            {historyRuns.map((r) => (
+              <button
+                className={`history-item ${inspected?.id === r.id ? 'active' : ''}`}
+                key={r.id}
+                onClick={() => {
+                  void api(`/runs/${r.id}`)
+                    .then((full) => {
+                      setInspected(full);
+                      setPanel('trace');
+                    })
+                    .catch((e) => setError(errorMessage(e)));
+                }}
+              >
+                <span className="history-item-top">
+                  <Status status={r.status} />
+                  <small>
+                    <Clock3 size={11} />
+                    {timestamp(r.createdAt)}
+                  </small>
+                </span>
+                <strong>{r.input}</strong>
+                <small>
+                  {r.trigger ?? 'studio'}
+                  {r.resumeCount ? ` · resumed ${r.resumeCount}×` : ''}
+                </small>
+              </button>
+            ))}
           </div>
         )}
       </aside>
@@ -281,7 +520,11 @@ export function Trace({ events }: { events: any[] }) {
         <details className={`trace-event ${event.type}`} key={`${index}:${event.at}`}>
           <summary>
             <span className="trace-dot">
-              {event.type.endsWith('completed') ? <Check size={10} /> : <span />}
+              {event.type.endsWith('completed') || event.type === 'email_sent' ? (
+                <Check size={9} />
+              ) : (
+                <span />
+              )}
             </span>
             <span>
               <strong>{event.message}</strong>
@@ -358,7 +601,7 @@ export function EmbedChat({ id }: { id: string }) {
     <div className="embed-chat">
       <header>
         <div className="brand-mark">
-          <GitBranchIcon />
+          <Bot size={20} />
         </div>
         <div>
           <strong>{name}</strong>
@@ -403,7 +646,4 @@ export function EmbedChat({ id }: { id: string }) {
       </div>
     </div>
   );
-}
-function GitBranchIcon() {
-  return <Bot size={20} />;
 }

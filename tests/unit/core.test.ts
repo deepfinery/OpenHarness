@@ -20,6 +20,59 @@ const {
 } = await import('../../packages/core/src/security.js');
 const { filePath } = await import('../../packages/core/src/storage.js');
 const { toolAlias } = await import('../../packages/core/src/mcp.js');
+const { resumeDecision } = await import('../../packages/core/src/runtime.js');
+
+test('crashed runs resume only when the in-flight step cannot have acted externally', () => {
+  const providerId = '11111111-1111-4111-8111-111111111111';
+  const agent = (tools: string[]) =>
+    agentSchema.parse({
+      name: 'A',
+      providerId,
+      systemPrompt: 'x',
+      connections: tools.length ? [{ connectionId: '22222222-2222-4222-8222-222222222222', tools }] : [],
+    });
+  const workflow = workflowSchema.parse({
+    name: 'W',
+    startAt: 'start',
+    nodes: [
+      { id: 'start', name: 'Start', type: 'start', next: 'plain' },
+      { id: 'plain', name: 'Plain', type: 'agent', config: agent([]), next: 'tooled' },
+      { id: 'tooled', name: 'Tooled', type: 'agent', config: agent(['lookup']), next: 'mail' },
+      { id: 'mail', name: 'Mail', type: 'email', to: 'a@b.co', next: 'finish' },
+      { id: 'finish', name: 'Finish', type: 'finish' },
+    ],
+  });
+  const run = (cursor: string | undefined, extra: Record<string, unknown> = {}) =>
+    ({
+      snapshot: { workflow, agents: {}, nodeAgents: { plain: agent([]), tooled: agent(['lookup']) } },
+      checkpoint: cursor ? { cursor, last: '', steps: 1, nodeAttempts: {} } : undefined,
+      ...extra,
+    }) as any;
+  assert.equal(resumeDecision(run(undefined)).resume, true, 'nothing started yet');
+  assert.equal(resumeDecision(run('plain')).resume, true, 'agent without tools');
+  assert.equal(resumeDecision(run('tooled')).resume, false, 'agent with tools may have acted');
+  assert.equal(resumeDecision(run('mail')).resume, false, 'email is an external action');
+  assert.equal(resumeDecision(run('start')).resume, true);
+  assert.equal(
+    resumeDecision(
+      run('tooled', {
+        snapshot: { workflow: { ...workflow, resumePolicy: 'always' }, agents: {}, nodeAgents: {} },
+      }),
+    ).resume,
+    true,
+  );
+  assert.equal(
+    resumeDecision(
+      run('plain', { snapshot: { workflow: { ...workflow, resumePolicy: 'never' }, agents: {} } }),
+    ).resume,
+    false,
+  );
+  assert.equal(resumeDecision(run('plain', { resumeCount: 3 })).resume, false, 'resume limit');
+  const agentOnly = (tools: string[]) =>
+    ({ agentId: 'a1', snapshot: { agents: { a1: agent(tools) } } }) as any;
+  assert.equal(resumeDecision(agentOnly([])).resume, true);
+  assert.equal(resumeDecision(agentOnly(['lookup'])).resume, false);
+});
 
 test('MCP tool argument validation catches enum and required-field mismatches before dispatch', () => {
   const schema = {

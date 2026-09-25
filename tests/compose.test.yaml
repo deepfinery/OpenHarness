@@ -2,9 +2,11 @@ services:
   api:
     environment:
       ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal
+      SMTP_TRANSPORT: json
   runner:
     environment:
       ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal
+      SMTP_TRANSPORT: json
   fixtures:
     image: agentic-orchestration:local
     pull_policy: never
