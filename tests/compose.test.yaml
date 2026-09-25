@@ -3,10 +3,19 @@ services:
     environment:
       ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal,gateway
       SMTP_TRANSPORT: json
+      QDRANT_URL: http://qdrant:6333
+    depends_on:
+      qdrant: { condition: service_healthy }
   runner:
     environment:
       ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal,gateway
       SMTP_TRANSPORT: json
+      QDRANT_URL: http://qdrant:6333
+    depends_on:
+      qdrant: { condition: service_healthy }
+  # The test stack always runs the optional Qdrant store, so both vector store drivers are exercised.
+  qdrant:
+    profiles: !reset []
   gateway:
     environment:
       GATEWAY_HEARTBEAT_SECONDS: 5

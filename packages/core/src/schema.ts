@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { vectorStoreKinds } from './vectorstores/types.js';
 
 export const id = z.string().uuid();
 const name = z.string().trim().min(1).max(100);
@@ -312,6 +313,8 @@ export const knowledgeSchema = z.object({
   name,
   description: z.string().max(1000).default(''),
   providerId: id,
+  /** Where the base's vectors live; set once when the base is created. */
+  vectorStore: z.enum(vectorStoreKinds).optional(),
 });
 export const runSchema = z
   .object({

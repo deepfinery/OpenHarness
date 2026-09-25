@@ -17,7 +17,8 @@ import {
 import { encrypt, HttpError, safeError, validateRemoteUrl } from '../../../packages/core/src/security.js';
 import { discoverTools, startOAuth } from '../../../packages/core/src/mcp.js';
 import { chat, embed, ownedProvider } from '../../../packages/core/src/llm.js';
-import { searchKnowledge } from '../../../packages/core/src/knowledge.js';
+import { dropKnowledgeIndex, searchKnowledge } from '../../../packages/core/src/knowledge.js';
+import { configuredVectorStores } from '../../../packages/core/src/vectorstores/index.js';
 import {
   filePath,
   readStoredFile,
@@ -155,6 +156,26 @@ for (const [kind, schema] of Object.entries(definitions)) {
           409,
           'This provider is used by a knowledge base. Create a new provider to change its embedding configuration.',
         );
+      if (kind === 'knowledge') {
+        // The store is chosen once; bases from before stores were pluggable are on Weaviate.
+        body.vectorStore = previous
+          ? (body.vectorStore ?? previous.vectorStore ?? 'weaviate')
+          : (body.vectorStore ?? config.VECTOR_STORE);
+        if (!configuredVectorStores().includes(body.vectorStore))
+          throw new HttpError(
+            400,
+            `The ${body.vectorStore} vector store is not configured on this deployment`,
+          );
+        if (
+          previous &&
+          (previous.vectorStore ?? 'weaviate') !== body.vectorStore &&
+          (await collection<KnowledgeDocument>('documents').findOne({ ownerId, knowledgeBaseId: id }))
+        )
+          throw new HttpError(
+            409,
+            'Remove the documents before moving this knowledge base to another vector store',
+          );
+      }
       if (
         kind === 'knowledge' &&
         previous &&
@@ -269,8 +290,12 @@ for (const [kind, schema] of Object.entries(definitions)) {
     for (const [name, query] of blockers)
       if (await collection<Resource>(name).findOne({ ownerId, ...query }))
         throw new HttpError(409, `Remove this resource’s references in ${name} first`);
-    const result = await records().deleteOne({ _id: id, ownerId });
-    if (!result.deletedCount) throw new HttpError(404, 'Resource not found');
+    const removed = await records().findOneAndDelete({ _id: id, ownerId });
+    if (!removed) throw new HttpError(404, 'Resource not found');
+    if (kind === 'knowledge')
+      await dropKnowledgeIndex(removed as { _id: string; vectorStore?: 'weaviate' | 'qdrant' }).catch(
+        (error) => console.warn('Could not remove a knowledge index:', safeError(error)),
+      );
     res.status(204).end();
   });
 }

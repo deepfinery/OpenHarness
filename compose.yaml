@@ -10,6 +10,10 @@ x-app-environment: &app-environment
   RABBITMQ_URL: amqp://agentic:${RABBITMQ_PASSWORD:?Run ./start.sh first}@rabbitmq:5672
   WEAVIATE_URL: http://weaviate:8080
   WEAVIATE_API_KEY: ${WEAVIATE_API_KEY:?Run ./start.sh first}
+  # Optional Qdrant store: start with `--profile qdrant` and set QDRANT_URL=http://qdrant:6333 in .env.
+  VECTOR_STORE: ${VECTOR_STORE:-weaviate}
+  QDRANT_URL: ${QDRANT_URL:-}
+  QDRANT_API_KEY: ${QDRANT_API_KEY:-}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Run ./start.sh first}
   SETUP_TOKEN: ${SETUP_TOKEN:?Run ./start.sh first}
   DATA_DIR: /data
@@ -189,8 +193,25 @@ services:
       retries: 15
       start_period: 30s
 
+  qdrant:
+    image: qdrant/qdrant:v1.19.1
+    profiles: ['qdrant']
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
+      # Qdrant sends anonymous usage statistics unless this is set.
+      QDRANT__TELEMETRY_DISABLED: 'true'
+    volumes: ['qdrant:/qdrant/storage']
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'bash', '-c', ':> /dev/tcp/127.0.0.1/6333']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
 volumes:
   mongodb:
   rabbitmq:
   weaviate:
+  qdrant:
   files:

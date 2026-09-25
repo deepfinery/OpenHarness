@@ -631,6 +631,16 @@ export function KnowledgeEditor({ value, data, onClose, onSaved }: Props) {
     value ?? { name: '', description: '', providerId: providers[0]?.id ?? '' },
   );
   const [addingProvider, setAddingProvider] = useState(false);
+  const [stores, setStores] = useState<{ available: string[]; default: string }>({
+    available: ['weaviate'],
+    default: 'weaviate',
+  });
+  useEffect(() => {
+    void api('/config')
+      .then((c) => c.vectorStores && setStores(c.vectorStores))
+      .catch(() => {});
+  }, []);
+  const storeLabels: Record<string, string> = { weaviate: 'Weaviate', qdrant: 'Qdrant' };
   return (
     <Modal title={value ? 'Edit knowledge base' : 'Create a knowledge base'} onClose={onClose}>
       <SaveForm
@@ -682,6 +692,25 @@ export function KnowledgeEditor({ value, data, onClose, onSaved }: Props) {
             ))}
           </select>
         </Field>
+        {stores.available.length > 1 && (
+          <Field
+            label="Vector store"
+            hint="Where the passages are indexed. Fixed for the life of the knowledge base."
+          >
+            <select
+              aria-label="Vector store"
+              disabled={Boolean(value)}
+              value={form.vectorStore ?? (value ? 'weaviate' : stores.default)}
+              onChange={(e) => set({ ...form, vectorStore: e.target.value })}
+            >
+              {stores.available.map((kind) => (
+                <option key={kind} value={kind}>
+                  {storeLabels[kind] ?? kind}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         {!providers.length && (
           <div className="notice">
             <span>No provider has an embedding model yet. Add one (OpenAI, Gemini or Ollama) first.</span>
