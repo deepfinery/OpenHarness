@@ -176,11 +176,12 @@ export function MachinesPage({ data, refresh, act, onUseMachine }: PageProps) {
                 </Button>
                 <Button
                   variant="ghost"
-                  disabled={!m.online || !m.tools.length}
+                  disabled={!m.connectionId || !m.tools.length}
+                  title="Create a Machine operator workflow with this machine's tools, then chat with it in the Playground"
                   onClick={() => onUseMachine(m.device_id)}
                 >
                   <Play size={14} />
-                  Use in playground
+                  New operator workflow
                 </Button>
               </div>
             </article>

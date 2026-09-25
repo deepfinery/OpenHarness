@@ -265,6 +265,34 @@ test('a context-length rejection is recovered by compacting the dialog and remem
   assert.equal(second.status, 'succeeded', second.error);
   assert.equal((await stats()).contextRejections, before + 1, 'later runs pre-trim instead of failing first');
 });
+test('a model whose tokenizer counts more than the estimate still gets a prompt that fits', async () => {
+  // The reported case: a 32k model rejected the prompt three times because the estimate said it already fit.
+  const dense = await ok('/providers', {
+    name: `Dense tokenizer ${suffix}`,
+    kind: 'openai-compatible',
+    baseUrl: 'http://fixtures:9090/v1',
+    model: 'test-dense',
+    maxOutputTokens: 1024,
+  });
+  const agent = await ok('/agents', {
+    name: `Dense reader ${suffix}`,
+    providerId: dense.id,
+    systemPrompt: 'Chat.',
+  });
+  const filler = 'https://news.example.com/markets/sp500?id=4821&ref=search {"title":"S&P 500"} '.repeat(70);
+  const history = Array.from({ length: 6 }, (_, i) => ({
+    role: i % 2 ? ('assistant' as const) : ('user' as const),
+    content: `${filler} (${i})`,
+  }));
+  const before = (await stats()).denseRejections ?? 0;
+  const run = await waitRun(
+    (await ok('/runs', { agentId: agent.id, input: 'Any market news today?', history })).id,
+  );
+  assert.equal(run.status, 'succeeded', run.error);
+  assert.ok(((await stats()).denseRejections ?? 0) > before, 'the provider rejected the untrimmed prompt');
+  assert.ok(run.events.some((e: any) => e.type === 'context_compacted'));
+  assert.equal((await ok(`/providers/${dense.id}`)).contextWindow, 12000);
+});
 test('effort budgets cap the tokens an agent may spend and auto effort resolves a level per request', async () => {
   const providers = await ok('/providers');
   const provider = providers.find((p: any) => p.baseUrl === 'http://fixtures:9090/v1') ?? providers[0];

@@ -26,6 +26,7 @@ import { validateToolArguments } from './toolValidation.js';
 import {
   compactDialog,
   contextLimitFromError,
+  promptTokensFromError,
   dialogTokens,
   estimateTokens,
   isContextLengthError,
@@ -167,14 +168,26 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
 
     // Prompt budget: the provider's context window minus the answer we ask for, with a small margin.
     let contextBudget = Math.max(1024, (provider.contextWindow ?? 128000) - provider.maxOutputTokens - 256);
-    /** Calls the model with the dialog trimmed to the budget, learning the real window from a context error. */
+    /**
+     * How far the character-based estimate undershoots this provider's tokenizer. URLs, JSON and non-English text
+     * tokenize denser than the estimate assumes; the provider's own count in a context error calibrates it.
+     */
+    let estimateScale = 1;
+    /**
+     * Calls the model with the dialog trimmed to the budget. The offered tool definitions count against it too. A
+     * context error teaches the real window and the tokenizer's density, and every retry sends less than the last.
+     */
     async function model(dialog: ChatMessage[], offered: ToolDefinition[]) {
+      const toolTokens = offered.length ? estimateTokens(JSON.stringify(offered)) : 0;
       for (let attempt = 0; ; attempt++) {
-        const fitted = compactDialog(dialog, contextBudget);
+        const fitted = compactDialog(
+          dialog,
+          Math.max(512, Math.floor(contextBudget / estimateScale) - toolTokens),
+        );
         if (fitted.changed)
           await ctx.event({
             type: 'context_compacted',
-            message: `Trimmed the conversation to about ${fitted.tokens} tokens (budget ${contextBudget})`,
+            message: `Trimmed the conversation to about ${Math.round((fitted.tokens + toolTokens) * estimateScale)} tokens (budget ${contextBudget})`,
             data: { level: fitted.level, budget: contextBudget, messages: fitted.messages.length },
           });
         try {
@@ -191,7 +204,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
           return response;
         } catch (error) {
           const text = error instanceof Error ? error.message : String(error);
-          if (attempt >= 2 || !isContextLengthError(text)) throw error;
+          if (attempt >= 3 || !isContextLengthError(text)) throw error;
           const limit = contextLimitFromError(text);
           if (limit && limit < (provider.contextWindow ?? Infinity)) {
             // Remember the real window so later runs pre-trim instead of failing first.
@@ -200,10 +213,14 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
               .updateOne({ _id: provider._id }, { $set: { contextWindow: limit } })
               .catch(() => {});
           }
-          contextBudget = Math.max(
-            1024,
-            limit ? limit - provider.maxOutputTokens - 256 : Math.floor(contextBudget * 0.6),
-          );
+          const estimated = fitted.tokens + toolTokens;
+          const counted = promptTokensFromError(text);
+          if (counted && counted > estimated * estimateScale)
+            estimateScale = Math.min(4, (counted / estimated) * 1.05);
+          const sent = counted ?? Math.ceil(estimated * estimateScale);
+          const allowed = limit ? limit - provider.maxOutputTokens - 256 : contextBudget;
+          // Whatever the provider reports, the next attempt sends less than this one did.
+          contextBudget = Math.max(1024, Math.min(allowed, Math.floor(sent * 0.85)));
         }
       }
     }

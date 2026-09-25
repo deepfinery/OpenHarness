@@ -14,6 +14,21 @@ export const isContextLengthError = (message: string) =>
   /maximum context length|context[_ ]length|context window|too many tokens|prompt is too long|input is too long|exceeds? the (?:model'?s?|maximum)|token limit|max_tokens.*(?:exceed|greater)|tokens? (?:exceed|over)/i.test(
     message,
   );
+/** How many prompt tokens the provider says it counted, when its error says (vLLM, OpenAI, Anthropic wordings). */
+export function promptTokensFromError(message: string): number | undefined {
+  const patterns = [
+    /prompt contains at least (\d+) input tokens/i,
+    /(\d+) in the messages/i,
+    /messages resulted in (\d+) tokens/i,
+    /prompt is too long: (\d+) tokens/i,
+    /input (?:length|tokens?)(?: is| of)? (\d+)/i,
+  ];
+  for (const p of patterns) {
+    const m = p.exec(message);
+    if (m) return Number(m[1]);
+  }
+  return undefined;
+}
 /** The limit a provider states in its error, when it states one (OpenAI, vLLM, Ollama, Anthropic wordings). */
 export function contextLimitFromError(message: string): number | undefined {
   const patterns = [

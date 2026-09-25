@@ -22,7 +22,18 @@ import {
   X,
   Laptop,
 } from 'lucide-react';
-import { api, collections, emptyData, errorMessage, send, type Data, type Entity, type User } from './api';
+import {
+  api,
+  collections,
+  defaultProviderId,
+  emptyData,
+  errorMessage,
+  send,
+  type Data,
+  type Entity,
+  type User,
+} from './api';
+import { makeStarter } from '../../../packages/core/src/starters.js';
 import { Button, ErrorNotice, UpdateNotice } from './components/ui';
 import { ConnectionEditor, KnowledgeEditor, ProviderEditor } from './components/editors';
 import { WorkflowStarter } from './components/WorkflowStarter';
@@ -196,7 +207,6 @@ function App() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [page, setPage] = useState(location.pathname.split('/')[1] || 'workflows');
   const [target, setTarget] = useState('');
-  const [machine, setMachine] = useState('');
   const [data, setData] = useState<Data>(emptyData);
   const [editor, setEditor] = useState<{ type: string; value?: Entity; draft?: Workflow } | null>(null);
   const [error, setError] = useState('');
@@ -316,17 +326,6 @@ function App() {
     knowledge: KnowledgeEditor,
   };
   const Editor = editor ? editors[editor.type] : undefined;
-  // Machines the playground's workflow already has; a machine chosen for the chat replaces them.
-  const boundMachines = (() => {
-    const [type, id] = target.split(':');
-    if (type !== 'workflow') return [];
-    const workflow = data.workflows.find((w) => w.id === id) as
-      { resources?: { type: string; connectionId?: string }[] } | undefined;
-    const devices = new Map(data.connections.filter((c) => c.kind === 'device').map((c) => [c.id, c.name]));
-    return (workflow?.resources ?? []).flatMap((r) =>
-      r.type === 'mcp' && r.connectionId && devices.has(r.connectionId) ? [devices.get(r.connectionId)!] : [],
-    );
-  })();
   return (
     <div className="app-shell">
       <UpdateNotice />
@@ -395,7 +394,7 @@ function App() {
             <span>{tenant.name}</span>
             <ChevronRight size={13} />
             {page === 'playground' ? (
-              // The playground's workflow and machine selectors live here so the chat column starts at the very top.
+              // The playground's workflow selector lives here so the chat column starts at the very top.
               <>
                 <select
                   className="topbar-select"
@@ -413,30 +412,6 @@ function App() {
                     </option>
                   ))}
                 </select>
-                {data.machines.length > 0 && (
-                  <select
-                    className="topbar-select machine-select"
-                    aria-label="Playground machine"
-                    title={
-                      boundMachines.length
-                        ? 'The workflow already has a machine. Choosing another one here replaces it for this chat.'
-                        : 'Give the agents the tools of one of your machines for this chat.'
-                    }
-                    value={machine}
-                    onChange={(e) => setMachine(e.target.value)}
-                  >
-                    <option value="">
-                      {boundMachines.length
-                        ? `Workflow's machine (${boundMachines.join(', ')})`
-                        : 'No machine'}
-                    </option>
-                    {data.machines.map((m) => (
-                      <option key={m.device_id} value={m.device_id} disabled={m.disabled}>
-                        {m.name} · {m.online ? 'online' : 'offline'}
-                      </option>
-                    ))}
-                  </select>
-                )}
               </>
             ) : (
               <strong>{nav.find((n) => n.id === page)?.label ?? 'Workflows'}</strong>
@@ -468,14 +443,7 @@ function App() {
           </div>
         )}
         {page === 'playground' ? (
-          <Playground
-            key={target}
-            data={data}
-            target={target}
-            onTargetChange={setTarget}
-            deviceId={machine}
-            onDeviceChange={setMachine}
-          />
+          <Playground key={target} data={data} target={target} onTargetChange={setTarget} />
         ) : page === 'knowledge' ? (
           <KnowledgePage {...props} />
         ) : (
@@ -486,8 +454,22 @@ function App() {
               <MachinesPage
                 {...props}
                 onUseMachine={(deviceId) => {
-                  setMachine(deviceId);
-                  navigate('playground');
+                  // Machines are workflow tools: start a Machine operator workflow bound to this one.
+                  const m = data.machines.find((x) => x.device_id === deviceId);
+                  if (!m?.connectionId) return;
+                  setEditor({
+                    type: 'workflows',
+                    draft: makeStarter({
+                      kind: 'machine',
+                      name: `${m.name} operator`,
+                      providerId: defaultProviderId(data),
+                      machine: {
+                        connectionId: m.connectionId,
+                        name: m.name,
+                        tools: m.tools.map((t) => t.name),
+                      },
+                    }),
+                  });
                 }}
               />
             ) : page === 'connections' ? (
