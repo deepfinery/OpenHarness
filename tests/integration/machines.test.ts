@@ -17,6 +17,7 @@ const deviceId = `test-box-${suffix}`;
 const admin = { email: 'admin@openharness.test', password: 'Integration-test-password-42' };
 let cookie = '';
 let containerId = '';
+let secondContainerId = '';
 async function request(path: string, method = 'GET', body?: unknown) {
   const response = await fetch(base + '/api' + path, {
     method,
@@ -83,6 +84,7 @@ before(async () => {
 });
 after(async () => {
   if (containerId) await exec('docker', ['rm', '-f', containerId]).catch(() => {});
+  if (secondContainerId) await exec('docker', ['rm', '-f', secondContainerId]).catch(() => {});
 });
 
 test('the Machines API reports a configured gateway and the platform tool catalog', async () => {
@@ -240,6 +242,79 @@ test(
       (await request('/runs', 'POST', { workflowId: workflow.id, input: 'x', deviceId: 'nope-123' })).status,
       404,
     );
+    // A machine whose stored tool list is missing (enrolled before its connector first connected) is discovered
+    // when a chat picks it, instead of failing with "no tools yet".
+    await ok(`/connections/${online.connectionId}/disconnect`, {});
+    assert.equal(
+      (await ok('/connections')).find((c: any) => c.id === online.connectionId).tools,
+      undefined,
+      'the stored tool list is gone',
+    );
+    const rediscovered = await waitRun(
+      (await ok('/chat', { workflowId: template.id, message: 'Please run uname on the machine', deviceId }))
+        .id,
+    );
+    assert.equal(rediscovered.status, 'succeeded', rediscovered.error);
+    assert.match(rediscovered.output, /Linux/);
+    // A machine chosen in the chat replaces the workflow's own machine: the command runs on the chosen one only.
+    const secondId = `test-box-b-${suffix}`;
+    const second = await ok('/devices', {
+      name: `Second box ${suffix}`,
+      deviceId: secondId,
+      platform: 'linux',
+      allowedTools: ['run_command', 'system_info'],
+    });
+    secondContainerId = (
+      await exec(
+        'docker',
+        [
+          'compose',
+          '-p',
+          project!,
+          '-f',
+          'compose.yaml',
+          '-f',
+          'tests/compose.test.yaml',
+          'run',
+          '-d',
+          '--no-deps',
+          '-e',
+          `DEVICE_TOKEN=${second.token}`,
+          '-e',
+          `DEVICE_ID=${secondId}`,
+          'device',
+        ],
+        { env: { ...process.env, TEST_DEVICE_ID: secondId }, maxBuffer: 10_000_000 },
+      )
+    ).stdout
+      .trim()
+      .split('\n')
+      .at(-1)!;
+    const secondOnline = await waitFor(
+      async () => {
+        const m = (await ok('/devices')).machines.find((x: any) => x.device_id === secondId);
+        return m?.online && m.tools.length ? m : undefined;
+      },
+      60_000,
+      'the second connector to come online',
+    );
+    assert.notEqual(secondOnline.hostname, online.hostname);
+    const switched = await waitRun(
+      (
+        await ok('/chat', {
+          workflowId: template.id,
+          message: 'Please run uname on the machine',
+          deviceId: secondId,
+        })
+      ).id,
+    );
+    assert.equal(switched.status, 'succeeded', switched.error);
+    assert.equal(switched.device?.id, secondId);
+    assert.ok(switched.output.includes(secondOnline.hostname), 'uname ran on the chosen machine');
+    assert.ok(!switched.output.includes(online.hostname), 'not on the workflow’s own machine');
+    const offered = switched.events.find((e: any) => e.type === 'tool_completed');
+    assert.match(offered.message, /run_command/);
+    assert.equal((await request(`/devices/${secondId}`, 'DELETE')).status, 204);
     // A machine that a workflow still uses cannot be removed.
     assert.equal((await request(`/devices/${deviceId}`, 'DELETE')).status, 409);
     await ok(`/workflows/${template.id}`, undefined, 'DELETE');
