@@ -380,6 +380,29 @@ function answer(messages, tools) {
         ],
       };
   }
+  // Open Harness conformance prompts (tests/conformance): deterministic stand-ins for what a real model would do.
+  const toolNamed = (suffix) => tools?.find((t) => t.function.description.includes(`/ ${suffix}:`));
+  const callTool = (tool, args) => ({
+    content: '',
+    tool_calls: [{ id: randomUUID(), type: 'function', function: { name: tool.function.name, arguments: JSON.stringify(args) } }],
+  });
+  const prompt = String(input);
+  if (/Use a tool to tell me what (\d+) \+ (\d+)/.test(prompt) && toolNamed('calculate')) {
+    const [, a, b] = /what (\d+) \+ (\d+)/.exec(prompt);
+    return callTool(toolNamed('calculate'), { a: Number(a), b: Number(b) });
+  }
+  if (/Read the file at \/nonexistent/.test(prompt) && toolNamed('fail')) return callTool(toolNamed('fail'), {});
+  if (/shell|directory|environment|filesystem tools/i.test(prompt) && toolNamed('lookup'))
+    return callTool(toolNamed('lookup'), { query: prompt.slice(0, 80) });
+  const math = /What is (\d+) ?([*x+\-/]) ?(\d+)\?/.exec(prompt);
+  if (math) {
+    const [a, op, b] = [Number(math[1]), math[2], Number(math[3])];
+    const value = op === '+' ? a + b : op === '-' ? a - b : op === '/' ? a / b : a * b;
+    return { content: /just the number/i.test(prompt) ? String(value) : `${a} ${op} ${b} = ${value}` };
+  }
+  if (/Count from 1 to 3/.test(prompt)) return { content: '1, 2, 3' };
+  if (/pirate/i.test(messages.find((m) => m.role === 'system')?.content ?? ''))
+    return { content: 'Arr, ahoy matey! Ye be welcome aboard.' };
   // Knowledge workspace tools are built in, so they keep their plain names.
   const builtin = (name, args) =>
     tools?.some((t) => t.function.name === name)

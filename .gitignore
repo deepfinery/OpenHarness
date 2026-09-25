@@ -20,3 +20,8 @@ data/
 *.tsbuildinfo
 *.log
 design
+
+# Python build output of the conformance adapter
+conformance/adapter/build/
+*.egg-info/
+__pycache__/

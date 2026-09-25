@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openharness-openharness"
+version = "0.1.0"
+description = "Open Harness API adapter for OpenHarness (drives a running OpenHarness over its /openharness/v1 HTTP API)"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+dependencies = ["openharness", "httpx>=0.25.0"]
+
+[tool.setuptools]
+packages = ["openharness_openharness"]
