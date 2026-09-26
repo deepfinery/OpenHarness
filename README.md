@@ -6,6 +6,10 @@ A self-hosted studio for AI agents, MCP tools, and knowledge. Build agents from 
 - **Durable by design.** Runs are queued through RabbitMQ, checkpointed in MongoDB, and resumed on another runner if a process dies — without ever blindly replaying a step that may have acted on the outside world.
 - **Self-contained.** API, runner, studio, configuration and deployment assets live in this repository. No cloud account, managed database, or external login is required.
 
+[Read the OpenHarness overview (PDF, 15 pages)](OpenHarness.pdf)
+
+[![First-page preview of the OpenHarness overview](docs/images/openharness-preview.png)](OpenHarness.pdf)
+
 ## Contents
 
 - [Quick start](#quick-start)
@@ -45,7 +49,7 @@ Allow about 4 GB of memory for the stack, plus whatever your locally hosted mode
 | **Schedules**       | Run a workflow every N minutes, hourly, daily or weekly at a wall-clock time in your time zone; deduplicated so a restart never double-fires.                                                                                                                                                                                        |
 | **Skills**          | A workspace library of skills — a name, a one-line “when to use it”, and full instructions. Give an agent several; it sees only the descriptions, loads the matching skill with a built-in `load_skill` tool, and follows it. Skills are snapshotted per run and each load appears in the trace.                                     |
 | **Machines**        | Register Linux hosts, containers, Windows machines and Chrome browsers that have no public IP: each runs a connector that dials out to the bundled gateway. Pick a machine in the playground and the workflow's agents get its tools (`run_command`, files, processes …) with per-machine allow-lists, audit and optional approvals. |
-| **Playground**      | The workflow selector sits in the top bar; saved conversations per workflow, token-by-token streaming, live execution trace and a run-history tab side by side.                                                                                                                                                                      |
+| **Playground**      | The workflow selector sits in the top bar; saved conversations per workflow, token-by-token streaming, live execution trace, memory, and a single History tab for saved chats and runs.                                                                                                                                              |
 | **MCP connector**   | Streamable HTTP or legacy SSE; no auth, API key, or OAuth with PKCE, dynamic registration or a pre-registered client ID (for servers such as Finnhub); discovered tools shown on the connection card with their schemas; every call validated against the schema before it is sent.                                                  |
 | **Model providers** | Guided setup for OpenAI, Anthropic, Gemini, Ollama, or any OpenAI-compatible server; a workspace default provider that new agents start with; separate chat and embedding models; a connection test that reports the provider's exact error before you save.                                                                         |
 | **Knowledge bases** | A notebook view: write Markdown notes in place (indexed on every save) or upload TXT, Markdown, CSV, JSON, YAML, text PDF and DOCX; background indexing, Weaviate hybrid search, cited passages in the prompt, an **Ask** dialog that shows the exact passages an agent would get.                                                   |
@@ -128,7 +132,7 @@ Private endpoints are denied unless their hostname is listed in `ALLOWED_PRIVATE
 
 ### 3. Configure an agent
 
-Agents are configured where they run: double-click an agent card (or its gear icon, or **Settings** in the selection bar) to open its settings. Pick a model (the workspace default is preselected), an **effort** level, a template to start the instructions from, the pattern and its options, and the message the agent receives (`{{input}}`, `{{last}}`, `{{steps.id}}`). **Tools & knowledge** lists what is attached and adds more. Try the workflow in the **Playground**: conversations are saved per workflow, answers stream as they are written, and the right panel switches between **Trace**, **History**, and **Memory**. Leaving the page or reloading restores the selected conversation and reconnects to its running job.
+Agents are configured where they run: double-click an agent card (or its gear icon, or **Settings** in the selection bar) to open its settings. Pick a model (the workspace default is preselected), an **effort** level, a template to start the instructions from, the pattern and its options, and the message the agent receives (`{{input}}`, `{{last}}`, `{{steps.id}}`). **Tools & knowledge** lists what is attached and adds more. Try the workflow in the **Playground**: conversations are saved per workflow, answers stream as they are written, and the right panel switches between **Trace**, **History**, and **Memory**. Reopen saved chats from **History**, or use **New conversation** above the chat to start fresh. Leaving the page or reloading restores the selected conversation and reconnects to its running job.
 
 ### 4. Start a workflow from a template
 

@@ -10,7 +10,6 @@ import {
   History,
   MessageSquare,
   PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Send,
   Terminal,
@@ -196,7 +195,6 @@ export function Playground({
   const [conversationId, setConversationId] = useState<string>();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const narrow = typeof window !== 'undefined' && window.innerWidth <= 900;
-  const [showConversations, setShowConversations] = useState(!narrow);
   const [showTrace, setShowTrace] = useState(!narrow);
   const [input, setInput] = useState('');
   const [run, setRun] = useState<any>(null);
@@ -276,7 +274,10 @@ export function Playground({
     void loadHistory();
   }, [target, current?.id]);
   useEffect(() => {
-    if (panel === 'history') void loadHistory();
+    if (panel === 'history') {
+      void loadHistory();
+      void loadConversations();
+    }
   }, [panel, run?.status]);
 
   function reset() {
@@ -405,59 +406,13 @@ export function Playground({
   const streaming = busy && typeof run?.partial === 'string' && run.partial.length > 0;
   const shown = inspected ?? run;
   return (
-    <div
-      className={`playground ${showConversations ? '' : 'conversations-hidden'} ${showTrace ? '' : 'trace-hidden'}`}
-    >
-      <aside className="conversation-list">
-        <div className="conversation-list-head">
-          <span className="eyebrow">Conversations</span>
-          <IconButton title="Hide conversations" onClick={() => setShowConversations(false)}>
-            <PanelLeftClose size={16} />
-          </IconButton>
-        </div>
-        <Button variant="secondary" className="new-conversation" onClick={reset}>
-          <Plus size={15} />
-          New conversation
-        </Button>
-        <div className="conversation-items">
-          {!conversations.length && <p className="conversation-empty">No conversations yet.</p>}
-          {conversations.map((c) => (
-            <div className={`conversation-item ${c.id === conversationId ? 'active' : ''}`} key={c.id}>
-              <button onClick={() => void openConversation(c.id)}>
-                <MessageSquare size={14} />
-                <span>
-                  <strong>{c.title}</strong>
-                  <small>
-                    {c.messageCount} messages · {timestamp(c.updatedAt)}
-                    {c.activeRunId ? ' · running' : ''}
-                  </small>
-                </span>
-              </button>
-              <IconButton
-                title="Delete conversation"
-                onClick={() => {
-                  if (!confirm('Delete this conversation? Its run history stays in Executions.')) return;
-                  void api(`/conversations/${c.id}`, { method: 'DELETE' })
-                    .then(() => {
-                      if (c.id === conversationId) reset();
-                      return loadConversations();
-                    })
-                    .catch((e) => setError(errorMessage(e)));
-                }}
-              >
-                <Trash2 size={13} />
-              </IconButton>
-            </div>
-          ))}
-        </div>
-      </aside>
+    <div className={`playground chat-playground ${showTrace ? '' : 'trace-hidden'}`}>
       <div className="playground-main">
         <div className="playground-float">
-          {!showConversations && (
-            <IconButton title="Show conversations" onClick={() => setShowConversations(true)}>
-              <PanelLeftOpen size={17} />
-            </IconButton>
-          )}
+          <Button variant="secondary" onClick={reset}>
+            <Plus size={15} />
+            New conversation
+          </Button>
           <span className="grow" />
           <IconButton
             title={showTrace ? 'Hide trace panel' : 'Show trace panel'}
@@ -657,40 +612,77 @@ export function Playground({
           )
         ) : (
           <div className="history-list">
-            {!historyRuns.length && (
+            {!conversations.length && !historyRuns.length && (
               <Empty
                 icon={<Activity size={22} />}
                 title="No runs yet"
                 text={`Runs of ${current?.name ?? 'this target'} from every trigger show up here.`}
               />
             )}
-            {historyRuns.map((r) => (
-              <button
-                className={`history-item ${inspected?.id === r.id ? 'active' : ''}`}
-                key={r.id}
-                onClick={() => {
-                  void api(`/runs/${r.id}`)
-                    .then((full) => {
-                      setInspected(full);
-                      setPanel('trace');
-                    })
-                    .catch((e) => setError(errorMessage(e)));
-                }}
-              >
-                <span className="history-item-top">
-                  <Status status={r.status} />
+            {conversations.map((c) => (
+              <div className="history-conversation" key={c.id}>
+                <button
+                  className={`history-item ${c.id === conversationId ? 'active' : ''}`}
+                  onClick={() => {
+                    void openConversation(c.id);
+                    setPanel('trace');
+                    if (narrow) setShowTrace(false);
+                  }}
+                >
+                  <span className="history-item-top">
+                    <MessageSquare size={15} />
+                    <small>{timestamp(c.updatedAt)}</small>
+                  </span>
+                  <strong>{c.title}</strong>
                   <small>
-                    <Clock3 size={11} />
-                    {timestamp(r.createdAt)}
+                    {c.messageCount} messages{c.activeRunId ? ' · running' : ''}
                   </small>
-                </span>
-                <strong>{r.input}</strong>
-                <small>
-                  {r.trigger ?? 'studio'}
-                  {r.resumeCount ? ` · resumed ${r.resumeCount}×` : ''}
-                </small>
-              </button>
+                </button>
+                <IconButton
+                  title="Delete conversation"
+                  onClick={() => {
+                    if (!confirm('Delete this conversation? Its run history stays in Executions.')) return;
+                    void api(`/conversations/${c.id}`, { method: 'DELETE' })
+                      .then(() => {
+                        if (c.id === conversationId) reset();
+                        return loadConversations();
+                      })
+                      .catch((e) => setError(errorMessage(e)));
+                  }}
+                >
+                  <Trash2 size={13} />
+                </IconButton>
+              </div>
             ))}
+            {historyRuns
+              .filter((r) => !r.conversationId)
+              .map((r) => (
+                <button
+                  className={`history-item ${inspected?.id === r.id ? 'active' : ''}`}
+                  key={r.id}
+                  onClick={() => {
+                    void api(`/runs/${r.id}`)
+                      .then((full) => {
+                        setInspected(full);
+                        setPanel('trace');
+                      })
+                      .catch((e) => setError(errorMessage(e)));
+                  }}
+                >
+                  <span className="history-item-top">
+                    <Status status={r.status} />
+                    <small>
+                      <Clock3 size={11} />
+                      {timestamp(r.createdAt)}
+                    </small>
+                  </span>
+                  <strong>{r.input}</strong>
+                  <small>
+                    {r.trigger ?? 'studio'}
+                    {r.resumeCount ? ` · resumed ${r.resumeCount}×` : ''}
+                  </small>
+                </button>
+              ))}
           </div>
         )}
       </aside>
