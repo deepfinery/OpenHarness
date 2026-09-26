@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { stringify } from 'yaml';
 import { collection } from './db.js';
 import { searchKnowledge } from './knowledge.js';
@@ -45,10 +45,24 @@ export const notePath = (doc: Pick<KnowledgeDocument, 'folder' | 'filename'>) =>
 export async function createNote(
   ownerId: string,
   knowledgeBaseId: string,
-  note: { title: string; content: string; folder?: string; meta?: Record<string, unknown> },
+  note: { title: string; content: string; folder?: string; meta?: Record<string, unknown>; id?: string },
 ) {
-  const _id = randomUUID();
-  const storageKey = `${ownerId}/${_id}`;
+  const digest = note.id
+    ? createHash('sha256').update(`${ownerId}:${knowledgeBaseId}:${note.id}`).digest('hex')
+    : undefined;
+  const _id = digest
+    ? `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`
+    : randomUUID();
+  if (note.id) {
+    const existing = await collection<KnowledgeDocument>('documents').findOne({
+      _id,
+      ownerId,
+      knowledgeBaseId,
+    });
+    if (existing) return existing;
+  }
+  // Concurrent retries own separate files; the deterministic document id elects the surviving record.
+  const storageKey = `${ownerId}/${note.id ? randomUUID() : _id}`;
   const buffer = Buffer.from(note.content, 'utf8');
   const now = new Date();
   await saveFile(storageKey, buffer);
@@ -72,6 +86,17 @@ export async function createNote(
   try {
     await collection<KnowledgeDocument>('documents').insertOne(doc);
   } catch (error) {
+    if (note.id && (error as { code?: number }).code === 11000) {
+      const existing = await collection<KnowledgeDocument>('documents').findOne({
+        _id,
+        ownerId,
+        knowledgeBaseId,
+      });
+      if (existing) {
+        await removeFile(storageKey);
+        return existing;
+      }
+    }
     await removeFile(storageKey);
     throw error;
   }
@@ -113,16 +138,57 @@ const documents = () => collection<KnowledgeDocument>('documents');
 export async function searchNotes(
   scope: Scope,
   query: string,
-  options: { folder?: string; limit?: number } = {},
+  options: { folder?: string; limit?: number; excludeExperiments?: boolean } = {},
   signal?: AbortSignal,
 ) {
   const bases = [...new Set([...(scope.workspaceId ? [scope.workspaceId] : []), ...scope.readable])];
-  const hits = [];
-  for (const kb of bases)
-    for (const hit of await searchKnowledge(scope.ownerId, kb, query, signal, {
-      folder: options.folder ? cleanFolder(options.folder) : undefined,
-    }))
-      hits.push({ kb, hit });
+  const hits: {
+    kb: string;
+    hit: { documentId: string; title: string; content: string; chunkIndex: number };
+  }[] = [];
+  for (const kb of bases) {
+    try {
+      for (const hit of await searchKnowledge(
+        scope.ownerId,
+        kb,
+        query,
+        AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(5000)]),
+        {
+          folder: options.folder ? cleanFolder(options.folder) : undefined,
+        },
+      ))
+        hits.push({ kb, hit });
+    } catch {
+      signal?.throwIfAborted();
+    }
+  }
+  // Notes are durable immediately; vector indexing can lag or be unavailable.
+  const recent = await documents()
+    .find({
+      ownerId: scope.ownerId,
+      knowledgeBaseId: { $in: bases },
+      kind: 'note',
+      status: { $ne: 'deleting' },
+      ...(options.folder ? { folder: cleanFolder(options.folder) } : {}),
+    })
+    .sort({ createdAt: -1 })
+    .limit(30)
+    .toArray();
+  const words = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [])];
+  const fallback = await Promise.all(
+    recent
+      .filter((d) => !hits.some(({ hit }) => hit.documentId === d._id))
+      .map(async (doc) => {
+        const note = await readNote(scope, doc._id, 0, 8000).catch(() => undefined);
+        const text = note?.content ?? '';
+        return { doc, text, score: words.filter((word) => text.toLowerCase().includes(word)).length };
+      }),
+  );
+  for (const { doc, text } of fallback.filter((item) => item.score > 0).sort((a, b) => b.score - a.score))
+    hits.push({
+      kb: doc.knowledgeBaseId,
+      hit: { documentId: doc._id, title: doc.filename, content: text, chunkIndex: 0 },
+    });
   const ids = [...new Set(hits.map((h) => h.hit.documentId))];
   const docs = new Map(
     (
@@ -131,15 +197,22 @@ export async function searchNotes(
         .toArray()
     ).map((d) => [d._id, d]),
   );
-  return hits.slice(0, options.limit ?? 6).map(({ hit }) => {
-    const doc = docs.get(hit.documentId);
-    return {
-      note_id: hit.documentId,
-      path: doc ? notePath(doc) : hit.title,
-      ...(doc?.meta?.kind ? { kind: doc.meta.kind } : {}),
-      snippet: hit.content.slice(0, 600),
-    };
-  });
+  return hits
+    .filter(
+      ({ hit }) =>
+        !options.excludeExperiments ||
+        !['experience', 'experiments'].includes(docs.get(hit.documentId)?.folder ?? ''),
+    )
+    .slice(0, options.limit ?? 6)
+    .map(({ hit }) => {
+      const doc = docs.get(hit.documentId);
+      return {
+        note_id: hit.documentId,
+        path: doc ? notePath(doc) : hit.title,
+        ...(doc?.meta?.kind ? { kind: doc.meta.kind } : {}),
+        snippet: hit.content.slice(0, 600),
+      };
+    });
 }
 /** Reads part of a note (by characters) from the workspace or the agent's knowledge bases. */
 export async function readNote(scope: Scope, noteId: string, offset = 0, limit = 4000) {

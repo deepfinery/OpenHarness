@@ -6,7 +6,7 @@ import { chat, ModelResponseError, ownedProvider, type ChatMessage, type ToolDef
 import { connectMcp, ownedConnection, toolAlias } from './mcp.js';
 import { afterTool, beforeTool, loadHooks, type HookRecord } from './hooks.js';
 import { runSubagents, SPAWN_TOOL, spawnToolDefinition, type SpawnRequest } from './subagents.js';
-import { lessonsNote, recallLessons } from './experience.js';
+import { lessonsNote, recallLessons, recallMemory, memorySettings } from './experience.js';
 import {
   memoryTools,
   promoteTaskNote,
@@ -146,7 +146,34 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
         skills.map((s) => `- ${s.name}: ${s.description}`).join('\n') +
         '\n</skills>'
       : '';
-    const workspace = ctx.workspace;
+    const workspace = agent.workspace ?? ctx.workspace;
+    if (workspace && !agent.knowledgeBaseIds.includes(workspace.knowledgeBaseId)) {
+      const saved = await searchNotes(
+        { ownerId: ctx.ownerId, workspaceId: workspace.knowledgeBaseId, readable: [] },
+        input,
+        { limit: 3, excludeExperiments: true },
+        signal,
+      );
+      context.push(...saved.map((note) => `[${note.path}; note ${note.note_id}]\n${note.snippet}`));
+      if (saved.length)
+        await ctx.event({
+          type: 'memory_recalled',
+          message: `Retrieved ${saved.length} saved memory notes`,
+          data: saved.map((note) => ({ note_id: note.note_id, path: note.path })),
+        });
+    }
+    const agentMemory =
+      agent.workspace && agent.workspace.knowledgeBaseId !== ctx.workspace?.knowledgeBaseId
+        ? await recallMemory(
+            ctx.ownerId,
+            agent.workspace.knowledgeBaseId,
+            ctx.agentId,
+            input,
+            signal,
+            Boolean(agent.experience?.enabled),
+            agent.experience?.recallLimit ?? 3,
+          )
+        : undefined;
     const memoryScope = { ownerId: ctx.ownerId, taskId: ctx.taskId ?? ctx.runId };
     const notebookTools = memoryTools.filter((tool) => workspace || tool.name !== 'memory_promote');
     // Only agents a run starts may delegate; sub-agents do their task themselves.
@@ -168,7 +195,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
       deviceNote +
       taskMemoryPrompt +
       (workspace ? workspaceNote : '') +
-      (ctx.lessons ? lessonsNote(ctx.lessons) : '') +
+      (agentMemory?.text || ctx.lessons ? lessonsNote(agentMemory?.text ?? ctx.lessons!) : '') +
       (delegates
         ? `\n\nFor independent parts of a larger task, you can start up to ${agent.delegation?.maxAgents ?? 4} sub-agents with spawn_agents. Each works in parallel with a fresh context and a share of your budget, and reports back a summary and note ids. Give each a self-contained task, pick an effort that fits, and combine their results yourself.`
         : '') +
@@ -880,14 +907,7 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
     hooks,
     agentId: run.workflowId ?? run.agentId,
     ...(recalled ? { lessons: recalled.text } : {}),
-    ...(run.snapshot.workflow?.workspace
-      ? {
-          workspace: {
-            knowledgeBaseId: run.snapshot.workflow.workspace.knowledgeBaseId,
-            offloadToolResults: run.snapshot.workflow.workspace.offloadToolResults !== false,
-          },
-        }
-      : {}),
+    ...(memorySettings(run)?.workspace ? { workspace: memorySettings(run)!.workspace } : {}),
   };
   if (run.agentId)
     return runAgent(run.snapshot.agents[run.agentId], run.input, run.history, { ...base, event: writeEvent });

@@ -2,6 +2,8 @@ import { before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 // Learning from experience (#19): feedback and failures become lessons in the workspace's experience/ folder,
 // and later runs recall the relevant lessons into their prompts.
@@ -256,3 +258,157 @@ test('API keys rate their own runs, and experience exports as JSON Lines', async
   assert.equal(row.lesson, rejected.reflection.lesson);
   assert.equal(row.input, 'Summarize the Q3 revenue report');
 });
+
+test('completed runs save experiments automatically and recall them without waiting for feedback', async () => {
+  const started = await ok('/runs', {
+    workflowId: forgetful.id,
+    input: 'Record the cobalt deployment experiment',
+  });
+  await finished(started.id);
+  const memory = await until(
+    () => ok(`/runs/${started.id}/memory`),
+    (value: any) => value.experiments?.length === 1,
+    'the durable experiment',
+  );
+  const doc = (await ok(`/knowledge/${workspace.id}/documents`)).find(
+    (d: any) => d.id === memory.experiments[0].id,
+  );
+  assert.equal(doc.folder, 'experiments');
+  assert.equal(doc.meta.record_type, 'experiment');
+  assert.equal(doc.meta.run_id, started.id);
+  assert.equal(doc.meta.outcome, 'succeeded');
+  assert.equal(doc.meta.workflow_id, forgetful.id);
+  const next = await ok('/runs', {
+    workflowId: forgetful.id,
+    input: 'what did we learn about the cobalt deployment experiment?',
+  });
+  const done = await finished(next.id);
+  assert.match(done.output, /Previous experiment/);
+  assert.match(done.output, /cobalt deployment/);
+  assert.match(done.output, /unreviewed/);
+  const recalled = done.events.find((event: any) => event.type === 'experience_recalled');
+  assert.ok(recalled.data.notes.includes(doc.id));
+  assert.ok(
+    !recalled.data.notes.includes(rejected.reflection.noteId),
+    'Another workflow’s lessons must not be automatically recalled',
+  );
+  const exportRows = (
+    await (
+      await fetch(`${base}/api/workflows/${forgetful.id}/experience.jsonl`, { headers: { Cookie: cookie } })
+    ).text()
+  )
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.ok(exportRows.some((row) => row.run_id === started.id && row.feedback === null));
+});
+
+test('standalone agents save experiments and learn in their own memory workspace', async () => {
+  const agent = await ok('/agents', {
+    name: `Remembering agent ${suffix}`,
+    providerId: provider.id,
+    systemPrompt: 'Answer with useful evidence.',
+    workspace: { knowledgeBaseId: workspace.id },
+    experience: { enabled: true },
+  });
+  const started = await ok('/runs', { agentId: agent.id, input: 'Summarize the indigo experiment' });
+  await finished(started.id);
+  const memory = await until(
+    () => ok(`/runs/${started.id}/memory`),
+    (value: any) => value.experiments?.length === 1,
+    'agent experiment',
+  );
+  assert.equal(memory.longTermAvailable, true);
+  assert.equal(memory.learning, true);
+  assert.equal(
+    (await ok(`/runs/${started.id}/feedback`, { rating: 'down', comment: 'Include the confidence level' }))
+      .learning,
+    true,
+  );
+  const reflection = await reflected(started.id);
+  assert.equal(reflection.reflection.status, 'done', reflection.reflection.error);
+  const next = await ok('/runs', {
+    agentId: agent.id,
+    input: 'what did we learn about the indigo experiment?',
+  });
+  const done = await finished(next.id);
+  assert.match(done.output, /Include the confidence level/);
+});
+
+test('new feedback replaces an older lesson instead of recalling both', async () => {
+  await ok(`/runs/${rejected.id}/feedback`, {
+    rating: 'up',
+    comment: 'The revised bullet summary was useful',
+  });
+  const latest = await reflected(rejected.id);
+  assert.equal(latest.reflection.status, 'done');
+  assert.notEqual(latest.reflection.noteId, rejected.reflection.noteId);
+  const next = await ok('/runs', {
+    workflowId: learning.id,
+    input: 'what did we learn about the Q3 revenue report summary?',
+  });
+  const done = await finished(next.id);
+  const recalled = done.events.find((event: any) => event.type === 'experience_recalled');
+  assert.ok(!recalled.data.notes.includes(rejected.reflection.noteId));
+  assert.ok(recalled.data.notes.includes(latest.reflection.noteId));
+});
+
+test(
+  'saved experiments remain usable while the vector store is offline',
+  { skip: process.env.TEST_FAULT_INJECTION !== 'true' },
+  async () => {
+    const project = process.env.TEST_COMPOSE_PROJECT ?? '';
+    assert.ok(project.startsWith('openharness-test-'), 'Fault injection requires an isolated test project');
+    const compose = (...args: string[]) =>
+      promisify(execFile)(
+        'docker',
+        ['compose', '-p', project, '-f', 'compose.yaml', '-f', 'tests/compose.test.yaml', ...args],
+        { timeout: 60000 },
+      );
+    const started = await ok('/runs', {
+      workflowId: forgetful.id,
+      input: 'Remember the amber latency experiment',
+    });
+    await finished(started.id);
+    const saved = await until(
+      () => ok(`/runs/${started.id}/memory`),
+      (m: any) => m.experiments?.length === 1,
+      'saved experiment',
+    );
+    await compose(
+      'exec',
+      '-T',
+      'runner',
+      'node',
+      '--input-type=module',
+      '-e',
+      `import { collection } from './dist/packages/core/src/db.js';
+     import { saveExperiments } from './dist/packages/core/src/experience.js';
+     const run = await collection('runs').findOne({ _id: process.argv[1] });
+     await Promise.all([saveExperiments(run), saveExperiments(run)]); process.exit(0);`,
+      started.id,
+    );
+    assert.equal(
+      (await ok(`/runs/${started.id}/memory`)).experiments.length,
+      1,
+      'Redelivery must not duplicate an experiment',
+    );
+    try {
+      await compose('stop', 'weaviate');
+      const next = await ok('/runs', {
+        workflowId: forgetful.id,
+        input: 'what did we learn about the amber latency experiment?',
+      });
+      const done = await finished(next.id);
+      assert.equal(done.status, 'succeeded', done.error);
+      assert.match(done.output, /amber latency/);
+      assert.ok(
+        done.events
+          .find((e: any) => e.type === 'experience_recalled')
+          .data.notes.includes(saved.experiments[0].id),
+      );
+    } finally {
+      await compose('start', 'weaviate');
+    }
+  },
+);

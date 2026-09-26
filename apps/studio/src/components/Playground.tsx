@@ -106,43 +106,57 @@ export function followRun(runId: string, onRun: (run: any) => void, onError: (me
   let stopped = false;
   let source: EventSource | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const poll = async () => {
+  let polling = false;
+  const accept = (next: any) => {
     if (stopped) return;
+    onRun(next);
+    if (terminal.includes(next.status)) stop();
+  };
+  const poll = async () => {
+    if (stopped || polling) return;
+    polling = true;
+    clearTimeout(timer);
     try {
-      const next = await api(`/runs/${runId}`);
-      if (stopped) return;
-      onRun(next);
-      if (!terminal.includes(next.status)) timer = setTimeout(poll, 1200);
+      accept(await api(`/runs/${runId}`));
     } catch (e) {
-      if (!stopped) {
-        onError(errorMessage(e));
-        timer = setTimeout(poll, 4000);
-      }
+      if (!stopped) onError(errorMessage(e));
+    } finally {
+      polling = false;
+      // Also acts as a watchdog for streams silently disconnected by sleeping tabs or proxies.
+      if (!stopped) timer = setTimeout(poll, source ? 10000 : 1500);
     }
   };
-  if (typeof EventSource === 'function') {
-    source = new EventSource(`/api/runs/${runId}/stream`);
-    source.addEventListener('run', (event) => {
-      if (stopped) return;
-      const next = JSON.parse((event as MessageEvent).data);
-      onRun(next);
-      if (terminal.includes(next.status)) {
-        stopped = true;
-        source?.close();
-      }
-    });
-    source.onerror = () => {
-      // Proxies without SSE support or an expired session: switch to polling.
-      source?.close();
-      source = null;
-      if (!stopped) void poll();
-    };
-  } else void poll();
-  return () => {
+  const resume = () => {
+    if (document.visibilityState !== 'hidden') void poll();
+  };
+  function stop() {
     stopped = true;
     source?.close();
     clearTimeout(timer);
-  };
+    window.removeEventListener('online', resume);
+    window.removeEventListener('focus', resume);
+    document.removeEventListener('visibilitychange', resume);
+  }
+  if (typeof EventSource === 'function') {
+    source = new EventSource(`/api/runs/${runId}/stream`);
+    source.addEventListener('run', (event) => {
+      try {
+        accept(JSON.parse((event as MessageEvent).data));
+      } catch {
+        void poll();
+      }
+    });
+    source.onerror = () => {
+      source?.close();
+      source = null;
+      void poll();
+    };
+  }
+  window.addEventListener('online', resume);
+  window.addEventListener('focus', resume);
+  document.addEventListener('visibilitychange', resume);
+  void poll();
+  return stop;
 }
 
 /** Workflows are the unit of work; saved agents only appear for workspaces that still have them. */
@@ -154,12 +168,17 @@ export function Playground({
   data,
   target,
   onTargetChange,
+  storageScope,
 }: {
   data: Data;
+  storageScope: string;
   /** `workflow:<id>` or `agent:<id>`; the selector lives in the app's top bar. */
   target: string;
   onTargetChange: (target: string) => void;
 }) {
+  const storageKey = `playground:${storageScope}:${target}`;
+  const generation = useRef(0);
+  const mounted = useRef(true);
   const targets = playgroundTargets(data);
   // Machines are tools of the workflow: the ones its cards attach, named in the welcome text.
   const machines = (() => {
@@ -181,6 +200,7 @@ export function Playground({
   const [input, setInput] = useState('');
   const [run, setRun] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [restoring, setRestoring] = useState(true);
   const [error, setError] = useState('');
   const [panel, setPanel] = useState<'trace' | 'history' | 'memory'>('trace');
   const [historyRuns, setHistoryRuns] = useState<any[]>([]);
@@ -191,12 +211,26 @@ export function Playground({
   const targetKey = current ? (current.type === 'agent' ? 'agentId' : 'workflowId') : undefined;
 
   useEffect(() => {
-    if (!target && targets[0]) onTargetChange(`${targets[0].type}:${targets[0].id}`);
+    if (!current && targets[0]) onTargetChange(`${targets[0].type}:${targets[0].id}`);
   }, [data, target]);
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [messages, busy, run?.partial]);
-  useEffect(() => () => stopFollowing.current(), []);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      generation.current++;
+      stopFollowing.current();
+    },
+    [],
+  );
+  function remember(id: string | undefined) {
+    try {
+      sessionStorage.setItem(storageKey, id ?? 'new');
+    } catch {
+      /* Storage can be disabled. */
+    }
+  }
 
   async function loadConversations() {
     if (!current || !targetKey) return setConversations([]);
@@ -216,14 +250,38 @@ export function Playground({
     }
   }
   useEffect(() => {
-    void loadConversations();
+    const version = generation.current;
+    if (current && targetKey)
+      void api<Conversation[]>(`/conversations?${targetKey}=${current.id}`)
+        .then((items) => {
+          if (version !== generation.current) return;
+          setConversations(items);
+          setRestoring(false);
+          let saved: string | null = null;
+          try {
+            saved = sessionStorage.getItem(storageKey);
+          } catch {}
+          const selected =
+            items.find((c) => c.id === saved) ??
+            (saved === 'new' ? undefined : (items.find((c) => c.activeRunId) ?? items[0]));
+          if (selected) void openConversation(selected.id);
+        })
+        .catch((e) => {
+          if (version === generation.current) {
+            setError(errorMessage(e));
+            setRestoring(false);
+          }
+        });
     void loadHistory();
-  }, [target]);
+  }, [target, current?.id]);
   useEffect(() => {
     if (panel === 'history') void loadHistory();
   }, [panel, run?.status]);
 
   function reset() {
+    setRestoring(false);
+    generation.current++;
+    remember(undefined);
     stopFollowing.current();
     setMessages([]);
     setConversationId(undefined);
@@ -235,14 +293,21 @@ export function Playground({
   function follow(runId: string) {
     stopFollowing.current();
     setBusy(true);
+    const version = generation.current;
     stopFollowing.current = followRun(
       runId,
       (next) => {
+        if (version !== generation.current) return;
+        setError('');
         setRun(next);
         if (terminal.includes(next.status)) {
           setBusy(false);
           if (next.status === 'succeeded')
-            setMessages((m) => [...m, { role: 'assistant', content: next.output ?? '', runId: next.id }]);
+            setMessages((m) =>
+              m.some((message) => message.role === 'assistant' && message.runId === next.id)
+                ? m
+                : [...m, { role: 'assistant', content: next.output ?? '', runId: next.id }],
+            );
           else setError(next.error ?? `Run ${next.status}`);
           void loadConversations();
         }
@@ -251,25 +316,52 @@ export function Playground({
     );
   }
   async function openConversation(id: string) {
+    setRestoring(false);
     reset();
+    remember(id);
+    setBusy(true);
+    const version = generation.current;
     try {
       const c = await api(`/conversations/${id}`);
+      if (version !== generation.current) return;
       setConversationId(id);
       setMessages(c.messages);
       if (c.activeRunId) {
-        setMessages((m) => m);
         follow(c.activeRunId);
+      } else {
+        setBusy(false);
+        const lastRun = c.lastRunId ?? [...c.messages].reverse().find((m: Message) => m.runId)?.runId;
+        if (lastRun) {
+          const last = await api(`/runs/${lastRun}`);
+          if (version === generation.current) {
+            setRun(last);
+            if (last.status !== 'succeeded') setError(last.error ?? `Run ${last.status}`);
+          }
+        }
       }
     } catch (e) {
-      setError(errorMessage(e));
+      if (version === generation.current) {
+        setError(errorMessage(e));
+        setBusy(false);
+      }
     }
   }
+  useEffect(() => {
+    const restoreAccepted = (event: Event) => {
+      const detail = (event as CustomEvent<{ storageKey: string; id: string }>).detail;
+      if (detail.storageKey === storageKey) void openConversation(detail.id);
+    };
+    window.addEventListener('playground-conversation', restoreAccepted);
+    return () => window.removeEventListener('playground-conversation', restoreAccepted);
+  }, [storageKey]);
   async function submit() {
-    if (!input.trim() || busy || !current) return;
+    if (!input.trim() || busy || restoring || !current) return;
     setBusy(true);
     setError('');
     setInspected(null);
     setPanel('trace');
+    const version = generation.current;
+    remember(conversationId);
     const text = input.trim();
     setInput('');
     setMessages((m) => [...m, { role: 'user', content: text }]);
@@ -281,11 +373,28 @@ export function Playground({
         // Machines come from the workflow's own cards; this also clears one an older conversation remembered.
         deviceId: null,
       });
+      // A late response can recover a page reopened before the server accepted the job.
+      if (!mounted.current) {
+        try {
+          if (sessionStorage.getItem(storageKey) !== (conversationId ?? 'new')) return;
+        } catch {}
+        remember(r.conversationId);
+        window.dispatchEvent(
+          new CustomEvent('playground-conversation', { detail: { storageKey, id: r.conversationId } }),
+        );
+        return;
+      }
+      if (version !== generation.current) {
+        void loadConversations();
+        return;
+      }
+      remember(r.conversationId);
       setConversationId(r.conversationId);
       setRun({ id: r.id, status: r.status, events: [] });
       follow(r.id);
       void loadConversations();
     } catch (e) {
+      if (version !== generation.current) return;
       setError(errorMessage(e));
       setBusy(false);
       setInput(text);
@@ -305,7 +414,7 @@ export function Playground({
             <PanelLeftClose size={16} />
           </IconButton>
         </div>
-        <Button variant="secondary" className="new-conversation" onClick={reset} disabled={busy}>
+        <Button variant="secondary" className="new-conversation" onClick={reset}>
           <Plus size={15} />
           New conversation
         </Button>
@@ -445,7 +554,7 @@ export function Playground({
               aria-label="Message your agent"
               placeholder={current ? `Message ${current.name}…` : 'Choose a workflow…'}
               value={input}
-              disabled={!current || busy}
+              disabled={!current || busy || restoring}
               rows={2}
               maxLength={32000}
               onChange={(e) => setInput(e.target.value)}
@@ -465,7 +574,11 @@ export function Playground({
                 <CircleStop size={21} />
               </IconButton>
             ) : (
-              <button className="send-button" disabled={!input.trim() || !current} aria-label="Send message">
+              <button
+                className="send-button"
+                disabled={!input.trim() || !current || restoring}
+                aria-label="Send message"
+              >
                 <Send size={18} />
               </button>
             )}
@@ -474,6 +587,9 @@ export function Playground({
         </div>
       </div>
       <aside className="trace-panel">
+        <IconButton className="trace-close" title="Close trace panel" onClick={() => setShowTrace(false)}>
+          <PanelLeftClose size={16} />
+        </IconButton>
         <div className="panel-tabs" role="tablist">
           <button
             role="tab"

@@ -488,3 +488,88 @@ test('workflow settings set a knowledge workspace and learning, agents allow sub
   expect((await api(page.request, `/runs/${rated.id}`)).feedback.comment).toBe('Shorter, please');
   expect(errors).toEqual([]);
 });
+
+test('playground restores a running conversation after navigation and reload', async ({ page }) => {
+  await page.route('**/api/runs/*/stream', (route) => route.abort());
+  const name = `Persistent chat ${tag}`;
+  const workflow = await api(page.request, '/workflows', 'POST', {
+    name,
+    startAt: 'agent',
+    nodes: [
+      {
+        id: 'agent',
+        name: 'Assistant',
+        type: 'agent',
+        next: 'finish',
+        config: { name: 'Assistant', providerId, systemPrompt: 'Answer briefly.' },
+      },
+      { id: 'finish', name: 'Finish', type: 'finish' },
+    ],
+  });
+  await page.reload();
+  await navButton(page, 'Playground').click();
+  await page.getByLabel('Playground agent or workflow').selectOption(`workflow:${workflow.id}`);
+  const response = page.waitForResponse(
+    (r) => r.url().endsWith('/api/chat') && r.request().method() === 'POST',
+  );
+  await chat(page, 'delay-model remember this running job');
+  const started = await (await response).json();
+  await navButton(page, 'Workflows').click();
+  await navButton(page, 'Playground').click();
+  await expect(page.locator('.chat-message.user')).toContainText('remember this running job');
+  await expect(page.getByRole('button', { name: 'Cancel run', exact: true })).toBeVisible();
+  await expect(page.locator('.trace-meta')).toContainText(started.id);
+  await page.reload();
+  await expect(page.getByLabel('Playground agent or workflow')).toHaveValue(`workflow:${workflow.id}`);
+  await expect(page.locator('.chat-message.user')).toHaveCount(1);
+  await expect(page.locator('.trace-meta')).toContainText(started.id);
+  await expect(page.locator('.trace-meta')).toContainText('succeeded', { timeout: 45000 });
+  await expect(page.locator('.chat-message.assistant')).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator('.chat-message.assistant')).toHaveCount(1);
+  await expect(page.locator('.chat-message.user')).toHaveCount(1);
+  await page.getByRole('button', { name: 'New conversation', exact: true }).click();
+  await navButton(page, 'Workflows').click();
+  await navButton(page, 'Playground').click();
+  await expect(page.locator('.chat-welcome h2')).toHaveText(name);
+  await expect(page.locator('.chat-message')).toHaveCount(0);
+});
+
+test('designer component search keeps adding accessible without dragging', async ({ page }) => {
+  await newBlankWorkflow(page, `Searchable designer ${tag}`);
+  await page.getByLabel('Search workflow components').fill('AI agent');
+  await expect(page.getByRole('button', { name: 'Add AI agent', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add Condition', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add AI agent', exact: true }).click();
+  await expect(page.locator('.harness-card.kind-agent')).toHaveCount(1);
+  await page.getByLabel('Search workflow components').fill('');
+  await page.getByRole('button', { name: 'Set up memory', exact: true }).click();
+  await expect(page.getByLabel('Knowledge workspace')).toBeVisible();
+});
+
+test('playground recovers when navigation happens before the chat response arrives', async ({ page }) => {
+  await ensureToolFlow(page);
+  await navButton(page, 'Playground').click();
+  await page.getByLabel('Playground agent or workflow').selectOption({ label: toolFlow });
+  await page.getByRole('button', { name: 'New conversation', exact: true }).click();
+  await page.route('**/api/chat', async (route) => {
+    const response = await route.fetch();
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await route.fulfill({ response });
+  });
+  await chat(page, 'delay-model keep the late response');
+  await navButton(page, 'Workflows').click();
+  await navButton(page, 'Playground').click();
+  await expect(page.getByLabel('Playground agent or workflow').locator('option:checked')).toHaveText(
+    toolFlow,
+  );
+  await expect(page.locator('.chat-message.user')).toContainText('keep the late response');
+  await expect(page.locator('.trace-meta')).toContainText('running', { timeout: 10000 });
+  await expect(page.getByLabel('Message your agent')).toBeDisabled();
+  await page.getByRole('button', { name: 'Cancel run', exact: true }).click();
+  await expect(page.locator('.trace-meta')).toContainText('cancelled');
+  await page.reload();
+  await expect(page.locator('.trace-meta')).toContainText('cancelled');
+  await expect(page.locator('.chat-message.user')).toContainText('keep the late response');
+  await expect(page.getByLabel('Message your agent')).toBeEnabled();
+});

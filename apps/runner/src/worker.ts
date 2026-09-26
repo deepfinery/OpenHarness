@@ -10,7 +10,12 @@ import type { KnowledgeDocument, Run } from '../../../packages/core/src/schema.j
 import { settleConversation } from '../../../packages/core/src/conversations.js';
 import { emitHarnessEvent } from '../../../packages/core/src/harnessEvents.js';
 import { runEnded } from '../../../packages/core/src/hooks.js';
-import { learns, reflectOnRun, requestReflection } from '../../../packages/core/src/experience.js';
+import {
+  learningSettings,
+  saveExperiments,
+  reflectOnRun,
+  requestReflection,
+} from '../../../packages/core/src/experience.js';
 
 /** The Open Harness execution state of a run state (see apps/api/src/openharness/events.ts). */
 const executionStatusOf = (status: string) =>
@@ -120,6 +125,9 @@ async function processJob(job: Job, controller: AbortController) {
     const finished = await runs.findOne({ _id: run._id });
     if (finished) {
       await settleConversation(finished);
+      await saveExperiments(finished).catch((error) =>
+        console.warn('Memory save will retry:', safeError(error)),
+      );
       if (['succeeded', 'failed', 'cancelled', 'interrupted'].includes(finished.status)) {
         // Sub-agents run inside their parent; any still marked running lost their parent.
         await runs.updateMany(
@@ -145,8 +153,7 @@ async function processJob(job: Job, controller: AbortController) {
         if (
           ['failed', 'interrupted'].includes(finished.status) &&
           !finished.parentRunId &&
-          learns(finished.snapshot.workflow) &&
-          finished.snapshot.workflow?.experience?.learnFromFailures !== false
+          learningSettings(finished).some((settings) => settings?.experience?.learnFromFailures !== false)
         )
           await requestReflection(finished._id, 'failure').catch(() => {});
       }

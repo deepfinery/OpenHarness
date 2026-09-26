@@ -209,7 +209,11 @@ conversationApi.post('/chat', async (req, res) => {
   const reserved = await conversations.findOneAndUpdate(
     { _id: conversation._id, ownerId, actor, pending: { $exists: false } },
     {
-      $set: { pending: { runId, since: new Date() }, ...(deviceId ? { deviceId } : {}) },
+      $set: {
+        pending: { runId, since: new Date() },
+        updatedAt: new Date(),
+        ...(deviceId ? { deviceId } : {}),
+      },
       ...(deviceId ? {} : { $unset: { deviceId: '' } }),
     },
     { returnDocument: 'after' },
@@ -287,8 +291,10 @@ conversationApi.get('/conversations/:id', async (req, res) => {
   let c = await collection<Conversation>('conversations').findOne(filter);
   if (!c) throw new HttpError(404, 'Conversation not found');
   checkTokenScope(req, 'read', c);
+  let pendingInput: string | undefined;
   if (c.pending) {
     const run = await collection<Run>('runs').findOne({ _id: c.pending.runId, ownerId: c.ownerId });
+    if (run && ['queued', 'running'].includes(run.status)) pendingInput = run.input;
     if (run) await settleConversation(run);
     c = (await collection<Conversation>('conversations').findOne(filter))!;
   }
@@ -296,8 +302,14 @@ conversationApi.get('/conversations/:id', async (req, res) => {
     id: c._id,
     agentId: c.agentId,
     workflowId: c.workflowId,
-    messages: c.messages,
+    messages:
+      c.pending && pendingInput !== undefined
+        ? [...c.messages, { role: 'user', content: pendingInput }]
+        : !c.pending && c.lastTurn && c.lastTurn.status !== 'succeeded'
+          ? [...c.messages, { role: 'user', content: c.lastTurn.input }]
+          : c.messages,
     activeRunId: c.pending?.runId,
+    lastRunId: c.lastRunId,
     deviceId: c.deviceId,
   });
 });

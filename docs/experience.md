@@ -2,7 +2,11 @@
 
 A workflow with a knowledge workspace can **learn from experience**. Turn it on under Workflow settings →
 Knowledge workspace → Learn from experience. The learning happens in context: model weights stay fixed. What the
-workflow learns is written as lessons that later runs read.
+workflow learns is written as lessons that later runs read. Standalone agents and agent cards can also choose a dedicated long-term memory workspace.
+
+Every succeeded, failed, or interrupted top-level run with a configured memory workspace automatically saves its task, outcome, and result in `experiments/`, even if the model never calls a memory tool. Experiments start as unreviewed; a successful execution is not proof that its answer is correct. They are recalled even with lesson generation disabled. Raw tool telemetry remains in the temporary task notebook.
+
+The playground’s **Memory** panel shows experiment storage and reflection status. Experiment writes are idempotent and retried by the dispatcher after an interrupted save. Note search includes a bounded scan of recent notes, and experiment recall reads saved metadata directly, so indexing delays or an unavailable vector store do not erase memory.
 
 ## The loop
 
@@ -19,7 +23,7 @@ workflow learns is written as lessons that later runs read.
    example "from negative feedback". The run's trace shows an `experience_recalled` event naming the notes used.
 
 Feedback is always stored on the run, whether or not the workflow learns. Reflections are durable: if the queue
-message is lost, the API's dispatcher publishes it again. Sub-agents inherit the recalled lessons of their run.
+message is lost, the API's dispatcher publishes it again. A processing lease recovers a reflection interrupted by a runner restart. New feedback supersedes the previous lesson for the same run. Automatic experiment and lesson recall is scoped to the workflow or standalone agent; agents can explicitly search shared workspace notes. Sub-agents inherit the recalled lessons of their run.
 
 ## Access
 
@@ -28,6 +32,6 @@ Studio users can rate any run in their workspace. An API key can rate the runs i
 
 ## Export
 
-`GET /api/workflows/:id/experience.jsonl` exports every run that has feedback or a lesson, one JSON object per
+`GET /api/workflows/:id/experience.jsonl` exports every run that has a saved experiment, feedback or a lesson, one JSON object per
 line, with `run_id`, `created_at`, `input`, `output`, `status`, `error`, `feedback` and `lesson`. Use it to evaluate
 the workflow, or to fine-tune or post-train a model on it later.

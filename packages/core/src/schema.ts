@@ -84,6 +84,14 @@ export const agentSchema = z.object({
   providerId: id,
   connections: z.array(toolBindingSchema).max(30).default([]),
   knowledgeBaseIds: z.array(id).max(20).default([]),
+  workspace: z.object({ knowledgeBaseId: id, offloadToolResults: z.boolean().default(true) }).optional(),
+  experience: z
+    .object({
+      enabled: z.boolean().default(false),
+      recallLimit: z.number().int().min(1).max(10).default(3),
+      learnFromFailures: z.boolean().default(true),
+    })
+    .optional(),
   /** Workspace skills this agent may load. Resolved into `skills` when a run is created. */
   skillIds: z.array(id).max(20).default([]),
   /** Snapshot of the skills at run creation; set by the server, not by clients. */
@@ -427,13 +435,16 @@ export type Run = Stored<RunInput> & {
   feedback?: { rating: 'up' | 'down'; comment?: string; at: Date; by?: string };
   /** Turning the run and its feedback into a lesson for the workflow's experience folder. */
   reflection?: {
-    status: 'pending' | 'done' | 'failed' | 'skipped';
+    status: 'pending' | 'processing' | 'done' | 'failed' | 'skipped';
+    requestId?: string;
+    leaseUntil?: Date;
     requestedAt: Date;
     reason?: 'feedback' | 'failure';
     noteId?: string;
     lesson?: string;
     error?: string;
   };
+  experimentSavedAt?: Date;
   webhookId?: string;
   conversationId?: string;
   overrides?: RunOverrides;

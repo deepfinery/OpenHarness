@@ -149,8 +149,10 @@ test('sub-agents cannot start sub-agents of their own', async () => {
   const parent = await run(lead.id, 'Please delegate recursively');
   const [report] = results(parent.output);
   assert.equal(report.status, 'succeeded');
-  assert.equal(report.summary, 'Completed: Sub-task: research with sub-agents one level deeper');
   const child = await ok(`/runs/${report.subagent_id}`);
+  assert.equal(child.input, 'Sub-task: research with sub-agents one level deeper');
+  assert.equal(report.summary, child.output);
+  assert.equal(parent.events.filter((e: any) => e.type === 'subagent_started').length, 1);
   assert.ok(!child.events.some((e: any) => e.type === 'subagent_started'));
 });
 

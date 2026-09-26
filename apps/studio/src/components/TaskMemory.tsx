@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 
 /** Evidence stays attached to its query; promoted notes are managed in the Knowledge page. */
 export function TaskMemory({ runId }: { runId?: string }) {
+  const [durable, setDurable] = useState<any>();
   const [notes, setNotes] = useState<any[]>([]);
   const [query, setQuery] = useState('');
   const [next, setNext] = useState<number>();
@@ -21,20 +22,32 @@ export function TaskMemory({ runId }: { runId?: string }) {
     setNext(undefined);
     setError('');
     setPromoted('');
-    if (runId)
-      void api(`/runs/${runId}/memory`)
-        .then((data) => {
-          if (!stopped) {
-            setNotes(data.notes);
-            setNext(data.next_offset);
-            setLongTerm(data.longTermAvailable);
-          }
-        })
-        .catch((e) => {
-          if (!stopped) setError(errorMessage(e));
-        });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      if (runId)
+        void api(`/runs/${runId}/memory`)
+          .then((data) => {
+            if (!stopped) {
+              setDurable(data);
+              setNotes(data.notes);
+              setNext(data.next_offset);
+              setLongTerm(data.longTermAvailable);
+              if (
+                ['queued', 'running'].includes(data.runStatus) ||
+                data.memoryPending ||
+                ['pending', 'processing'].includes(data.reflection?.status)
+              )
+                timer = setTimeout(load, 2000);
+            }
+          })
+          .catch((e) => {
+            if (!stopped) setError(errorMessage(e));
+          });
+    };
+    load();
     return () => {
       stopped = true;
+      clearTimeout(timer);
     };
   }, [runId]);
   async function search(offset = 0) {
@@ -45,6 +58,7 @@ export function TaskMemory({ runId }: { runId?: string }) {
       setNotes((prior) => (offset ? [...prior, ...data.notes] : data.notes));
       setNext(data.next_offset);
       setLongTerm(data.longTermAvailable);
+      setDurable(data);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -73,6 +87,26 @@ export function TaskMemory({ runId }: { runId?: string }) {
   if (!runId) return <p className="field-help">Run a query to open its task notebook.</p>;
   return (
     <div className="task-memory">
+      <div className="memory-summary">
+        <strong>Long-term memory</strong>
+        <p>
+          {durable?.experiments?.length
+            ? `${durable.experiments.length} experiment record${durable.experiments.length === 1 ? '' : 's'} saved. Future runs can recall the task, result and outcome.`
+            : durable?.memoryPending
+              ? 'The experiment will be saved when this run finishes.'
+              : 'Choose a long-term memory workspace in the workflow or agent settings to retain experiments.'}
+        </p>
+        {durable?.experiments?.length > 0 && <a href="/knowledge">Browse saved experiments</a>}
+        {durable?.reflection?.status === 'done' ? (
+          <p>{durable.reflection.lesson}</p>
+        ) : durable?.reflection?.status === 'failed' ? (
+          <p>Lesson could not be generated: {durable.reflection.error}. Submit feedback again to retry.</p>
+        ) : ['pending', 'processing'].includes(durable?.reflection?.status) ? (
+          <p>Learning from this run…</p>
+        ) : durable?.learning ? (
+          <p>Rate the answer to save a lesson for future runs.</p>
+        ) : null}
+      </div>
       <p className="field-help">
         Notes shared by this query’s agents. Temporary notes expire after seven days; promote useful findings
         to retain them across queries.
