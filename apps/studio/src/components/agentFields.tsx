@@ -1,3 +1,4 @@
+import { humanSettingsSchema } from '../../../../packages/core/src/schema.js';
 import { useState } from 'react';
 import { Clock3 } from 'lucide-react';
 import { agentRecipes } from '../../../../packages/core/src/starters.js';
@@ -115,6 +116,81 @@ export function AgentFields({
           onChange={(e) => onChange({ timezone: e.target.value || undefined })}
         />
       </Field>
+      <Field
+        label="Human input"
+        hint="The agent can pause to ask a question. Answer it in the Inbox or Playground."
+      >
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={value.humanInput !== false}
+            onChange={(e) => onChange({ humanInput: e.target.checked })}
+          />
+          Allow questions
+        </label>
+      </Field>
+      <Field
+        label="Tool approvals"
+        hint="Risk-based approval treats tools without a read-only annotation as risky. Per-tool rules can be configured in the API."
+      >
+        <select
+          aria-label="Tool approvals"
+          value={value.approvals?.mode ?? 'never'}
+          onChange={(e) =>
+            onChange({ approvals: humanSettingsSchema.parse({ ...value.approvals, mode: e.target.value }) })
+          }
+        >
+          <option value="never">No approval required</option>
+          <option value="when_risky">Ask for risky tools</option>
+          <option value="always">Ask for every MCP tool</option>
+        </select>
+      </Field>
+      <Field label="Approval timeout (minutes)">
+        <input
+          type="number"
+          min={1}
+          max={10080}
+          value={(value.approvals?.timeoutSeconds ?? 86400) / 60}
+          onChange={(e) =>
+            onChange({
+              approvals: humanSettingsSchema.parse({
+                ...value.approvals,
+                timeoutSeconds: Math.min(604800, Math.max(60, Number(e.target.value) * 60)),
+              }),
+            })
+          }
+        />
+      </Field>
+      <Field
+        label="Timeout action"
+        hint="Tools are denied on timeout. Continue allows a review step to use its original result; escalation gives administrators one more timeout period."
+      >
+        <select
+          aria-label="Human timeout action"
+          value={value.approvals?.timeoutAction ?? 'deny'}
+          onChange={(e) =>
+            onChange({
+              approvals: humanSettingsSchema.parse({ ...value.approvals, timeoutAction: e.target.value }),
+            })
+          }
+        >
+          <option value="deny">Deny</option>
+          <option value="continue">Continue without new input</option>
+          <option value="escalate">Escalate to administrators</option>
+        </select>
+      </Field>
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={value.approvals?.notifyEmail ?? false}
+          onChange={(e) =>
+            onChange({
+              approvals: humanSettingsSchema.parse({ ...value.approvals, notifyEmail: e.target.checked }),
+            })
+          }
+        />
+        Email authorized approvers
+      </label>
       <Field label="Instructions">
         <textarea
           aria-label="Agent instructions"

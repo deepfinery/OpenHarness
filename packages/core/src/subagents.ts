@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { recordArtifact } from './artifacts.js';
 import { collection } from './db.js';
 import type { ToolDefinition } from './llm.js';
 import { toolAlias } from './mcp.js';
@@ -6,6 +6,7 @@ import { effortPresets } from './patterns.js';
 import { agentSchema, type Agent, type Run, type RunEvent } from './schema.js';
 import { safeError } from './security.js';
 import { writeTaskNote } from './memory.js';
+import { HumanPause, stableId } from './human.js';
 
 /**
  * Budgeted sub-agents. An agent with delegation enabled can hand focused tasks to sub-agents with the spawn_agents
@@ -123,6 +124,8 @@ export function childAgent(
     experience: parent.experience,
     contextCompaction: parent.contextCompaction,
     timezone: parent.timezone,
+    humanInput: parent.humanInput,
+    approvals: parent.approvals,
     maxTurns: effortPresets[effort].maxTurns,
     timeoutSeconds: effortPresets[effort].timeoutSeconds,
     pattern: 'react',
@@ -140,6 +143,8 @@ type ChildContext = {
   notes: { note_id: string; path: string }[];
   usage: { tokens: number };
   depth: number;
+  resumeFromHuman?: boolean;
+  executionKey: string;
   taskId: string;
 };
 export type SpawnOptions = {
@@ -148,6 +153,7 @@ export type SpawnOptions = {
   runId: string;
   taskId?: string;
   nodeId?: string;
+  callKey: string;
   signal: AbortSignal;
   remainingTokens: number;
   hasWorkspace: boolean;
@@ -163,9 +169,21 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
       `Not enough budget left for ${requests.length} sub-agent${requests.length === 1 ? '' : 's'} (about ${Math.max(0, options.remainingTokens).toLocaleString()} tokens remain). Do the work yourself or spawn fewer.`,
     );
   const runs = collection<Run>('runs');
-  const results = await Promise.all(
+  const parentRun = await runs.findOne({ _id: options.runId });
+  const settled = await Promise.allSettled(
     requests.map(async (request, index): Promise<SubagentResult> => {
-      const id = randomUUID();
+      const id = stableId(`${options.runId}:${options.callKey}:${index}`);
+      const previous = await runs.findOne({ _id: id, parentRunId: options.runId });
+      if (previous && ['succeeded', 'failed', 'cancelled'].includes(previous.status))
+        return {
+          subagent_id: id,
+          task: request.task,
+          status: previous.status as SubagentResult['status'],
+          summary: previous.output ?? '',
+          notes: previous.childNotes ?? [],
+          tokens_used: previous.tokensUsed ?? 0,
+          error: previous.error,
+        };
       const now = new Date();
       let agent: Agent;
       try {
@@ -181,27 +199,37 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
           error: safeError(error),
         };
       }
-      await runs.insertOne({
-        _id: id,
-        ownerId: options.ownerId,
-        parentRunId: options.runId,
-        taskId: options.taskId ?? options.runId,
-        ...(options.nodeId ? { parentNodeId: options.nodeId } : {}),
-        label: agent.name,
-        trigger: 'subagent',
-        status: 'running',
-        input: request.task,
-        history: [],
-        events: [],
-        outputs: {},
-        snapshot: { agents: { [id]: agent } },
-        requestHash: 'subagent',
-        createdAt: now,
-        updatedAt: now,
-        startedAt: now,
-      } as Run);
+      if (previous) {
+        await runs.updateOne(
+          { _id: id, status: 'waiting_for_human' },
+          { $set: { status: 'running', updatedAt: now } },
+        );
+      } else
+        await runs.insertOne({
+          _id: id,
+          ownerId: options.ownerId,
+          parentRunId: options.runId,
+          initiatedBy: parentRun?.initiatedBy,
+          approvalOwnerId: parentRun?.approvalOwnerId,
+          tokenId: parentRun?.tokenId,
+          agentId: id,
+          taskId: options.taskId ?? options.runId,
+          ...(options.nodeId ? { parentNodeId: options.nodeId } : {}),
+          label: agent.name,
+          trigger: 'subagent',
+          status: 'running',
+          input: request.task,
+          history: [],
+          events: [],
+          outputs: {},
+          snapshot: { agents: { [id]: agent } },
+          requestHash: 'subagent',
+          createdAt: now,
+          updatedAt: now,
+          startedAt: now,
+        } as Run);
       await options.event({
-        type: 'subagent_started',
+        type: previous ? 'subagent_resumed' : 'subagent_started',
         message: `Sub-agent: ${request.task.replace(/\s+/g, ' ').slice(0, 200)}`,
         data: {
           subagentId: id,
@@ -229,11 +257,16 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
         notes: [],
         usage: { tokens: 0 },
         depth: 1,
+        resumeFromHuman: Boolean(previous),
+        executionKey: 'agent',
         taskId: options.taskId ?? options.runId,
       };
       let result: SubagentResult;
       try {
         const output = await options.run(agent, request.task, ctx);
+        await recordArtifact(options.ownerId, id, 'answer.md', 'text/markdown', Buffer.from(output)).catch(
+          () => write({ type: 'artifact_error', message: 'Could not save the sub-agent answer artifact' }),
+        );
         const report = await writeTaskNote(
           { ownerId: options.ownerId, taskId: ctx.taskId },
           {
@@ -260,6 +293,13 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
           tokens_used: ctx.usage.tokens,
         };
       } catch (error) {
+        if (error instanceof HumanPause) {
+          await runs.updateOne(
+            { _id: id, status: 'running' },
+            { $set: { status: 'waiting_for_human', waitingSince: new Date(), tokensUsed: ctx.usage.tokens } },
+          );
+          throw error;
+        }
         result = {
           subagent_id: id,
           task: request.task,
@@ -277,6 +317,7 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
             status: result.status,
             ...(result.status === 'succeeded' ? { output: result.summary } : { error: result.error }),
             tokensUsed: result.tokens_used,
+            childNotes: result.notes,
             finishedAt: new Date(),
             updatedAt: new Date(),
           },
@@ -298,5 +339,8 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
       return result;
     }),
   );
+  const failure = settled.find((r) => r.status === 'rejected');
+  if (failure?.status === 'rejected') throw failure.reason;
+  const results = settled.map((r) => (r as PromiseFulfilledResult<SubagentResult>).value);
   return { results, tokens: results.reduce((n, r) => n + r.tokens_used, 0) };
 }

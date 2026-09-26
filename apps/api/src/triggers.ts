@@ -294,7 +294,7 @@ conversationApi.get('/conversations/:id', async (req, res) => {
   let pendingInput: string | undefined;
   if (c.pending) {
     const run = await collection<Run>('runs').findOne({ _id: c.pending.runId, ownerId: c.ownerId });
-    if (run && ['queued', 'running'].includes(run.status)) pendingInput = run.input;
+    if (run && ['queued', 'running', 'waiting_for_human'].includes(run.status)) pendingInput = run.input;
     if (run) await settleConversation(run);
     c = (await collection<Conversation>('conversations').findOne(filter))!;
   }

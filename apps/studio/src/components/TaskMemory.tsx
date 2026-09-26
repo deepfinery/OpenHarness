@@ -37,7 +37,7 @@ export function TaskMemory({ runId }: { runId?: string }) {
               setNext(data.next_offset);
               setLongTerm(data.longTermAvailable);
               if (
-                ['queued', 'running'].includes(data.runStatus) ||
+                ['queued', 'running', 'waiting_for_human'].includes(data.runStatus) ||
                 data.memoryPending ||
                 ['pending', 'processing'].includes(data.reflection?.status)
               )

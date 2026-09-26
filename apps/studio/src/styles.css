@@ -5763,3 +5763,25 @@ details.advanced summary {
   width: 100%;
   text-align: left;
 }
+
+.human-request {
+  border: 1px solid var(--border, #ddd);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 16px 0;
+  background: var(--surface, #fff);
+}
+.human-request label {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.human-request textarea {
+  width: 100%;
+}
+.human-prompt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+}

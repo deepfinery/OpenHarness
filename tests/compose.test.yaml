@@ -29,7 +29,7 @@ services:
   opensearch:
     profiles: !reset []
     environment:
-      OPENSEARCH_JAVA_OPTS: -Xms256m -Xmx256m
+      OPENSEARCH_JAVA_OPTS: -Xms256m -Xmx256m -XX:ActiveProcessorCount=2 -XX:MaxDirectMemorySize=256m
   elasticsearch:
     profiles: !reset []
     environment:

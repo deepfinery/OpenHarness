@@ -12,6 +12,11 @@ import { effortPresets } from '../../../packages/core/src/patterns.js';
 
 export const isFinish = (n: WorkflowNode) => n.type === 'output' || n.type === 'finish';
 export function executionLinks(n: WorkflowNode): { target: string; port: string }[] {
+  if (n.type === 'review')
+    return [
+      { target: n.onApprove, port: 'true' },
+      { target: n.onReject, port: 'false' },
+    ];
   if (n.type === 'condition')
     return [
       { target: n.onTrue, port: 'true' },
@@ -113,7 +118,7 @@ export function connectGraph(form: Workflow, c: Connection): Workflow {
     throw new Error(
       'Connect a step’s Next port to the next step’s input. Tools and knowledge use the agent’s bottom ports.',
     );
-  if ((source.type === 'condition') !== (port === 'true' || port === 'false'))
+  if ((source.type === 'condition' || source.type === 'review') !== (port === 'true' || port === 'false'))
     throw new Error('Choose the matching execution port.');
   return {
     ...form,
@@ -122,7 +127,15 @@ export function connectGraph(form: Workflow, c: Connection): Workflow {
         ? n
         : ({
             ...n,
-            [source.type === 'condition' ? (port === 'false' ? 'onFalse' : 'onTrue') : 'next']: to,
+            [source.type === 'review'
+              ? port === 'false'
+                ? 'onReject'
+                : 'onApprove'
+              : source.type === 'condition'
+                ? port === 'false'
+                  ? 'onFalse'
+                  : 'onTrue'
+                : 'next']: to,
           } as WorkflowNode),
     ),
   };
@@ -149,8 +162,15 @@ export function disconnectGraph(form: Workflow, edge: Edge): Workflow {
         ? n
         : ({
             ...n,
-            [n.type === 'condition' ? (edge.sourceHandle === 'false' ? 'onFalse' : 'onTrue') : 'next']:
-              undefined,
+            [n.type === 'review'
+              ? edge.sourceHandle === 'false'
+                ? 'onReject'
+                : 'onApprove'
+              : n.type === 'condition'
+                ? edge.sourceHandle === 'false'
+                  ? 'onFalse'
+                  : 'onTrue'
+                : 'next']: undefined,
           } as WorkflowNode),
     ),
   };
@@ -211,7 +231,8 @@ export function editableWorkflow(value: Entity | Workflow | undefined, data: Dat
       template: '{{last}}',
       position: { x: 900, y: 140 },
     });
-    for (const n of f.nodes) if (!isFinish(n) && n.type !== 'condition' && !n.next) n.next = finishId;
+    for (const n of f.nodes)
+      if (!isFinish(n) && n.type !== 'condition' && n.type !== 'review' && !n.next) n.next = finishId;
   }
   for (const n of f.nodes)
     if (n.type === 'agent') {
@@ -268,6 +289,12 @@ export function removeGraphNode(form: Workflow, id: string): Workflow {
     nodes: form.nodes
       .filter((v) => v.id !== id)
       .map((v) => {
+        if (v.type === 'review')
+          return {
+            ...v,
+            onApprove: v.onApprove === id ? (replacement ?? '') : v.onApprove,
+            onReject: v.onReject === id ? (replacement ?? '') : v.onReject,
+          };
         if (v.type === 'condition')
           return {
             ...v,
@@ -286,16 +313,20 @@ export function removeGraphNode(form: Workflow, id: string): Workflow {
 export function insertStep(form: Workflow, node: WorkflowNode, selected?: string): Workflow {
   const finish = form.nodes.find(isFinish);
   const after =
-    form.nodes.find((n) => n.id === selected && !isFinish(n) && n.type !== 'condition') ??
+    form.nodes.find(
+      (n) => n.id === selected && !isFinish(n) && n.type !== 'condition' && n.type !== 'review',
+    ) ??
     form.nodes.find((n) => 'next' in n && n.next === finish?.id) ??
     form.nodes.find((n) => n.type === 'start');
   const target = after && 'next' in after ? (after.next ?? finish?.id) : finish?.id;
   const nextNode: WorkflowNode =
-    node.type === 'condition'
-      ? { ...node, onTrue: target ?? '', onFalse: target ?? '' }
-      : isFinish(node)
-        ? node
-        : ({ ...node, next: target } as WorkflowNode);
+    node.type === 'review'
+      ? { ...node, onApprove: target ?? '', onReject: target ?? '' }
+      : node.type === 'condition'
+        ? { ...node, onTrue: target ?? '', onFalse: target ?? '' }
+        : isFinish(node)
+          ? node
+          : ({ ...node, next: target } as WorkflowNode);
   return {
     ...form,
     nodes: [

@@ -6,7 +6,7 @@ import type { GatewayConfig } from './config.js';
 import { createStorage, type Registry, type Storage } from './registry.js';
 import { DeviceHub } from './hub.js';
 import { createGatewayAudit } from './audit.js';
-import { noopApproval, webhookApproval, type ApprovalProvider } from './approval.js';
+import { noopApproval, webhookApproval, studioApproval, type ApprovalProvider } from './approval.js';
 import { createHttpApp } from './http.js';
 import { applyBootstrapDevices } from './bootstrap.js';
 
@@ -41,9 +41,11 @@ export async function startGateway(
   const audit = createGatewayAudit(storage.audit, { file: config.GATEWAY_AUDIT_FILE });
   const approval =
     overrides.approval ??
-    (config.GATEWAY_APPROVAL_PROVIDER === 'webhook' && config.GATEWAY_APPROVAL_URL
-      ? webhookApproval(config.GATEWAY_APPROVAL_URL, config.GATEWAY_APPROVAL_TIMEOUT_SECONDS * 1000, log)
-      : noopApproval);
+    (config.GATEWAY_APPROVAL_PROVIDER === 'studio'
+      ? studioApproval(config.GATEWAY_ADMIN_TOKEN ?? '', storage.consumeApproval)
+      : config.GATEWAY_APPROVAL_PROVIDER === 'webhook' && config.GATEWAY_APPROVAL_URL
+        ? webhookApproval(config.GATEWAY_APPROVAL_URL, config.GATEWAY_APPROVAL_TIMEOUT_SECONDS * 1000, log)
+        : noopApproval);
   const http = createHttpApp({ config, registry, hub, audit, approval, log });
   const server = createServer(http.app);
   const wss = new WebSocketServer({

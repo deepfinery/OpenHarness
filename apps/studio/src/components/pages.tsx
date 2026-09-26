@@ -464,7 +464,16 @@ export function RunsPage() {
       <PageTitle title="Executions" />
       <ErrorNotice error={error} />
       <div className="filter-row">
-        {['all', 'running', 'queued', 'succeeded', 'failed', 'interrupted', 'cancelled'].map((s) => (
+        {[
+          'all',
+          'running',
+          'queued',
+          'waiting_for_human',
+          'succeeded',
+          'failed',
+          'interrupted',
+          'cancelled',
+        ].map((s) => (
           <button
             key={s}
             className={`filter-chip ${filter === s ? 'active' : ''}`}
@@ -540,7 +549,7 @@ export function RunsPage() {
             <div className="run-detail-head">
               <Status status={selected.status} />
               <code>{selected.id}</code>
-              {['queued', 'running'].includes(selected.status) && (
+              {['queued', 'running', 'waiting_for_human'].includes(selected.status) && (
                 <Button
                   variant="danger"
                   onClick={() =>

@@ -48,7 +48,12 @@ export class DuplicateDeviceError extends Error {
     super(`device ${deviceId} already exists`);
   }
 }
-export type Storage = { registry: Registry; audit: AuditStore; close(): Promise<void> };
+export type Storage = {
+  consumeApproval(id: string, expires: Date): Promise<boolean>;
+  registry: Registry;
+  audit: AuditStore;
+  close(): Promise<void>;
+};
 
 /** In-process storage for tests and throwaway runs. Nothing survives a restart. */
 export class MemoryRegistry implements Registry {
@@ -96,11 +101,20 @@ export class MemoryAuditStore implements AuditStore {
       .reverse();
   }
 }
-export const memoryStorage = (): Storage => ({
-  registry: new MemoryRegistry(),
-  audit: new MemoryAuditStore(),
-  close: async () => {},
-});
+export const memoryStorage = (): Storage => {
+  const used = new Map<string, number>();
+  return {
+    consumeApproval: async (id, expires) => {
+      for (const [key, end] of used) if (end <= Date.now()) used.delete(key);
+      if (used.has(id)) return false;
+      used.set(id, expires.getTime());
+      return true;
+    },
+    registry: new MemoryRegistry(),
+    audit: new MemoryAuditStore(),
+    close: async () => {},
+  };
+};
 
 /** Picks the configured backend. MongoDB is the only persistent one today. */
 export async function createStorage(config: {

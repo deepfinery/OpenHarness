@@ -152,7 +152,7 @@ test('an MCP server whose tools were never discovered gets them when it is dropp
     y: target.y + target.height / 2,
   });
   await page.mouse.up();
-  await expect(page.locator('.harness-card.kind-mcp', { hasText: server.name })).toContainText('5 tools');
+  await expect(page.locator('.harness-card.kind-mcp', { hasText: server.name })).toContainText('6 tools');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Workflow editor' })).toHaveCount(0);
   const saved = await api(page.request, `/workflows/${workflow.id}`);
