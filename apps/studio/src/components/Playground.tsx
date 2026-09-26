@@ -1,5 +1,6 @@
 import { displayAnswer } from '../../../../packages/core/src/finalAnswer.js';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Activity,
   Bot,
@@ -169,9 +170,11 @@ export function Playground({
   target,
   onTargetChange,
   storageScope,
+  actionsContainer,
 }: {
   data: Data;
   storageScope: string;
+  actionsContainer: HTMLElement | null;
   /** `workflow:<id>` or `agent:<id>`; the selector lives in the app's top bar. */
   target: string;
   onTargetChange: (target: string) => void;
@@ -407,12 +410,16 @@ export function Playground({
   const shown = inspected ?? run;
   return (
     <div className={`playground chat-playground ${showTrace ? '' : 'trace-hidden'}`}>
+      {actionsContainer &&
+        createPortal(
+          <Button variant="secondary" className="topbar-action" aria-label="New conversation" onClick={reset}>
+            <Plus size={15} />
+            <span>New conversation</span>
+          </Button>,
+          actionsContainer,
+        )}
       <div className="playground-main">
         <div className="playground-float">
-          <Button variant="secondary" onClick={reset}>
-            <Plus size={15} />
-            New conversation
-          </Button>
           <span className="grow" />
           <IconButton
             title={showTrace ? 'Hide trace panel' : 'Show trace panel'}

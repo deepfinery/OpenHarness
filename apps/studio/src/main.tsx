@@ -226,6 +226,7 @@ function App() {
   const [tenant, setTenant] = useState({ name: 'Team workspace', members: 1 });
   const [healthy, setHealthy] = useState(false);
   const [sidebar, setSidebar] = useState(false);
+  const [playgroundActions, setPlaygroundActions] = useState<HTMLDivElement | null>(null);
   const refresh = useCallback(async () => {
     const [values, workspace, devices] = await Promise.all([
       Promise.all(collections.map((key) => api<Entity[]>(`/${key}`))),
@@ -399,7 +400,7 @@ function App() {
         </div>
       </aside>
       <div className="app-main">
-        <header className="topbar">
+        <header className={`topbar ${page === 'playground' ? 'playground-header' : ''}`}>
           <button className="mobile-menu" aria-label="Toggle navigation" onClick={() => setSidebar(!sidebar)}>
             <Menu size={20} />
           </button>
@@ -431,6 +432,7 @@ function App() {
             )}
           </div>
           <div className="topbar-right">
+            {page === 'playground' && <div ref={setPlaygroundActions} />}
             {page === 'knowledge' && (
               <Button
                 className="topbar-action"
@@ -462,6 +464,7 @@ function App() {
             data={data}
             target={target}
             onTargetChange={setTarget}
+            actionsContainer={playgroundActions}
           />
         ) : page === 'knowledge' ? (
           <KnowledgePage {...props} />
