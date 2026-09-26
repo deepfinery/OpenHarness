@@ -1,6 +1,6 @@
 # GPU clusters
 
-Create a cluster in **Clusters**, copy its one-time enrollment configuration to a root-readable `cluster.env` file, then run from a fresh repository checkout on each Linux node:
+Create a cluster in **Machines & clusters → Clusters**, copy its one-time enrollment configuration to a root-readable `cluster.env` file, then run from a fresh repository checkout on each Linux node:
 
 ```sh
 sudo sh connector-linux/install-cluster.sh /path/to/cluster.env --host-access
@@ -39,3 +39,7 @@ GPU reset targets one explicit GPU index. There is no generic “reset NVLink”
 ## TLS
 
 For development, `ws://` needs both gateway `GATEWAY_ALLOW_INSECURE_WS=true` and connector `GATEWAY_ALLOW_INSECURE=true`. For deployment, use `wss://` with a trusted certificate and disable both insecure flags. The repository includes a Caddy gateway deployment in `gateway/compose.yaml`. Only that trusted proxy should reach the internal gateway port when `TRUST_PROXY=1` is enabled; forwarded TLS headers are ignored without proxy trust. For a private CA, mount its certificate into the connector and set `NODE_EXTRA_CA_CERTS` to its container path. Certificate validation must remain enabled. Tests exercise verified WSS, rejected untrusted certificates, and real WS connector enrollment.
+
+## Unified machine inventory
+
+The **Machines & clusters** menu contains the machine inventory and cluster overview. Filter machines by cluster, status, platform, name, or hostname. **View nodes** on a cluster card opens its filtered inventory; the cluster filter survives a page refresh and supports browser back/forward. Standalone machine enrollment, connector setup, tool permissions, and operator workflow creation remain available in the same page. **Manage cluster** contains shared enrollment, monitoring, remediation controls, and cycle history. Existing `/clusters` links open the cluster view at `/machines?view=clusters`.

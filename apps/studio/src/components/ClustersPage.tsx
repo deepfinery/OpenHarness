@@ -1,22 +1,31 @@
 import { AgentFields } from './agentFields';
 import { defaultAgent } from '../workflowGraph';
 import type { Agent } from '../../../../packages/core/src/schema.js';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { Activity, ArrowRight, Layers3, Plus, ShieldCheck } from 'lucide-react';
+import type { FleetCluster } from './InfrastructurePage';
 import { api, send, errorMessage, timestamp, type Data } from '../api';
-import { Button, CopyButton, ErrorNotice, Field, Modal, PageTitle } from './ui';
+import { Button, CopyButton, ErrorNotice, Field, Modal, Empty } from './ui';
 const actions = ['gpu_reset', 'restart_fabric_manager', 'reboot'];
 export function ClustersPage({
   data,
   isAdmin,
   refreshData,
+  clusters,
+  refreshClusters,
+  onViewNodes,
 }: {
   data: Data;
   isAdmin: boolean;
   refreshData: () => Promise<void>;
+  clusters: FleetCluster[];
+  refreshClusters: () => Promise<void>;
+  onViewNodes: (id: string) => void;
 }) {
   const [draftAgent, setDraftAgent] = useState<(Agent & { id?: string }) | null>(null);
-  const [clusters, setClusters] = useState<any[]>([]),
-    [error, setError] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false),
     [name, setName] = useState('');
   const [enrollment, setEnrollment] = useState<any>(null),
@@ -24,23 +33,19 @@ export function ClustersPage({
   const [cycles, setCycles] = useState<any[]>([]),
     [monitor, setMonitor] = useState<any>(null);
   const [policy, setPolicy] = useState<any>(null);
-  const refresh = async () => {
-    const r = await api('/clusters');
-    setClusters(r.clusters);
-  };
+  const refresh = refreshClusters;
   const act = async (task: () => Promise<unknown>) => {
+    if (busy) return;
+    setBusy(true);
     try {
       setError('');
       await task();
     } catch (e) {
       setError(errorMessage(e));
+    } finally {
+      setBusy(false);
     }
   };
-  useEffect(() => {
-    void act(refresh);
-    const timer = setInterval(() => void refresh().catch(() => {}), 10000);
-    return () => clearInterval(timer);
-  }, []);
   const open = async (cluster: any) => {
     setSelected(cluster);
     setPolicy({ ...cluster });
@@ -58,38 +63,153 @@ export function ClustersPage({
   };
   return (
     <>
-      <PageTitle
-        title="Clusters"
-        action={isAdmin && <Button onClick={() => setAdding(true)}>Create cluster</Button>}
-      />
-      <p className="muted">
-        One enrollment token for the cluster. Nodes register themselves; a coordinator schedules a separate
-        agent run on each online node in bounded waves.
-      </p>
-      <ErrorNotice error={error} />
-      <div className="card-grid">
-        {clusters.map((c) => (
-          <article className="resource-card" key={c._id}>
-            <h3>{c.name}</h3>
-            <p>
-              {c.node_count} registered nodes · {c.disabled ? 'Disabled' : 'Enabled'}
-            </p>
-            <p className="muted">
-              Monitoring {c.monitor?.enabled ? `every ${c.monitor.intervalSeconds / 60} minutes` : 'paused'} ·
-              Remediation {c.remediation}
-            </p>
-            {c.monitor?.error && <ErrorNotice error={c.monitor.error} />}
-            <Button variant="secondary" onClick={() => void act(() => open(c))}>
-              Configure {c.name}
-            </Button>
-          </article>
-        ))}
+      <div className="fleet-section-heading">
+        <div>
+          <h2>Your clusters</h2>
+          <p>Group nodes under one enrollment token and coordinate their monitoring.</p>
+        </div>
+        {isAdmin && data.gateway.configured && (
+          <Button onClick={() => setAdding(true)}>
+            <Plus size={16} />
+            Create cluster
+          </Button>
+        )}
+      </div>
+      <div className="fleet-filters">
+        <input
+          aria-label="Search clusters"
+          placeholder="Search clusters…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <span className="fleet-subtle">{clusters.length} clusters</span>
+      </div>
+      <ErrorNotice error={!selected && !adding && !enrollment && !draftAgent ? error : ''} />
+      <div className="fleet-cluster-grid">
+        {clusters
+          .filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
+          .map((c) => {
+            const online = data.machines.filter(
+              (m) => m.cluster_id === c._id && m.online && !m.disabled,
+            ).length;
+            return (
+              <article className="fleet-cluster-card" key={c._id}>
+                <div className="fleet-cluster-top">
+                  <span className="fleet-cluster-icon">
+                    <Layers3 size={23} />
+                  </span>
+                  <span className={`status ${c.disabled ? 'disabled' : 'ready'}`}>
+                    <i />
+                    {c.disabled ? 'disabled' : 'enabled'}
+                  </span>
+                </div>
+                <h3>{c.name}</h3>
+                <div className="fleet-cluster-nodes">
+                  <strong>{c.node_count}</strong>
+                  <span>
+                    registered nodes
+                    <small>
+                      {online} online · capacity {c.max_nodes.toLocaleString()}
+                    </small>
+                  </span>
+                </div>
+                <div
+                  className="fleet-capacity"
+                  role="meter"
+                  aria-label={`${c.name} node capacity`}
+                  aria-valuenow={c.node_count}
+                  aria-valuemin={0}
+                  aria-valuemax={c.max_nodes}
+                >
+                  <i style={{ width: `${Math.min(100, (c.node_count / c.max_nodes) * 100)}%` }} />
+                </div>
+                <div className="fleet-cluster-facts">
+                  <div>
+                    <Activity size={15} />
+                    <span>Monitoring</span>
+                    <strong>
+                      {c.disabled
+                        ? 'Cluster disabled'
+                        : c.monitor?.enabled
+                          ? `Every ${c.monitor.intervalSeconds / 60} min`
+                          : 'Not scheduled'}
+                    </strong>
+                  </div>
+                  <div>
+                    <ShieldCheck size={15} />
+                    <span>Remediation</span>
+                    <strong>
+                      {c.remediation === 'approval'
+                        ? 'Human approval'
+                        : c.remediation === 'automatic'
+                          ? 'Automatic'
+                          : 'Diagnostics only'}
+                    </strong>
+                  </div>
+                </div>
+                {c.monitor?.error && <ErrorNotice error={c.monitor.error} />}
+                <div className="fleet-cluster-footer">
+                  <Button
+                    variant="secondary"
+                    aria-label={`Configure ${c.name}`}
+                    onClick={() => void act(() => open(c))}
+                    disabled={busy}
+                  >
+                    Manage cluster
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    aria-label={`View nodes in ${c.name}`}
+                    onClick={() => onViewNodes(c._id)}
+                  >
+                    View nodes
+                    <ArrowRight size={14} />
+                  </Button>
+                </div>
+              </article>
+            );
+          })}
+      </div>
+      {!clusters.filter((c) => c.name.toLowerCase().includes(query.toLowerCase())).length && (
+        <Empty
+          icon={<Layers3 size={30} />}
+          title={query ? 'No matching clusters' : 'Bring your fleet together'}
+          text={
+            query
+              ? 'Try a different cluster name.'
+              : 'Create a cluster once, install its connector on your nodes, and let them register automatically.'
+          }
+          action={
+            query ? (
+              <Button variant="secondary" onClick={() => setQuery('')}>
+                Clear search
+              </Button>
+            ) : isAdmin && data.gateway.configured ? (
+              <Button onClick={() => setAdding(true)}>Set up a cluster</Button>
+            ) : undefined
+          }
+        />
+      )}
+      <div className="fleet-guide">
+        <Layers3 size={22} />
+        <div>
+          <h3>One cluster. One enrollment configuration.</h3>
+          <p>
+            Create a cluster → install the connector on your nodes → choose a monitoring agent. Nodes appear
+            in the machine inventory as they connect.
+          </p>
+          <small>
+            Start with diagnostics. Enable remediation separately when your cluster and nodes are ready.
+          </small>
+        </div>
       </div>
       {adding && (
         <Modal title="Create cluster" onClose={() => setAdding(false)}>
           <form
+            className="fleet-cluster-form"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!isAdmin || busy) return;
               void act(async () => {
                 const r = await send('/clusters', { name });
                 setEnrollment(r.install);
@@ -102,36 +222,44 @@ export function ClustersPage({
             <Field label="Cluster name">
               <input required value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
-            <Button type="submit">Create</Button>
+            <ErrorNotice error={error} />
+            <Button type="submit" disabled={busy}>
+              Create
+            </Button>
           </form>
         </Modal>
       )}
       {enrollment && (
-        <Modal title="Install cluster nodes" onClose={() => setEnrollment(null)}>
-          <p>
-            Save this shared enrollment configuration as a root-readable file on each node. The token is shown
-            once. Rotation disconnects every node until its configuration is updated.
-          </p>
-          <pre>{enrollment.environment}</pre>
-          <CopyButton value={enrollment.environment} />
-          <p>From a checkout of this repository, install the connector container:</p>
-          <pre>{enrollment.command}</pre>
-          <CopyButton value={enrollment.command} />
-          <p>For host NVIDIA diagnostics, explicitly grant privileged host access:</p>
-          <pre>{enrollment.privilegedCommand}</pre>
-          <CopyButton value={enrollment.privilegedCommand} />
-          <p className="muted">
-            Use a gateway address reachable from every node. WSS validates TLS certificates; WS is available
-            for development. Host tools use the node’s installed NVIDIA/DCGM utilities. Disruptive operations
-            also require HOST_REMEDIATION_ACTIONS and a fresh drain authorization on that node.
-          </p>
+        <Modal title="Install cluster nodes" onClose={() => setEnrollment(null)} wide>
+          <div className="fleet-cluster-form">
+            <ErrorNotice error={error} />
+            <p>
+              Save this shared enrollment configuration as a root-readable file on each node. The token is
+              shown once. Rotation disconnects every node until its configuration is updated.
+            </p>
+            <pre>{enrollment.environment}</pre>
+            <CopyButton value={enrollment.environment} />
+            <p>From a checkout of this repository, install the connector container:</p>
+            <pre>{enrollment.command}</pre>
+            <CopyButton value={enrollment.command} />
+            <p>For host NVIDIA diagnostics, explicitly grant privileged host access:</p>
+            <pre>{enrollment.privilegedCommand}</pre>
+            <CopyButton value={enrollment.privilegedCommand} />
+            <p className="muted">
+              Use a gateway address reachable from every node. WSS validates TLS certificates; WS is available
+              for development. Host tools use the node’s installed NVIDIA/DCGM utilities. Disruptive
+              operations also require HOST_REMEDIATION_ACTIONS and a fresh drain authorization on that node.
+            </p>
+          </div>
         </Modal>
       )}
-      {selected && monitor && policy && (
+      {selected && monitor && policy && !enrollment && !draftAgent && (
         <Modal title={`Cluster: ${selected.name}`} onClose={() => setSelected(null)} wide>
           <form
+            className="fleet-cluster-form"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!isAdmin || busy) return;
               void act(async () => {
                 await send(
                   `/clusters/${selected._id}`,
@@ -151,6 +279,8 @@ export function ClustersPage({
               });
             }}
           >
+            <ErrorNotice error={error} />
+            <h3 className="fleet-form-heading">Cluster access</h3>
             <Field label="Cluster name">
               <input
                 disabled={!isAdmin}
@@ -177,6 +307,7 @@ export function ClustersPage({
                 onChange={(e) => setPolicy({ ...policy, max_nodes: Number(e.target.value) })}
               />
             </Field>
+            <h3 className="fleet-form-heading">Scheduled monitoring</h3>
             {isAdmin && (
               <div className="row-actions">
                 <Button
@@ -259,6 +390,7 @@ export function ClustersPage({
                 onChange={(e) => setMonitor({ ...monitor, instructions: e.target.value })}
               />
             </Field>
+            <h3 className="fleet-form-heading">Remediation controls</h3>
             <Field label="Remediation mode">
               <select
                 disabled={!isAdmin}
@@ -305,12 +437,20 @@ export function ClustersPage({
             </Field>
             {isAdmin && (
               <div className="row-actions">
-                <Button type="submit">Save cluster</Button>
+                <Button type="submit" disabled={busy}>
+                  Save cluster
+                </Button>
                 <Button
                   type="button"
                   variant="secondary"
                   onClick={() =>
                     void act(async () => {
+                      if (
+                        !confirm(
+                          'Rotate the shared token? Every node must be reconfigured before it can reconnect.',
+                        )
+                      )
+                        return;
                       const r = await send(`/clusters/${selected._id}/rotate-token`);
                       setEnrollment(r.install);
                     })
@@ -333,35 +473,37 @@ export function ClustersPage({
               </div>
             )}
           </form>
-          <h3>Recent monitoring cycles</h3>
-          {cycles.length ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Started</th>
-                  <th>Progress</th>
-                  <th>Results</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cycles.map((c) => (
-                  <tr key={c._id}>
-                    <td>{timestamp(c.createdAt)}</td>
-                    <td>
-                      {c.status} · {c.cursor}/{c.nodeCount} dispatched · {c.offline} offline
-                    </td>
-                    <td>
-                      {c.completed} succeeded · {c.failed} failed · {c.skipped} skipped
-                      {c.error && <ErrorNotice error={c.error} />}
-                      <a href={`/runs?cycle=${encodeURIComponent(c._id)}`}>View node runs</a>
-                    </td>
+          <div className="fleet-cluster-form">
+            <h3>Recent monitoring cycles</h3>
+            {cycles.length ? (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Started</th>
+                    <th>Progress</th>
+                    <th>Results</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p className="muted">No monitoring cycles yet.</p>
-          )}
+                </thead>
+                <tbody>
+                  {cycles.map((c) => (
+                    <tr key={c._id}>
+                      <td>{timestamp(c.createdAt)}</td>
+                      <td>
+                        {c.status} · {c.cursor}/{c.nodeCount} dispatched · {c.offline} offline
+                      </td>
+                      <td>
+                        {c.completed} succeeded · {c.failed} failed · {c.skipped} skipped
+                        {c.error && <ErrorNotice error={c.error} />}
+                        <a href={`/executions?cycle=${encodeURIComponent(c._id)}`}>View node runs</a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="muted">No monitoring cycles yet.</p>
+            )}
+          </div>
         </Modal>
       )}
       {draftAgent && (
@@ -372,8 +514,10 @@ export function ClustersPage({
         >
           <ErrorNotice error={error} />
           <form
+            className="fleet-cluster-form"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!isAdmin || busy) return;
               void act(async () => {
                 const saved = await send(
                   draftAgent.id ? `/agents/${draftAgent.id}` : '/agents',
@@ -399,7 +543,9 @@ export function ClustersPage({
               refresh={refreshData}
               onChange={(patch) => setDraftAgent((current) => (current ? { ...current, ...patch } : current))}
             />
-            <Button type="submit">Save monitoring agent</Button>
+            <Button type="submit" disabled={busy}>
+              Save monitoring agent
+            </Button>
           </form>
         </Modal>
       )}
