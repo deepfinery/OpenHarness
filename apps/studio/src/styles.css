@@ -5737,3 +5737,21 @@ details.advanced summary {
     grid-template-columns: 1fr;
   }
 }
+.task-memory {
+  padding: 16px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.task-memory form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.task-memory input {
+  min-width: 0;
+  width: 100%;
+}
+.task-memory .history-item {
+  width: 100%;
+  text-align: left;
+}

@@ -22,6 +22,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, errorMessage, send, timestamp, type Data, type Entity } from '../api';
 import { Button, Empty, ErrorNotice, IconButton, Status } from './ui';
+import { TaskMemory } from './TaskMemory';
 
 export function Markdown({ text }: { text: string }) {
   return (
@@ -181,7 +182,7 @@ export function Playground({
   const [run, setRun] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [panel, setPanel] = useState<'trace' | 'history'>('trace');
+  const [panel, setPanel] = useState<'trace' | 'history' | 'memory'>('trace');
   const [historyRuns, setHistoryRuns] = useState<any[]>([]);
   const [inspected, setInspected] = useState<any>(null);
   const bottom = useRef<HTMLDivElement>(null);
@@ -492,8 +493,18 @@ export function Playground({
             <History size={15} />
             History
           </button>
+          <button
+            role="tab"
+            aria-selected={panel === 'memory'}
+            className={panel === 'memory' ? 'active' : ''}
+            onClick={() => setPanel('memory')}
+          >
+            Memory
+          </button>
         </div>
-        {panel === 'trace' ? (
+        {panel === 'memory' ? (
+          <TaskMemory key={shown?.id} runId={shown?.id} />
+        ) : panel === 'trace' ? (
           shown ? (
             <>
               <div className="trace-meta">

@@ -1,9 +1,12 @@
 # Knowledge workspace
 
 A workflow can name one knowledge base as its **workspace**, under Workflow settings → Knowledge workspace. The
-workspace is shared working memory, and the knowledge base is the source of truth. Agents keep their own context
+workspace is persistent long-term memory, and the knowledge base is the source of truth. Agents keep their own context
 small: they search the workspace, read only the parts they need, and write what they learn back. Later steps, other
 agents in the workflow, sub-agents and future runs all build on the same notes.
+
+Every query also has a separate [temporary task notebook](task-memory.md), even without a knowledge workspace.
+Use it for intermediate analysis and agent handoffs, then promote selected findings to this persistent workspace.
 
 ## Tools
 
@@ -20,13 +23,13 @@ work, and the history of what was decided and why stays intact.
 
 Each kind of note is filed in its own folder:
 
-| Kind                  | Folder       |
-| --------------------- | ------------ |
-| Finding               | `research/`  |
-| Decision              | `decisions/` |
-| Feedback              | `feedback/`  |
-| Note                  | `notes/`     |
-| Offloaded tool result | `scratch/`   |
+| Kind                  | Folder                                    |
+| --------------------- | ----------------------------------------- |
+| Finding               | `research/`                               |
+| Decision              | `decisions/`                              |
+| Feedback              | `feedback/`                               |
+| Note                  | `notes/`                                  |
+| Offloaded tool result | `scratch/` in the temporary task notebook |
 
 Every note starts with YAML provenance: `kind`, `run_id`, `agent`, `sources`, `confidence` and `created`. The studio
 shows the folder beside each file. Notes are indexed within seconds of being written, so a note written in the same
@@ -34,10 +37,11 @@ step may not be searchable yet; read it by id instead.
 
 ## Result offloading
 
-A tool result longer than 6,000 characters is saved in full as a note in `scratch/`. The agent's context keeps only
-the first 1,500 characters, the note id, and a pointer to `kb_read`. Output that a `post_tool` hook rewrote is stored
-as rewritten, so a redaction also covers the saved note. Turn offloading off in the workflow settings to keep large
-results inline, where they are capped at 12,000 characters as before.
+Tool results are saved in the task notebook's `scratch/` folder, up to 200,000 characters each. Above 6,000 characters,
+the agent's context keeps only the first 1,500 characters, the note id, and a pointer to `memory_read`. Output that a
+`post_tool` hook rewrote is stored as rewritten, so a redaction also covers the saved note. Turn offloading off in the
+workflow settings to disable automatic result storage and keep large results inline, capped at 12,000 characters.
+Raw tool results no longer accumulate in the long-term knowledge base unless explicitly promoted.
 
 ## Training data
 

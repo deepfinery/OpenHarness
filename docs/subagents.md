@@ -23,7 +23,15 @@ sub-agents. Everything the sub-agents spend counts against the parent, so the pa
 
 A sub-agent starts with a fresh context. It gets its own instructions, the chosen skill, its task, the parent's
 knowledge bases, and the workflow's knowledge workspace. It records its findings there with `kb_write` and ends with
-a short summary. The parent receives, for each sub-agent:
+a short summary.
+
+Every child also shares the root query's [task notebook](task-memory.md). It can immediately search and read sibling
+findings, write intermediate analyses, and hand references back to the parent. The full final report is saved as a
+temporary `reports/` note automatically, even when there is no persistent knowledge workspace. Child agents inherit
+the parent's operating instructions and restrictions. Task notes expire after seven days unless copied to long-term
+knowledge with `memory_promote`.
+
+The parent receives, for each sub-agent:
 
 ```json
 {
@@ -36,7 +44,7 @@ a short summary. The parent receives, for each sub-agent:
 }
 ```
 
-The parent reads the notes it needs with `kb_read`, instead of carrying every sub-agent's transcript.
+The parent reads task notes with `memory_read` and persistent workspace notes with `kb_read`, instead of carrying every sub-agent's transcript.
 
 ## Limits and traces
 

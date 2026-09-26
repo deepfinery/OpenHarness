@@ -88,8 +88,8 @@ export const agentSchema = z.object({
   skillIds: z.array(id).max(20).default([]),
   /** Snapshot of the skills at run creation; set by the server, not by clients. */
   skills: z.array(skillSchema.extend({ id })).max(20).optional(),
-  maxTurns: z.number().int().min(1).max(40).default(12),
-  timeoutSeconds: z.number().int().min(10).max(900).default(300),
+  maxTurns: z.number().int().min(1).max(200).default(12),
+  timeoutSeconds: z.number().int().min(10).max(7200).default(300),
   pattern: z.enum(agentPatterns).default('react'),
   patternConfig: patternConfigSchema.default({}),
   /** Loop and token budget preset; `auto` picks a level per request. `low` is the pre-release name of `light`. */
@@ -418,6 +418,8 @@ export type Run = Stored<RunInput> & {
   trigger?: 'studio' | 'api' | 'chat' | 'webhook' | 'embed' | 'schedule' | 'subagent';
   /** Set on sub-agent runs: the run and step of the agent that spawned them. */
   parentRunId?: string;
+  /** Root query whose temporary notebook this run shares. Set by the runtime, never by model input. */
+  taskId?: string;
   parentNodeId?: string;
   /** Tokens a sub-agent run used; they also count against its parent. */
   tokensUsed?: number;

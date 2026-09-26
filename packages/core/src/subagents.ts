@@ -5,6 +5,7 @@ import { toolAlias } from './mcp.js';
 import { effortPresets } from './patterns.js';
 import { agentSchema, type Agent, type Run, type RunEvent } from './schema.js';
 import { safeError } from './security.js';
+import { writeTaskNote } from './memory.js';
 
 /**
  * Budgeted sub-agents. An agent with delegation enabled can hand focused tasks to sub-agents with the spawn_agents
@@ -99,6 +100,7 @@ export function childAgent(
   const effort = request.effort ?? 'light';
   const systemPrompt = [
     `You are a sub-agent working for "${parent.name}". Do only the task you are given, then stop.`,
+    `Follow the parent's operating instructions and restrictions:\n<parent_instructions>\n${parent.systemPrompt}\n</parent_instructions>`,
     skill
       ? `Follow the instructions of the skill "${skill.name}":\n<skill>\n${skill.instructions}\n</skill>`
       : '',
@@ -106,6 +108,7 @@ export function childAgent(
       ? 'Record what you find in the knowledge workspace with kb_write (findings with sources, decisions with reasons) and mention the note ids in your answer.'
       : '',
     'Finish with a short summary of what you found or did, in at most ten sentences.',
+    'Use memory_write for intermediate findings and memory_search/memory_read for notes shared by this task. Your final report is saved automatically in the task notebook for the parent.',
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -133,11 +136,13 @@ type ChildContext = {
   notes: { note_id: string; path: string }[];
   usage: { tokens: number };
   depth: number;
+  taskId: string;
 };
 export type SpawnOptions = {
   parent: Agent;
   ownerId: string;
   runId: string;
+  taskId?: string;
   nodeId?: string;
   signal: AbortSignal;
   remainingTokens: number;
@@ -176,6 +181,7 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
         _id: id,
         ownerId: options.ownerId,
         parentRunId: options.runId,
+        taskId: options.taskId ?? options.runId,
         ...(options.nodeId ? { parentNodeId: options.nodeId } : {}),
         label: agent.name,
         trigger: 'subagent',
@@ -219,10 +225,28 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
         notes: [],
         usage: { tokens: 0 },
         depth: 1,
+        taskId: options.taskId ?? options.runId,
       };
       let result: SubagentResult;
       try {
         const output = await options.run(agent, request.task, ctx);
+        const report = await writeTaskNote(
+          { ownerId: options.ownerId, taskId: ctx.taskId },
+          {
+            runId: id,
+            agent: agent.name,
+            title: request.task,
+            kind: 'report',
+            folder: 'reports',
+            content: output,
+          },
+        );
+        ctx.notes.push(report);
+        await write({
+          type: 'memory_written',
+          message: `Saved sub-agent report ${report.path}`,
+          data: report,
+        });
         result = {
           subagent_id: id,
           task: request.task,

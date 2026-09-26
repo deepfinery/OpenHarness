@@ -149,20 +149,30 @@ test('large tool results are saved as notes and summarised in the context', asyn
   const offloaded = await run(flow.id, 'Please use big tool to fetch telemetry');
   assert.match(offloaded.output, /BIGDATA START/);
   assert.doesNotMatch(offloaded.output, /BIGDATA END/, 'the agent only sees the head of the result');
-  const reference = /saved in the knowledge workspace as note ([0-9a-f-]{36}) \((scratch\/[^)]+)\)/.exec(
-    offloaded.output,
-  );
+  const reference = /Task note ([0-9a-f-]{36}) \((task\/[^)]+)\)/.exec(offloaded.output);
   assert.ok(reference, offloaded.output.slice(-400));
-  const saved = (await documents()).find((d: any) => d.id === reference![1]);
-  assert.equal(saved.folder, 'scratch');
-  assert.equal(saved.meta.kind, 'tool-result');
-  assert.match(await content(saved.id), /BIGDATA END/, 'the full result is kept in the workspace');
+  const saved = (await ok(`/runs/${offloaded.id}/memory`)).notes.find(
+    (d: any) => d.note_id === reference![1],
+  );
+  assert.match(saved.path, /\/scratch\//);
+  assert.equal(saved.kind, 'tool-result');
+  let tail = await ok(`/runs/${offloaded.id}/memory/${saved.note_id}?offset=0&limit=8000`);
+  let full = tail.content;
+  while (tail.next_offset !== undefined) {
+    tail = await ok(`/runs/${offloaded.id}/memory/${saved.note_id}?offset=${tail.next_offset}&limit=8000`);
+    full += tail.content;
+  }
+  assert.match(full, /BIGDATA END/, 'the full result is kept in task memory');
+  assert.ok(
+    !(await documents()).some((d: any) => d.id === saved.note_id),
+    'temporary telemetry is not indexed as long-term knowledge',
+  );
 
   const edited = { ...flow, workspace: { knowledgeBaseId: workspace.id, offloadToolResults: false } };
   delete edited.id;
   await ok(`/workflows/${flow.id}`, edited, 'PUT');
   const inline = await run(flow.id, 'Please use big tool once more');
-  assert.doesNotMatch(inline.output, /saved in the knowledge workspace/);
+  assert.doesNotMatch(inline.output, /Task note/);
 });
 
 test('without a workspace, agents get no workspace tools', async () => {

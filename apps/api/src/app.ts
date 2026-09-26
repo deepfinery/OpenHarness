@@ -11,6 +11,12 @@ import { queueChannel, JOB_QUEUE } from '../../../packages/core/src/queue.js';
 import { createRun, requestCancel, terminalStatuses } from '../../../packages/core/src/runs.js';
 import { configuredVectorStores, vectorStore } from '../../../packages/core/src/vectorstores/index.js';
 import { learns, requestReflection } from '../../../packages/core/src/experience.js';
+import {
+  memorySearchSchema,
+  promoteTaskNote,
+  readTaskNote,
+  searchTaskNotes,
+} from '../../../packages/core/src/memory.js';
 import { runSchema, type Run } from '../../../packages/core/src/schema.js';
 import { finishOAuth } from '../../../packages/core/src/mcp.js';
 import {
@@ -205,6 +211,54 @@ app.get('/api/runs/:id', async (req, res) => {
   if (!run) throw new HttpError(404, 'Run not found');
   checkTokenScope(req, 'read', run);
   res.json(publicRun(run));
+});
+/** Resolve both run ownership and token restrictions before exposing its shared task notebook. */
+async function memoryRun(req: express.Request) {
+  checkTokenScope(req, 'read');
+  const run = await collection<Run>('runs').findOne({
+    _id: String(req.params.id),
+    ownerId: req.principal!.tenantId,
+    ...(req.principal!.token ? { tokenId: req.principal!.token._id } : {}),
+  });
+  if (!run) throw new HttpError(404, 'Run not found');
+  checkTokenScope(req, 'read', run);
+  return run;
+}
+app.get('/api/runs/:id/memory', async (req, res) => {
+  const run = await memoryRun(req);
+  const scope = { ownerId: run.ownerId, taskId: run.taskId ?? run._id };
+  res.json({
+    ...(await searchTaskNotes(scope, memorySearchSchema.parse(req.query))),
+    taskId: scope.taskId,
+    longTermAvailable: Boolean(run.snapshot.workflow?.workspace),
+  });
+});
+app.get('/api/runs/:id/memory/:noteId', async (req, res) => {
+  const run = await memoryRun(req);
+  const options = z
+    .object({
+      offset: z.coerce.number().int().min(0).default(0),
+      limit: z.coerce.number().int().min(200).max(8000).default(4000),
+    })
+    .parse(req.query);
+  const note = await readTaskNote(
+    { ownerId: run.ownerId, taskId: run.taskId ?? run._id },
+    String(req.params.noteId),
+    options.offset,
+    options.limit,
+  );
+  if (!note) throw new HttpError(404, 'Task note not found or expired');
+  res.json(note);
+});
+app.post('/api/runs/:id/memory/:noteId/promote', async (req, res) => {
+  const run = await memoryRun(req);
+  checkTokenScope(req, 'execute', run);
+  const kb = run.snapshot.workflow?.workspace?.knowledgeBaseId;
+  if (!kb) throw new HttpError(400, 'Choose a long-term knowledge workspace in workflow settings first');
+  const scope = { ownerId: run.ownerId, taskId: run.taskId ?? run._id };
+  if (!(await readTaskNote(scope, String(req.params.noteId))))
+    throw new HttpError(404, 'Task note not found or expired');
+  res.status(201).json(await promoteTaskNote(scope, String(req.params.noteId), kb));
 });
 /** Server-sent events: status, streamed model text and trace events as the runner writes them. */
 app.get('/api/runs/:id/stream', async (req, res) => {

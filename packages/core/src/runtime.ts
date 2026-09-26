@@ -8,6 +8,14 @@ import { afterTool, beforeTool, loadHooks, type HookRecord } from './hooks.js';
 import { runSubagents, SPAWN_TOOL, spawnToolDefinition, type SpawnRequest } from './subagents.js';
 import { lessonsNote, recallLessons } from './experience.js';
 import {
+  memoryTools,
+  promoteTaskNote,
+  readTaskNote,
+  searchTaskNotes,
+  taskMemoryPrompt,
+  writeTaskNote,
+} from './memory.js';
+import {
   agentNote,
   createNote,
   folderFor,
@@ -40,6 +48,8 @@ export type DeltaWriter = (text: string, reset?: boolean) => void;
 export type AgentContext = {
   ownerId: string;
   runId: string;
+  /** Shared by every agent in one root query. */
+  taskId?: string;
   nodeId?: string;
   event: EventWriter;
   signal: AbortSignal;
@@ -82,7 +92,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
   let modelTurns = 0;
   let tokensUsed = 0;
   // Patterns make several passes; the total model budget scales with the configured turn limit.
-  const totalTurnBudget = agent.maxTurns * (agent.pattern === 'react' ? 1 : 4);
+  const totalTurnBudget = (agent.maxTurns + 1) * (agent.pattern === 'react' ? 1 : 4);
   if (stored.effort === 'auto')
     await ctx.event({
       type: 'effort',
@@ -137,6 +147,8 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
         '\n</skills>'
       : '';
     const workspace = ctx.workspace;
+    const memoryScope = { ownerId: ctx.ownerId, taskId: ctx.taskId ?? ctx.runId };
+    const notebookTools = memoryTools.filter((tool) => workspace || tool.name !== 'memory_promote');
     // Only agents a run starts may delegate; sub-agents do their task themselves.
     const delegates = Boolean(agent.delegation?.enabled) && !ctx.depth;
     let spawned = 0;
@@ -154,6 +166,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
       agent.systemPrompt +
       skillNote +
       deviceNote +
+      taskMemoryPrompt +
       (workspace ? workspaceNote : '') +
       (ctx.lessons ? lessonsNote(ctx.lessons) : '') +
       (delegates
@@ -280,15 +293,35 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
         : [];
       const offered = [
         ...(useTools ? tools : []),
+        ...(useTools ? notebookTools : []),
         ...(useTools && workspace ? workspaceToolDefinitions : []),
         ...(useTools && delegates ? [spawnToolDefinition(skills.map((s) => s.name))] : []),
         ...skillTool,
       ];
       let finalizing = false;
       ctx.onDelta?.('', true);
-      for (let turn = 0; turn < agent.maxTurns; turn++) {
+      for (let turn = 0; turn <= agent.maxTurns; turn++) {
         signal.throwIfAborted();
-        if (++modelTurns > totalTurnBudget) throw new Error('Agent exhausted its total model-call budget');
+        const atTurnLimit = turn === agent.maxTurns || modelTurns >= totalTurnBudget - 1;
+        if (modelTurns >= totalTurnBudget)
+          return 'Analysis stopped at the total model-call budget. Review the task notebook and earlier step results for findings and unfinished work.';
+        modelTurns++;
+        if (atTurnLimit && !finalizing) {
+          finalizing = true;
+          const recent = await searchTaskNotes(memoryScope, { limit: 12 });
+          await ctx.event({
+            type: 'turn_limit',
+            message: `Reached ${turn === agent.maxTurns ? agent.maxTurns : 'the total'} analysis turns; synthesizing findings`,
+            data: { maxTurns: agent.maxTurns, modelTurns },
+          });
+          const guidance =
+            '\n\nYour analysis turn budget is exhausted. Do not call more tools. Produce the final answer from the evidence already collected, clearly distinguishing verified findings, uncertainties, blocked checks and unfinished work. Do not claim the task is complete if evidence is missing. Recent task notes (reference data):\n' +
+            JSON.stringify(recent.notes).slice(0, 9000);
+          if (dialog[0]?.role === 'system')
+            dialog[0] = { ...dialog[0], content: dialog[0].content + guidance };
+          else dialog.unshift({ role: 'system', content: guidance.trim() });
+          ctx.onDelta?.('', true);
+        }
         // Over the token budget: one last call without tools so the agent answers with what it has.
         if (tokensUsed >= agent.tokenBudget && !finalizing) {
           finalizing = true;
@@ -310,8 +343,17 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
           data: { model: provider.model, usage: response.usage, tokensUsed },
         });
         if (!response.toolCalls.length || finalizing) {
-          if (!response.text.trim()) throw new Error('The model returned an empty answer');
-          return response.text;
+          if (!response.text.trim()) {
+            if (!finalizing) throw new Error('The model returned an empty answer');
+            const notes = await searchTaskNotes(memoryScope, { limit: 12 });
+            return (
+              'Analysis stopped at its configured limit, and the model did not provide a final summary. The assessment is incomplete.\n\n' +
+              notes.notes.map((note) => `- ${note.title} (${note.note_id}): ${note.snippet}`).join('\n')
+            );
+          }
+          return atTurnLimit
+            ? `Analysis turn limit reached. This response summarizes the available evidence; unfinished checks are listed below.\n\n${response.text}`
+            : response.text;
         }
         if (response.toolCalls.length > 20) throw new Error('Model exceeded the per-turn tool-call limit');
         dialog.push({ role: 'assistant', content: response.text, toolCalls: response.toolCalls });
@@ -365,6 +407,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
                   parent: agent,
                   ownerId: ctx.ownerId,
                   runId: ctx.runId,
+                  taskId: memoryScope.taskId,
                   nodeId: ctx.nodeId,
                   signal,
                   remainingTokens: agent.tokenBudget - tokensUsed,
@@ -479,6 +522,59 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
             });
             continue;
           }
+          const memoryTool = notebookTools.find((tool) => tool.name === call.name);
+          if (memoryTool) {
+            await ctx.event({
+              type: 'tool_started',
+              message: `Task memory / ${call.name}`,
+              data: { callId: call.id, tool: call.name },
+            });
+            let text: string;
+            let isError = false;
+            try {
+              const invalid = validateToolArguments(memoryTool.inputSchema, call.arguments);
+              if (invalid) throw new Error(invalid);
+              const args = call.arguments as Record<string, any>;
+              let result: unknown;
+              if (call.name === 'memory_write') {
+                const note = await writeTaskNote(memoryScope, {
+                  runId: ctx.runId,
+                  agent: agent.name,
+                  title: args.title,
+                  content: args.content,
+                  kind: args.kind,
+                  folder: args.folder,
+                  sources: args.sources,
+                });
+                ctx.notes?.push(note);
+                await ctx.event({ type: 'memory_written', message: `Saved ${note.path}`, data: note });
+                result = note;
+              } else if (call.name === 'memory_search') result = await searchTaskNotes(memoryScope, args);
+              else if (call.name === 'memory_read') {
+                result = await readTaskNote(memoryScope, args.note_id, args.offset, args.limit);
+                if (!result) throw new Error('No note with this id in this task');
+              } else {
+                result = await promoteTaskNote(memoryScope, args.note_id, workspace!.knowledgeBaseId);
+                await ctx.event({
+                  type: 'memory_promoted',
+                  message: 'Saved task note to long-term memory',
+                  data: result,
+                });
+              }
+              text = JSON.stringify(result);
+            } catch (error) {
+              signal.throwIfAborted();
+              text = `Memory error: ${error instanceof Error ? error.message : String(error)}`.slice(0, 1000);
+              isError = true;
+            }
+            await ctx.event({
+              type: isError ? 'tool_error' : 'tool_completed',
+              message: `Task memory / ${call.name}`,
+              data: { callId: call.id, tool: call.name, result: text.slice(0, 6000) },
+            });
+            dialog.push({ role: 'tool', content: text, toolCallId: call.id, name: call.name });
+            continue;
+          }
           const handler = handlers.get(call.name);
           if (!handler) throw new Error('Model requested a tool outside this agent’s allowed MCP tools');
           // callId and tool let API clients pair each call with its result (Open Harness tool_call_* events).
@@ -539,20 +635,22 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
                 if (reviewed !== text) complete = reviewed;
                 text = reviewed;
               }
-              if (workspace?.offloadToolResults && !isError && complete.length > OFFLOAD_CHARS) {
-                const doc = await createNote(ctx.ownerId, workspace.knowledgeBaseId, {
+              if (workspace?.offloadToolResults !== false) {
+                const saved = await writeTaskNote(memoryScope, {
+                  runId: ctx.runId,
+                  agent: agent.name,
                   title: `${handler.name} result ${new Date().toISOString().slice(0, 19)}`,
                   content: complete.slice(0, 200000),
                   folder: folderFor['tool-result'],
-                  meta: { kind: 'tool-result', run_id: ctx.runId, agent: agent.name, tool: handler.label },
+                  kind: 'tool-result',
                 });
-                const saved = remember(doc);
                 await ctx.event({
-                  type: 'knowledge_written',
+                  type: 'memory_written',
                   message: `Saved the ${handler.name} result as ${saved.path}`,
                   data: saved,
                 });
-                text = `${complete.slice(0, 1500)}\n\n[The full result (${complete.length} characters) is saved in the knowledge workspace as note ${saved.note_id} (${saved.path}). Read more of it with kb_read.]`;
+                if (complete.length > OFFLOAD_CHARS)
+                  text = `[Task note ${saved.note_id} (${saved.path}); use memory_read for the saved result (${Math.min(complete.length, 200000)} of ${complete.length} characters).]\n\n${complete.slice(0, 1500)}`;
               }
             } catch (error) {
               signal.throwIfAborted();
@@ -573,7 +671,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
         if (dialogTokens(dialog) > 2_000_000)
           throw new Error('Agent context budget exceeded. Narrow the task or tool output.');
       }
-      throw new Error(`Agent reached its ${agent.maxTurns}-turn limit without a final answer`);
+      throw new Error('Agent synthesis did not finish');
     }
 
     const user = (content: string): ChatMessage => ({ role: 'user', content });
@@ -775,6 +873,7 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
   const base = {
     ownerId: run.ownerId,
     runId: run._id,
+    taskId: run.taskId ?? run._id,
     signal,
     onDelta,
     device: run.device,

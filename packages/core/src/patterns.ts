@@ -49,9 +49,9 @@ export const effortPresets: Record<FixedEffort, EffortBudget> = {
   },
   max: {
     label: 'Max',
-    summary: '40 turns · 5M tokens · 15 min. Everything the limits allow.',
-    maxTurns: 40,
-    timeoutSeconds: 900,
+    summary: '120 turns · 5M tokens · 1 hour. Extended analysis with a final synthesis at the limit.',
+    maxTurns: 120,
+    timeoutSeconds: 3600,
     tokenBudget: 5_000_000,
     patternConfig: { maxPlanSteps: 8, reflections: 3, iterations: 10, doneMarker: 'DONE' },
   },
