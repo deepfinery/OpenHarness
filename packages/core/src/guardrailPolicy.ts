@@ -21,6 +21,8 @@ export const guardrailPolicySchema = z
     jailbreak: z.boolean().default(true),
     contentSafety: z.boolean().default(true),
     semanticChecks: z.boolean().default(false),
+    templateId: z.enum(['bias', 'toxicity', 'hallucinations', 'opacity', 'pii', 'vulnerability']).optional(),
+    safetyInstructions: z.string().trim().max(4000).default(''),
     deniedTerms: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
     blockedTopics: z.array(z.string().trim().min(1).max(200)).max(30).default([]),
     deniedTools: z.array(z.string().trim().min(1).max(250)).max(100).default([]),
@@ -49,6 +51,10 @@ export const guardrailPolicySchema = z
   .refine((p) => !p.semanticChecks || p.provider === 'nemo', {
     message: 'Semantic checks require NeMo',
     path: ['semanticChecks'],
+  })
+  .refine((p) => !p.safetyInstructions || (p.semanticChecks && p.provider === 'nemo'), {
+    message: 'Safety instructions require NeMo semantic checks',
+    path: ['safetyInstructions'],
   });
 export type GuardrailPolicy = z.infer<typeof guardrailPolicySchema>;
 export type GuardrailSnapshot = GuardrailPolicy & { id: string; revision?: number };

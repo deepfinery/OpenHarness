@@ -62,6 +62,53 @@ test('layout reserves room above an agent for guardrails and below it for tools'
 });
 
 test('invalid latency budgets and unsupported semantic settings are rejected', () => {
-  assert.equal(guardrailPolicySchema.safeParse({name:'Bad budget',timeoutMs:5000,latencyBudgetMs:1000}).success,false);
-  assert.equal(guardrailPolicySchema.safeParse({name:'Semantic',provider:'builtin',semanticChecks:true}).success,false);
+  assert.equal(
+    guardrailPolicySchema.safeParse({ name: 'Bad budget', timeoutMs: 5000, latencyBudgetMs: 1000 }).success,
+    false,
+  );
+  assert.equal(
+    guardrailPolicySchema.safeParse({ name: 'Semantic', provider: 'builtin', semanticChecks: true }).success,
+    false,
+  );
+});
+
+test('template instructions cannot be saved with a provider that ignores them', () => {
+  assert.equal(
+    guardrailPolicySchema.safeParse({
+      name: 'Unsupported',
+      provider: 'builtin',
+      safetyInstructions: 'Block bias',
+    }).success,
+    false,
+  );
+  assert.equal(
+    guardrailPolicySchema.safeParse({
+      name: 'Unsupported',
+      semanticChecks: false,
+      safetyInstructions: 'Block bias',
+    }).success,
+    false,
+  );
+  assert.equal(
+    guardrailPolicySchema.safeParse({
+      name: 'Too large',
+      semanticChecks: true,
+      safetyInstructions: 'x'.repeat(4001),
+    }).success,
+    false,
+  );
+  assert.equal(guardrailPolicySchema.parse({ name: 'Existing policy' }).safetyInstructions, '');
+});
+
+test('PII and vulnerability templates enforce their advertised baseline without a classifier', async () => {
+  const { guardrailTemplates } = await import('../../packages/core/src/guardrailTemplates.js');
+  const pii = guardrailTemplates.find((t) => t.id === 'pii')!;
+  const vulnerability = guardrailTemplates.find((t) => t.id === 'vulnerability')!;
+  assert.equal(builtinRail(pii.policy, 'output', pii.sample).decision, 'modify');
+  assert.equal(builtinRail(vulnerability.policy, 'input', vulnerability.sample).decision, 'block');
+  for (const template of guardrailTemplates.filter((t) => !['pii', 'vulnerability'].includes(t.id))) {
+    assert.equal(template.policy.provider, 'nemo');
+    assert.equal(template.policy.semanticChecks, true);
+    assert.ok(template.policy.safetyInstructions.length > 100);
+  }
 });

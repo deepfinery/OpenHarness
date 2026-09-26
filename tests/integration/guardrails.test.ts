@@ -2,6 +2,7 @@ import { before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { guardrailTemplates } from '../../packages/core/src/guardrailTemplates.js';
 const base = process.env.TEST_BASE_URL ?? 'http://localhost:8088';
 let cookie = '',
   adminCookie = '',
@@ -385,3 +386,50 @@ test('notebook tool results are checked before the model even when only tool-out
   assert.ok(results.some((e: any) => e.data.tool === 'kb_read'));
   assert.ok(!JSON.stringify(results).includes('alice@example.com'));
 });
+
+test(
+  'template copies persist independently and forward their edited criteria through real NeMo',
+  { skip: process.env.TEST_NEMO !== 'true' },
+  async () => {
+    for (const template of guardrailTemplates) {
+      const saved = await policy(template.policy);
+      assert.equal(saved.templateId, template.id);
+      assert.deepEqual(saved.stages, template.policy.stages);
+      assert.equal(saved.safetyInstructions, template.policy.safetyInstructions);
+      if (saved.semanticChecks) {
+        const content = 'template criteria fixture:' + saved.safetyInstructions;
+        const checked = await ok('/guardrail-check', { policy: saved, stage: saved.stages[0], content });
+        assert.equal(checked.decision, 'block', `Criteria did not reach the classifier for ${template.id}`);
+        const updated = await ok(
+          `/guardrails/${saved.id}`,
+          { ...saved, safetyInstructions: 'Block only the edited criteria fixture.' },
+          'PUT',
+        );
+        assert.ok(updated.revision > saved.revision);
+        assert.equal(
+          (await ok('/guardrail-check', { policy: updated, stage: saved.stages[0], content })).decision,
+          'allow',
+        );
+        assert.equal(
+          (
+            await ok('/guardrail-check', {
+              policy: updated,
+              stage: saved.stages[0],
+              content: 'template criteria fixture:' + updated.safetyInstructions,
+            })
+          ).decision,
+          'block',
+        );
+        assert.equal((await raw('/guardrails', { ...updated, semanticChecks: false })).status, 400);
+        assert.equal(template.policy.safetyInstructions, saved.safetyInstructions);
+      } else {
+        const checked = await ok('/guardrail-check', {
+          policy: saved,
+          stage: saved.stages[0],
+          content: template.sample,
+        });
+        assert.equal(checked.decision, template.id === 'pii' ? 'modify' : 'block');
+      }
+    }
+  },
+);

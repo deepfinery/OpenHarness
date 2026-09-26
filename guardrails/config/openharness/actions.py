@@ -24,7 +24,7 @@ async def openharness_check(context: dict):
         model = os.environ.get("NEMO_SAFETY_MODEL", "")
         if not url or not model:
             raise RuntimeError("Configure NEMO_SAFETY_MODEL_URL and NEMO_SAFETY_MODEL for semantic checks")
-        checks = {"content_safety": policy.get("contentSafety"), "jailbreak": policy.get("jailbreak"), "blocked_topics": policy.get("blockedTopics", [])}
+        checks = {"content_safety": policy.get("contentSafety"), "jailbreak": policy.get("jailbreak"), "blocked_topics": policy.get("blockedTopics", []), "policy_instructions": policy.get("safetyInstructions", "")}
         async with httpx.AsyncClient(timeout=20, follow_redirects=False, trust_env=False) as client:
             response = await client.post(url.rstrip('/') + '/chat/completions', headers={"Authorization": "Bearer " + os.environ.get("NEMO_SAFETY_MODEL_KEY", "local")}, json={
                 "model": model,
