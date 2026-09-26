@@ -1,3 +1,4 @@
+import { guardrailApi } from './guardrails.js';
 import {
   canAnswer,
   decideHuman,
@@ -155,6 +156,7 @@ app.put('/api/tenant', requireAdmin, async (req, res) => {
     .object({
       name: z.string().trim().min(1).max(100).optional(),
       defaultProviderId: z.string().uuid().nullable().optional(),
+      guardrailIds: z.array(z.string().uuid()).max(20).optional(),
     })
     .parse(req.body);
   const tenantId = req.principal!.tenantId;
@@ -165,7 +167,11 @@ app.put('/api/tenant', requireAdmin, async (req, res) => {
     });
     if (!owned) throw new HttpError(400, 'Choose a model provider from this workspace');
   }
+  for (const id of body.guardrailIds ?? [])
+    if (!(await collection('guardrails').findOne({ _id: id, ownerId: tenantId, enabled: true })))
+      throw new HttpError(400, 'Choose enabled policies from this workspace');
   const $set: Record<string, unknown> = {};
+  if (body.guardrailIds !== undefined) $set.guardrailIds = body.guardrailIds;
   if (body.name !== undefined) $set.name = body.name;
   if (body.defaultProviderId !== undefined) $set.defaultProviderId = body.defaultProviderId ?? '';
   await collection<Tenant>('tenants').updateOne({ _id: tenantId }, { $set }, { upsert: true });
@@ -603,6 +609,7 @@ app.post('/api/settings/email/test', requireAdmin, async (req, res) => {
 app.use('/api/integrations', requireSession, integrations);
 app.use('/api/integrations/webhooks', requireSession, webhookSettings);
 app.use('/api/devices', requireSession, devices);
+app.use('/api', requireSession, guardrailApi);
 app.use('/api', requireSession, resources);
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'API endpoint not found')));
 

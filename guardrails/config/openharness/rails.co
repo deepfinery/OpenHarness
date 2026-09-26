@@ -1,0 +1,9 @@
+define flow openharness policy
+  $result = execute openharness_check
+  if $result.blocked
+    bot refuse to respond
+    stop
+  $user_message = $result.content
+
+define bot refuse to respond
+  "This request was blocked by the configured safety policy."

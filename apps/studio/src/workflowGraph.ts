@@ -63,10 +63,19 @@ export function graphEdges(form: Workflow): Edge[] {
       target: b.agentNodeId,
       sourceHandle: 'resource',
       targetHandle:
-        form.resources.find((r) => r.id === b.resourceId)?.type === 'knowledge' ? 'knowledge' : 'tools',
+        form.resources.find((r) => r.id === b.resourceId)?.type === 'guardrail'
+          ? 'guardrail'
+          : form.resources.find((r) => r.id === b.resourceId)?.type === 'knowledge'
+            ? 'knowledge'
+            : 'tools',
       type: 'bezier',
       data: { kind: 'resource' },
-      label: form.resources.find((r) => r.id === b.resourceId)?.type === 'knowledge' ? 'Context' : 'Tools',
+      label:
+        form.resources.find((r) => r.id === b.resourceId)?.type === 'guardrail'
+          ? 'Safety policy'
+          : form.resources.find((r) => r.id === b.resourceId)?.type === 'knowledge'
+            ? 'Context'
+            : 'Tools',
     })),
   ];
 }
@@ -91,7 +100,8 @@ export function connectGraph(form: Workflow, c: Connection): Workflow {
     const agentId = resource.id === c.source ? c.target : c.source;
     const agentPort = resource.id === c.source ? c.targetHandle : c.sourceHandle;
     const agent = form.nodes.find((n) => n.id === agentId);
-    const expected = resource.type === 'mcp' ? 'tools' : 'knowledge';
+    const expected =
+      resource.type === 'guardrail' ? 'guardrail' : resource.type === 'mcp' ? 'tools' : 'knowledge';
     if (agent?.type !== 'agent' || agentPort !== expected)
       throw new Error(
         `Connect this resource to an agent’s ${expected === 'tools' ? 'Tools' : 'Knowledge'} port.`,

@@ -1,3 +1,4 @@
+import { GuardrailsPage } from './components/GuardrailsPage';
 import { HumanInbox } from './components/HumanInbox';
 import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -56,6 +57,7 @@ const nav = [
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'connections', label: 'MCP connections', icon: Plug },
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
+  { id: 'guardrails', label: 'Guardrails', icon: ShieldCheck },
   { id: 'inbox', label: 'Inbox', icon: ShieldCheck },
   { id: 'executions', label: 'Executions', icon: Activity },
   { id: 'integrations', label: 'Integrations', icon: Code2 },
@@ -518,6 +520,8 @@ function App() {
               />
             ) : page === 'connections' ? (
               <ConnectionsPage {...props} />
+            ) : page === 'guardrails' ? (
+              <GuardrailsPage data={data} refresh={refresh} isAdmin={user.role === 'admin'} />
             ) : page === 'inbox' ? (
               <HumanInbox />
             ) : page === 'executions' ? (

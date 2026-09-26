@@ -1,3 +1,4 @@
+import { dispatchGuardrailEvaluations } from './guardrails.js';
 import { dispatchHumanRequests, deliverHumanNotifications } from '../../../packages/core/src/human.js';
 import { app } from './app.js';
 import { config } from '../../../packages/core/src/config.js';
@@ -23,6 +24,7 @@ async function tick() {
     await dispatchSchedules();
     await deliverWebhooks();
     await dispatchReflections();
+    await dispatchGuardrailEvaluations();
   } catch (e) {
     console.error('Dispatcher will retry:', safeError(e));
   } finally {

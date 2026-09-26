@@ -1,3 +1,4 @@
+import { guardrailPolicySchema } from '../../../packages/core/src/guardrailPolicy.js';
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -60,6 +61,8 @@ async function assertOwned(name: string, ownerId: string, id: string) {
 export async function validateReferences(kind: string, ownerId: string, body: any) {
   if (kind === 'connections' && body.kind === 'device')
     throw new HttpError(400, 'Machines are managed on the Machines page, not as manual connections');
+  if (kind === 'agents' || kind === 'workflows')
+    for (const id of body.guardrailIds ?? []) await assertOwned('guardrails', ownerId, id);
   if (kind === 'agents') {
     if (body.workspace) await assertOwned('knowledge', ownerId, body.workspace.knowledgeBaseId);
     if (body.experience?.enabled && !resolveNotebook(body).workspace)
@@ -86,6 +89,7 @@ export async function validateReferences(kind: string, ownerId: string, body: an
     if (body.workspace) await assertOwned('knowledge', ownerId, body.workspace.knowledgeBaseId);
     for (const resource of body.resources ?? []) {
       if (resource.type === 'knowledge') await assertOwned('knowledge', ownerId, resource.knowledgeBaseId);
+      else if (resource.type === 'guardrail') await assertOwned('guardrails', ownerId, resource.policyId);
       else {
         const c = await collection<Resource>('connections').findOne({ _id: resource.connectionId, ownerId });
         if (
@@ -118,6 +122,7 @@ export async function validateReferences(kind: string, ownerId: string, body: an
 }
 export const resources = Router();
 const definitions = {
+  guardrails: guardrailPolicySchema,
   agents: agentSchema,
   providers: providerSchema,
   connections: connectionSchema,
@@ -153,6 +158,8 @@ for (const [kind, schema] of Object.entries(definitions)) {
   for (const method of ['post', 'put'] as const)
     resources[method](`/${kind}${method === 'put' ? '/:id' : ''}`, async (req, res) => {
       const ownerId = req.principal!.tenantId;
+      if (kind === 'guardrails' && req.principal!.user.role !== 'admin')
+        throw new HttpError(403, 'Only administrators can change safety policies');
       const body: any = schema.parse(req.body);
       const id = method === 'put' ? String((req.params as Record<string, string>).id) : randomUUID();
       const previous = method === 'put' ? await records().findOne({ _id: id, ownerId }) : null;
@@ -306,6 +313,19 @@ for (const [kind, schema] of Object.entries(definitions)) {
     for (const [name, query] of blockers)
       if (await collection<Resource>(name).findOne({ ownerId, ...query }))
         throw new HttpError(409, `Remove this resource’s references in ${name} first`);
+    if (kind === 'guardrails') {
+      if (req.principal!.user.role !== 'admin')
+        throw new HttpError(403, 'Only administrators can delete safety policies');
+      if (
+        (await collection('agents').findOne({ ownerId, guardrailIds: id })) ||
+        (await collection('workflows').findOne({
+          ownerId,
+          $or: [{ guardrailIds: id }, { 'resources.policyId': id }, { 'nodes.config.guardrailIds': id }],
+        })) ||
+        (await collection('tenants').findOne({ _id: ownerId, guardrailIds: id }))
+      )
+        throw new HttpError(409, 'Remove this policy’s attachments first');
+    }
     const removed = await records().findOneAndDelete({ _id: id, ownerId });
     if (!removed) throw new HttpError(404, 'Resource not found');
     if (kind === 'knowledge')

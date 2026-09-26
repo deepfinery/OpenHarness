@@ -1,4 +1,8 @@
 services:
+  guardrails:
+    environment:
+      NEMO_SAFETY_MODEL_URL: http://fixtures:9090/v1
+      NEMO_SAFETY_MODEL: test-safety-classifier
   installer:
     build: { context: ., dockerfile: tests/fixtures/linux-installer.Dockerfile }
     image: openharness-installer-test:local

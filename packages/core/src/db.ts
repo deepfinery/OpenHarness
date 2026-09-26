@@ -10,6 +10,10 @@ export async function connectDatabase() {
   // Keep legacy private workspaces isolated. New members explicitly join a tenant.
   await db.collection('users').updateMany({ tenantId: { $exists: false } }, [{ $set: { tenantId: '$_id' } }]);
   await Promise.all([
+    db.collection('guardrail_audit').createIndex({ ownerId: 1, createdAt: -1 }),
+    db.collection('guardrail_audit').createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 86400 }),
+    db.collection('guardrail_budgets').createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 86400 }),
+    db.collection('guardrail_evaluations').createIndex({ status: 1, leaseUntil: 1, createdAt: 1 }),
     db.collection('human_requests').createIndex({ ownerId: 1, status: 1, createdAt: -1 }),
     db.collection('human_requests').createIndex({ status: 1, expiresAt: 1 }),
     db.collection('human_requests').createIndex({ runId: 1, status: 1 }),
@@ -36,6 +40,8 @@ export async function connectDatabase() {
     db.collection('task_notes').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     db.collection('documents').createIndex({ status: 1, publishedAt: 1 }),
     ...[
+      'guardrails',
+      'guardrail_evaluations',
       'agents',
       'providers',
       'connections',

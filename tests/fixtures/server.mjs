@@ -852,6 +852,20 @@ function selectionAnswer(model, messages, tools) {
   );
 }
 app.post('/v1/chat/completions', async (req, res) => {
+  if (req.body.model === 'test-safety-classifier')
+    return res.json({
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({
+              allowed: !JSON.stringify(req.body.messages).includes('unsafe semantic fixture'),
+            }),
+          },
+        },
+      ],
+      usage: { prompt_tokens: 20, completion_tokens: 5 },
+    });
   stats.models++;
   if (JSON.stringify(req.body).includes('delay-model')) await new Promise((r) => setTimeout(r, 15000));
   if (req.body.model.startsWith('test-context-')) {
@@ -935,6 +949,49 @@ app.post('/v1/chat/completions', async (req, res) => {
         `data: ${JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, ...valid }] } }] })}\n\n`,
       );
       return res.end(); // Syntactically valid arguments, but no finish reason: nothing may execute.
+    }
+  }
+  if (req.body.model === 'test-guardrail') {
+    const input = req.body.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+    if (input.includes('guarded private output'))
+      message = { content: 'Contact alice@example.com. SSN 123-45-6789.' };
+    else if (input.includes('guarded command') && !req.body.messages.some((m) => m.role === 'tool')) {
+      const name = req.body.tools.find((t) =>
+        t.function.description?.includes('Look up deterministic test data'),
+      )?.function.name;
+      if (name)
+        message = {
+          content: 'Inspect the machine',
+          tool_calls: [
+            {
+              id: randomUUID(),
+              type: 'function',
+              function: { name, arguments: JSON.stringify({ query: 'blocked-machine-command' }) },
+            },
+          ],
+        };
+    } else if (input.includes('guarded retrieval'))
+      message = {
+        content: req.body.messages
+          .filter((m) => m.role === 'user')
+          .map((m) => m.content)
+          .join('\n'),
+      };
+    else if (input.includes('guarded tool result') && !req.body.messages.some((m) => m.role === 'tool')) {
+      const name = req.body.tools.find((t) =>
+        t.function.description?.includes('Look up deterministic test data'),
+      )?.function.name;
+      if (name)
+        message = {
+          content: 'Look up a contact',
+          tool_calls: [
+            {
+              id: randomUUID(),
+              type: 'function',
+              function: { name, arguments: JSON.stringify({ query: 'Contact alice@example.com' }) },
+            },
+          ],
+        };
     }
   }
   const finish = message.tool_calls ? 'tool_calls' : 'stop';

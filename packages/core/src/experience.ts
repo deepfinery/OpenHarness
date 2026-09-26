@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { checkRail, GuardrailBlocked } from './guardrails.js';
 import { collection } from './db.js';
 import { searchKnowledge } from './knowledge.js';
 import { chat, ownedProvider } from './llm.js';
@@ -23,7 +24,7 @@ export const learns = (settings?: Pick<Workflow | Agent, 'workspace' | 'experien
 };
 
 export const learningSettings = (run: Run) =>
-  notebookTargets(run).filter(
+  (run.evaluation ? [] : notebookTargets(run)).filter(
     (settings) =>
       learns(settings) &&
       (run.reflection?.reason !== 'failure' || settings.experience?.learnFromFailures !== false),
@@ -47,6 +48,7 @@ export async function dispatchReflections() {
   const unsaved = await runs()
     .find({
       status: { $in: ['succeeded', 'failed', 'interrupted'] },
+      evaluation: { $ne: true },
       parentRunId: { $exists: false },
       experimentSavedAt: { $exists: false },
       $or: [
@@ -119,9 +121,45 @@ function reflectionInput(run: Run) {
     .filter(Boolean)
     .join('\n\n');
 }
+/** Automatic notes use the snapshotted policies too; original submissions stay in the run record. */
+async function checkedExperience(run: Run, signal?: AbortSignal): Promise<Run> {
+  const ctx = { ownerId: run.ownerId, runId: run._id, guardrails: run.snapshot.guardrails, signal };
+  const input = JSON.parse(
+    await checkRail(
+      ctx,
+      'input',
+      JSON.stringify({
+        input: run.input,
+        history: run.history,
+        feedback: run.feedback,
+      }),
+    ),
+  );
+  const output = JSON.parse(
+    await checkRail(
+      ctx,
+      'output',
+      JSON.stringify({
+        output: run.output,
+        error: run.error,
+        events: run.events.filter((e) => e.type === 'tool_error'),
+      }),
+    ),
+  );
+  return { ...run, ...input, ...output };
+}
+async function checkedNote(run: Run, note: ReturnType<typeof agentNote>, signal?: AbortSignal) {
+  return JSON.parse(
+    await checkRail(
+      { ownerId: run.ownerId, runId: run._id, guardrails: run.snapshot.guardrails, signal },
+      'output',
+      JSON.stringify(note),
+    ),
+  ) as ReturnType<typeof agentNote>;
+}
 /** Runner job: writes the lesson note for a run that asked for reflection. Idempotent per request. */
 export async function reflectOnRun(runId: string, signal: AbortSignal) {
-  const run = await runs().findOneAndUpdate(
+  let run = await runs().findOneAndUpdate(
     { _id: runId, 'reflection.status': 'pending' },
     { $set: { 'reflection.status': 'processing', 'reflection.leaseUntil': new Date(Date.now() + 150000) } },
     { returnDocument: 'after' },
@@ -134,6 +172,7 @@ export async function reflectOnRun(runId: string, signal: AbortSignal) {
     return;
   }
   try {
+    run = await checkedExperience(run, signal);
     const provider = await reflectionProvider(run);
     const allowance = contextAllowance(
       provider.contextWindow ?? 128000,
@@ -158,29 +197,33 @@ export async function reflectOnRun(runId: string, signal: AbortSignal) {
     const text = response.text.trim().replace(/\s+/g, ' ').slice(0, 800);
     const lesson = /^lesson:/i.test(text) ? text : `Lesson: ${text}`;
     const rating = run.feedback?.rating;
-    const note = agentNote({
-      title: `Lesson from ${run.status === 'succeeded' ? (rating === 'down' ? 'rejected' : 'approved') : run.status} run ${run._id.slice(0, 8)}`,
-      kind: 'experience',
-      content: [
-        lesson,
-        '',
-        `Task: ${run.input.slice(0, 1000)}`,
-        `Outcome: ${run.status}`,
-        ...(run.feedback
-          ? [`Feedback: ${rating}${run.feedback.comment ? ` — ${run.feedback.comment}` : ''}`]
-          : []),
-      ].join('\n'),
-      runId: run._id,
-      agent: 'Reflection',
-      extra: {
-        lesson,
-        outcome: run.status,
-        ...(rating ? { rating, score: rating === 'up' ? 1 : -1 } : { score: 0 }),
-        ...(run.feedback?.comment ? { comment: run.feedback.comment } : {}),
-        workflow_id: run.workflowId ?? run.agentId,
-        request_id: run.reflection?.requestId,
-      },
-    });
+    const note = await checkedNote(
+      run,
+      agentNote({
+        title: `Lesson from ${run.status === 'succeeded' ? (rating === 'down' ? 'rejected' : 'approved') : run.status} run ${run._id.slice(0, 8)}`,
+        kind: 'experience',
+        content: [
+          lesson,
+          '',
+          `Task: ${run.input.slice(0, 1000)}`,
+          `Outcome: ${run.status}`,
+          ...(run.feedback
+            ? [`Feedback: ${rating}${run.feedback.comment ? ` — ${run.feedback.comment}` : ''}`]
+            : []),
+        ].join('\n'),
+        runId: run._id,
+        agent: 'Reflection',
+        extra: {
+          lesson,
+          outcome: run.status,
+          ...(rating ? { rating, score: rating === 'up' ? 1 : -1 } : { score: 0 }),
+          ...(run.feedback?.comment ? { comment: run.feedback.comment } : {}),
+          workflow_id: run.workflowId ?? run.agentId,
+          request_id: run.reflection?.requestId,
+        },
+      }),
+      signal,
+    );
     let noteId: string | undefined;
     for (const knowledgeBaseId of new Set(targets.map((target) => target!.workspace!.knowledgeBaseId))) {
       const doc = await createNote(run.ownerId, knowledgeBaseId, {
@@ -197,17 +240,30 @@ export async function reflectOnRun(runId: string, signal: AbortSignal) {
     });
   } catch (error) {
     await runs().updateOne(filter, {
-      $set: { 'reflection.status': 'failed', 'reflection.error': safeError(error) },
+      $set: {
+        'reflection.status': error instanceof GuardrailBlocked ? 'skipped' : 'failed',
+        'reflection.error': safeError(error),
+      },
     });
   }
 }
 /** Save a reproducible record even when the model never calls a memory tool. */
 export async function saveExperiments(run: Run) {
-  if (run.parentRunId || !['succeeded', 'failed', 'interrupted'].includes(run.status)) return;
+  if (run.evaluation || run.parentRunId || !['succeeded', 'failed', 'interrupted'].includes(run.status))
+    return;
   const targets = notebookTargets(run);
   const bases = [
     ...new Set(targets.flatMap((target) => (target?.workspace ? [target.workspace.knowledgeBaseId] : []))),
   ];
+  if (bases.length) {
+    try {
+      run = await checkedExperience(run);
+    } catch (error) {
+      if (!(error instanceof GuardrailBlocked)) throw error;
+      await runs().updateOne({ _id: run._id }, { $set: { experimentSavedAt: new Date() } });
+      return;
+    }
+  }
   for (const knowledgeBaseId of bases) {
     if (!(await collection('knowledge').findOne({ _id: knowledgeBaseId, ownerId: run.ownerId }))) continue;
     const note = agentNote({

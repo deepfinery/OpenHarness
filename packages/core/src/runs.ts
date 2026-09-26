@@ -1,3 +1,4 @@
+import { snapshotGuardrails } from './guardrails.js';
 import { randomUUID } from 'node:crypto';
 import { collection } from './db.js';
 import { config } from './config.js';
@@ -34,6 +35,7 @@ export async function createRun(
     webhookId?: string;
     conversationId?: string;
     runId?: string;
+    evaluation?: boolean;
     /** Per-run changes applied to every agent's snapshot; the stored agents and workflow are untouched. */
     overrides?: RunOverrides;
   } = {},
@@ -47,6 +49,7 @@ export async function createRun(
       initiatedBy: options.initiatedBy,
       webhookId: options.webhookId,
       overrides: options.overrides,
+      evaluation: options.evaluation,
     }),
   );
   if (options.idempotencyKey) {
@@ -184,6 +187,16 @@ export async function createRun(
       connectionId: connection._id,
     };
   }
+  const tenant = await collection<{ _id: string; guardrailIds?: string[] }>('tenants').findOne({
+    _id: ownerId,
+  });
+  const defaultGuardrailIds = [
+    ...new Set([...(tenant?.guardrailIds ?? []), ...(workflow?.guardrailIds ?? [])]),
+  ];
+  const guardrails = await snapshotGuardrails(ownerId, [
+    ...defaultGuardrailIds,
+    ...Object.values({ ...agents, ...nodeAgents }).flatMap((a) => a.guardrailIds ?? []),
+  ]);
   const now = new Date();
   const { runId, overrides, ...attributes } = options;
   const run: Run = {
@@ -199,7 +212,7 @@ export async function createRun(
     status: 'queued',
     events: [],
     outputs: {},
-    snapshot: { ...(workflow ? { workflow, nodeAgents } : {}), agents },
+    snapshot: { ...(workflow ? { workflow, nodeAgents } : {}), agents, guardrails, defaultGuardrailIds },
     approvalOwnerId:
       workflowRecord?.createdBy ??
       (input.agentId ? (agents[input.agentId] as Stored<Agent>).createdBy : undefined) ??

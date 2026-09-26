@@ -52,12 +52,12 @@ export function layoutWorkflow<T extends LayoutNode>(
   const owner = new Map<string, string>();
   validEdges.forEach((edge) => {
     if (
-      edge.label === 'tool' &&
+      ['tool', 'guardrail'].includes(edge.label ?? '') &&
       edge.to !== startAt &&
       edge.from !== edge.to &&
       incoming.get(edge.to)!.size === 1 &&
       outgoing.get(edge.to)!.size === 0 &&
-      !validEdges.some((other) => other.to === edge.to && other.label !== 'tool')
+      !validEdges.some((other) => other.to === edge.to && !['tool', 'guardrail'].includes(other.label ?? ''))
     ) {
       owner.set(edge.to, edge.from);
     }
@@ -67,15 +67,27 @@ export function layoutWorkflow<T extends LayoutNode>(
     .filter((node) => !owner.has(node.id))
     .forEach((node) => {
       const root = sizes.get(node.id)!;
-      const tools = nodes.filter((tool) => owner.get(tool.id) === node.id);
+      const guards = nodes.filter(
+        (tool) =>
+          owner.get(tool.id) === node.id &&
+          validEdges.some((e) => e.to === tool.id && e.label === 'guardrail'),
+      );
+      const tools = nodes.filter((tool) => owner.get(tool.id) === node.id && !guards.includes(tool));
+      const topHeight = guards.length ? Math.max(...guards.map((g) => sizes.get(g.id)!.height)) + 72 : 0;
       const rows: T[][] = [];
       for (let i = 0; i < tools.length; i += 3) rows.push(tools.slice(i, i + 3));
       const rowWidths = rows.map(
         (row) => row.reduce((sum, tool) => sum + sizes.get(tool.id)!.width, 0) + (row.length - 1) * 48,
       );
-      const width = Math.max(root.width, ...rowWidths);
-      const members = new Map<string, Point>([[node.id, { x: (width - root.width) / 2, y: 0 }]]);
-      let bottom = root.height;
+      const guardWidth = guards.reduce((sum, g) => sum + sizes.get(g.id)!.width + 48, -48);
+      const width = Math.max(root.width, guardWidth, ...rowWidths);
+      const members = new Map<string, Point>([[node.id, { x: (width - root.width) / 2, y: topHeight }]]);
+      let guardLeft = (width - guardWidth) / 2;
+      for (const g of guards) {
+        members.set(g.id, { x: guardLeft, y: 0 });
+        guardLeft += sizes.get(g.id)!.width + 48;
+      }
+      let bottom = root.height + topHeight;
       rows.forEach((row, index) => {
         const top = bottom + (index === 0 ? 72 : 48);
         let left = (width - rowWidths[index]) / 2;

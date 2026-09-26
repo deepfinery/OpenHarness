@@ -1,3 +1,4 @@
+import type { GuardrailSnapshot } from './guardrailPolicy.js';
 import { z } from 'zod';
 import { vectorStoreKinds } from './vectorstores/types.js';
 import { validTimeZone } from './timeContext.js';
@@ -106,6 +107,7 @@ export const agentSchema = z.object({
   approvals: humanSettingsSchema.optional(),
   providerId: id,
   connections: z.array(toolBindingSchema).max(30).default([]),
+  guardrailIds: z.array(id).max(20).optional(),
   knowledgeBaseIds: z.array(id).max(20).default([]),
   workspace: z.object({ knowledgeBaseId: id, offloadToolResults: z.boolean().default(true) }).optional(),
   experience: z
@@ -169,6 +171,7 @@ export const resourceSchema = z.discriminatedUnion('type', [
     tools: z.array(z.string().min(1).max(200)).min(1).max(100),
   }),
   z.object({ ...baseNode, type: z.literal('knowledge'), knowledgeBaseId: id }),
+  z.object({ ...baseNode, type: z.literal('guardrail'), policyId: id }),
 ]);
 export const nodeSchema = z.discriminatedUnion('type', [
   z.object({ ...baseNode, type: z.literal('start'), next }),
@@ -276,6 +279,7 @@ export const workflowSchema = z
       .max(200)
       .default([]),
     maxSteps: z.number().int().min(1).max(500).default(100),
+    guardrailIds: z.array(id).max(20).optional(),
     resumePolicy: z.enum(resumePolicies).default('safe'),
     approvals: humanSettingsSchema.optional(),
     /**
@@ -444,10 +448,17 @@ export type RunDevice = {
   hostname?: string;
 };
 export type Run = Stored<RunInput> & {
+  evaluation?: boolean;
   status: RunStatus;
   label: string;
   device?: RunDevice;
-  snapshot: { workflow?: Workflow; agents: Record<string, Agent>; nodeAgents?: Record<string, Agent> };
+  snapshot: {
+    guardrails?: GuardrailSnapshot[];
+    defaultGuardrailIds?: string[];
+    workflow?: Workflow;
+    agents: Record<string, Agent>;
+    nodeAgents?: Record<string, Agent>;
+  };
   output?: string;
   error?: string;
   partial?: string;

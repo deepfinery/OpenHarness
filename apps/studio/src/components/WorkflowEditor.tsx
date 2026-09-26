@@ -1,3 +1,4 @@
+import { GuardrailPicker } from './GuardrailsPage';
 import { agentWithResources } from '../../../../packages/core/src/workflow.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -19,6 +20,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
+  ShieldCheck,
   BookOpen,
   Bot,
   Clock3,
@@ -73,7 +75,8 @@ type StepType = 'review' | 'agent' | 'tool' | 'parallel' | 'condition' | 'email'
 type Payload =
   | { type: StepType }
   | { type: 'mcp'; connectionId?: string }
-  | { type: 'knowledge'; knowledgeBaseId?: string };
+  | { type: 'knowledge'; knowledgeBaseId?: string }
+  | { type: 'guardrail'; policyId?: string };
 type FlowData = {
   item: GraphItem;
   detail: string;
@@ -95,6 +98,7 @@ const icons = {
   email: Mail,
   mcp: Plug,
   knowledge: BookOpen,
+  guardrail: ShieldCheck,
 };
 const labels = {
   start: 'Start',
@@ -108,6 +112,7 @@ const labels = {
   email: 'Send email',
   mcp: 'MCP tools',
   knowledge: 'Knowledge',
+  guardrail: 'NeMo Guardrail',
 };
 const stepTypes: StepType[] = ['agent', 'review', 'condition', 'parallel', 'tool', 'email', 'finish'];
 const stepHints: Record<StepType, string> = {
@@ -123,7 +128,7 @@ const stepHints: Record<StepType, string> = {
 function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
   const n = data.item,
     Icon = icons[n.type],
-    resource = n.type === 'mcp' || n.type === 'knowledge',
+    resource = n.type === 'mcp' || n.type === 'knowledge' || n.type === 'guardrail',
     finish = n.type === 'finish' || n.type === 'output';
   return (
     <div
@@ -166,6 +171,14 @@ function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
       {data.warning && <div className="card-warning">{data.warning}</div>}
       {n.type === 'agent' && (
         <div className="agent-ports">
+          <Handle
+            type="target"
+            id="guardrail"
+            position={Position.Top}
+            className="guardrail-port"
+            data-testid={`port-${n.id}-guardrail`}
+            aria-label={`${n.name} safety policy`}
+          />
           <span>
             Tools <small>{data.attached || ''}</small>
           </span>
@@ -211,7 +224,7 @@ function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
           <Handle
             type="source"
             id="resource"
-            position={Position.Top}
+            position={n.type === 'guardrail' ? Position.Bottom : Position.Top}
             data-testid={`port-${n.id}-resource`}
             aria-label={`${n.name} attachment`}
           />
@@ -490,17 +503,19 @@ export function WorkflowEditor({
                 ? 'Returns the result'
                 : n.type === 'mcp'
                   ? `${connection?.name ?? 'Choose a server'} · ${n.tools.length} tools`
-                  : n.type === 'knowledge'
-                    ? (knowledge?.name ?? 'Choose a knowledge base')
-                    : n.type === 'tool'
-                      ? `${connection?.name ?? 'MCP server'} / ${n.tool || 'Choose an action'}`
-                      : n.type === 'parallel'
-                        ? `${count} agent${count === 1 ? '' : 's'} run together`
-                        : n.type === 'email'
-                          ? `To ${n.to || '…'}`
-                          : n.type === 'review'
-                            ? n.prompt
-                            : `${n.value} ${n.operator} ${n.compare}`;
+                  : n.type === 'guardrail'
+                    ? (data.guardrails.find((p) => p.id === n.policyId)?.name ?? 'Choose a safety policy')
+                    : n.type === 'knowledge'
+                      ? (knowledge?.name ?? 'Choose a knowledge base')
+                      : n.type === 'tool'
+                        ? `${connection?.name ?? 'MCP server'} / ${n.tool || 'Choose an action'}`
+                        : n.type === 'parallel'
+                          ? `${count} agent${count === 1 ? '' : 's'} run together`
+                          : n.type === 'email'
+                            ? `To ${n.to || '…'}`
+                            : n.type === 'review'
+                              ? n.prompt
+                              : `${n.value} ${n.operator} ${n.compare}`;
         const warning =
           n.type === 'agent' && !agent?.providerId
             ? 'Choose a model'
@@ -588,7 +603,7 @@ export function WorkflowEditor({
     const item = e.currentTarget;
     const pointerId = e.pointerId;
     const start = { x: e.clientX, y: e.clientY };
-    const resource = payload.type === 'mcp' || payload.type === 'knowledge';
+    const resource = payload.type === 'mcp' || payload.type === 'knowledge' || payload.type === 'guardrail';
     let moved = false;
     let done = false;
     // What the label last promised; the release does exactly that.
@@ -659,7 +674,7 @@ export function WorkflowEditor({
   function add(payload: Payload, position?: { x: number; y: number }, anchorId?: string): string {
     let f = formRef.current;
     const type = payload.type;
-    if (type === 'mcp' || type === 'knowledge') {
+    if (type === 'mcp' || type === 'knowledge' || type === 'guardrail') {
       let anchor =
         f.nodes.find((n) => n.id === anchorId && n.type === 'agent') ??
         f.nodes.find((n) => n.id === selected && n.type === 'agent') ??
@@ -702,6 +717,15 @@ export function WorkflowEditor({
           position: pos,
         };
         if (r.connectionId && !r.tools.length) void discoverInto(id, r.connectionId, r.name);
+      } else if (type === 'guardrail') {
+        const policy = data.guardrails.find((p) => p.id === payload.policyId) ?? data.guardrails[0];
+        r = {
+          id,
+          name: policy?.name ?? 'NeMo Guardrail',
+          type,
+          policyId: policy?.id ?? '',
+          position: { ...pos, y: (anchor.position?.y ?? 110) - 240 },
+        };
       } else {
         const kb = data.knowledge.find((k) => k.id === payload.knowledgeBaseId) ?? data.knowledge[0];
         r = { id, name: kb?.name ?? 'Knowledge', type, knowledgeBaseId: kb?.id ?? '', position: pos };
@@ -839,7 +863,11 @@ export function WorkflowEditor({
       ...graphEdges(f)
         .filter((e) => !e.id.startsWith('resource:'))
         .map((e) => ({ from: e.source, to: e.target })),
-      ...f.bindings.map((b) => ({ from: b.agentNodeId, to: b.resourceId, label: 'tool' })),
+      ...f.bindings.map((b) => ({
+        from: b.agentNodeId,
+        to: b.resourceId,
+        label: f.resources.find((r) => r.id === b.resourceId)?.type === 'guardrail' ? 'guardrail' : 'tool',
+      })),
     ];
     const placed = layoutWorkflow(
       items.map((n) => ({ id: n.id, x: n.position?.x ?? 0, y: n.position?.y ?? 0 })),
@@ -850,7 +878,7 @@ export function WorkflowEditor({
           width:
             i.type === 'start' || i.type === 'finish' || i.type === 'output'
               ? 175
-              : i.type === 'mcp' || i.type === 'knowledge'
+              : i.type === 'mcp' || i.type === 'knowledge' || i.type === 'guardrail'
                 ? 244
                 : 286,
           height: i.type === 'agent' || i.type === 'parallel' ? 205 : 155,
@@ -1201,6 +1229,26 @@ export function WorkflowEditor({
               <p className="toolbox-empty">No knowledge bases.</p>
             )}
           </div>
+          <div className="toolbox-group">
+            <h4>Guardrails</h4>
+            {data.guardrails
+              .filter((p) => matchesTool(p.name))
+              .map((p) => (
+                <ToolItem
+                  key={p.id}
+                  className="guardrail"
+                  payload={{ type: 'guardrail', policyId: p.id }}
+                  label={p.name}
+                  hint="Safety policy · top of agent"
+                  icon={ShieldCheck}
+                  onAdd={() => add({ type: 'guardrail', policyId: p.id })}
+                  onDragStart={beginDrag}
+                />
+              ))}
+            {!data.guardrails.length && (
+              <p className="toolbox-empty">Create a policy on the Guardrails page.</p>
+            )}
+          </div>
           <div className="toolbox-memory">
             <strong>Memory & learning</strong>
             <p>
@@ -1483,6 +1531,27 @@ export function WorkflowEditor({
                   })
                 }
               />
+            )}
+            {openResource?.type === 'guardrail' && (
+              <Field label="Guardrail policy">
+                <select
+                  aria-label="Guardrail policy"
+                  value={openResource.policyId}
+                  onChange={(e) =>
+                    patch(openResource.id, {
+                      policyId: e.target.value,
+                      name: data.guardrails.find((p) => p.id === e.target.value)?.name ?? 'NeMo Guardrail',
+                    })
+                  }
+                >
+                  <option value="">Choose policy…</option>
+                  {data.guardrails.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} · {p.provider}
+                    </option>
+                  ))}
+                </select>
+              </Field>
             )}
             {openResource?.type === 'knowledge' && (
               <>
@@ -1839,6 +1908,11 @@ export function WorkflowEditor({
               <h3>
                 <BookOpen size={16} /> Long-term memory
               </h3>
+              <GuardrailPicker
+                data={data}
+                value={form.guardrailIds}
+                onChange={(guardrailIds) => change((f) => ({ ...f, guardrailIds }))}
+              />
               <Field
                 label="Knowledge workspace"
                 hint="Automatically save each experiment’s task, result and outcome. Agents can also save reusable findings. Future runs recall the saved records, even before indexing finishes."

@@ -34,6 +34,8 @@ x-app-environment: &app-environment
   ALLOWED_PRIVATE_HOSTS: ${ALLOWED_PRIVATE_HOSTS:-host.docker.internal,ollama,gateway}
   TRUST_PROXY: ${TRUST_PROXY:-0}
   # Device gateway: the api and runner reach it on the internal network; devices dial GATEWAY_PUBLIC_URL.
+  GARAK_PROBES_URL: http://guardrail-evaluation:8001
+  NEMO_GUARDRAILS_URL: ${NEMO_GUARDRAILS_URL:-http://guardrails:8000}
   GATEWAY_URL: http://gateway:8090
   GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-ws://localhost:8090}
   GATEWAY_API_TOKEN: ${GATEWAY_API_TOKEN:?Run ./start.sh --configure-only to add gateway credentials to .env}
@@ -146,6 +148,40 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  guardrail-evaluation:
+    profiles: [safety-evaluation]
+    build:
+      context: .
+      dockerfile: guardrails/evaluation/Dockerfile
+    image: openharness-garak-probes:0.17.0
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 1
+
+  guardrails:
+    profiles: [guardrails]
+    build:
+      context: .
+      dockerfile: guardrails/Dockerfile
+    image: openharness-guardrails:0.24.1
+    restart: unless-stopped
+    environment:
+      NEMO_GUARDRAILS_NO_USAGE_STATS: '1'
+      DO_NOT_TRACK: '1'
+      NEMO_SAFETY_MODEL_URL: ${NEMO_SAFETY_MODEL_URL:-}
+      NEMO_SAFETY_MODEL: ${NEMO_SAFETY_MODEL:-}
+      NEMO_SAFETY_MODEL_KEY: ${NEMO_SAFETY_MODEL_KEY:-local}
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 2g
+    cpus: 2
 
   mongo:
     image: mongo:7.0

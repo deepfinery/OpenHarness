@@ -1,3 +1,4 @@
+import { HttpError } from '../../../../packages/core/src/security.js';
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
 import multer from 'multer';
@@ -339,6 +340,7 @@ async function workflowFromManifest(
 // ---- Portable OpenHarness workflows inside harnessConfig ----------------------------------------------------
 
 type References = {
+  guardrails?: Record<string, { name: string }>;
   providers: Record<string, { name: string; kind: string; model: string }>;
   connections: Record<string, { name: string; url: string; transport?: string }>;
   knowledge: Record<string, { name: string }>;
@@ -347,12 +349,14 @@ type References = {
 /** Every workspace ID a workflow points at, with a portable descriptor for each. */
 async function referencesOf(tenantId: string, w: Workflow): Promise<References> {
   const ids = {
+    guardrails: new Set<string>(w.guardrailIds ?? []),
     providers: new Set<string>(),
     connections: new Set<string>(),
     knowledge: new Set<string>(),
     skills: new Set<string>(),
   };
   for (const a of agentConfigs(w)) {
+    (a.guardrailIds ?? []).forEach((id) => ids.guardrails.add(id));
     ids.providers.add(a.providerId);
     a.connections.forEach((c) => ids.connections.add(c.connectionId));
     a.knowledgeBaseIds.forEach((k) => ids.knowledge.add(k));
@@ -360,20 +364,23 @@ async function referencesOf(tenantId: string, w: Workflow): Promise<References> 
   }
   for (const r of w.resources) {
     if (r.type === 'mcp') ids.connections.add(r.connectionId);
-    else ids.knowledge.add(r.knowledgeBaseId);
+    else if (r.type === 'knowledge') ids.knowledge.add(r.knowledgeBaseId);
+    else if (r.type === 'guardrail') ids.guardrails.add(r.policyId);
   }
   for (const n of w.nodes) if (n.type === 'tool') ids.connections.add(n.connectionId);
   const load = async <T extends Stored<object>>(name: string, set: Set<string>) =>
     collection<T>(name)
       .find({ ownerId: tenantId, _id: { $in: [...set] } } as Filter<T>)
       .toArray();
-  const [providers, connections, knowledge, skills] = await Promise.all([
+  const [providers, connections, knowledge, skills, guardrails] = await Promise.all([
     load<Provider>('providers', ids.providers),
     load<Connection>('connections', ids.connections),
     load<Knowledge>('knowledge', ids.knowledge),
     load<Skill>('skills', ids.skills),
+    load<Stored<{ name: string }>>('guardrails', ids.guardrails),
   ]);
   return {
+    guardrails: Object.fromEntries(guardrails.map((p) => [p._id, { name: p.name }])),
     providers: Object.fromEntries(
       providers.map((p) => [p._id, { name: p.name, kind: p.kind, model: p.model }]),
     ),
@@ -446,6 +453,19 @@ async function workflowFromPortable(ctx: ImportContext, fm: Frontmatter, portabl
   for (const [oldId, s] of Object.entries(refs.skills ?? {})) {
     const [resolved] = await resolveSkills(ctx, [s.name]);
     if (resolved) ids.set(oldId, resolved);
+  }
+  for (const [oldId, policy] of Object.entries(refs.guardrails ?? {})) {
+    const found = await collection<Stored<{ name: string; enabled: boolean }>>('guardrails').findOne({
+      ownerId: ctx.tenantId,
+      name: policy.name,
+      enabled: true,
+    });
+    if (!found)
+      throw new HttpError(
+        400,
+        `Create the required safety policy ${policy.name} before importing this workflow`,
+      );
+    ids.set(oldId, found._id);
   }
   const pruned = prune(structuredClone(definition), missing);
   // Skills that could not be resolved are removed from the agents that listed them.
