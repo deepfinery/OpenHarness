@@ -8,10 +8,45 @@ A self-hosted studio for agent harnesses, MCP tools, and knowledge, implementing
 
 [Read the OpenHarness overview (PDF, 15 pages)](OpenHarness.pdf)
 
+## Product tour
+
+Explore the studio: organize harnesses, follow agent activity, retain knowledge, and share reusable skills. Select any screenshot to view it at full size.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="product-screenshots/workflows.png"><img src="product-screenshots/workflows.png" alt="Harness library with saved agents and run controls" width="480"></a>
+      <br><strong>Harness library</strong><br>Organize and launch your saved harnesses.
+    </td>
+    <td width="50%" valign="top">
+      <a href="product-screenshots/playground.png"><img src="product-screenshots/playground.png" alt="Playground conversation with a live agent execution trace" width="480"></a>
+      <br><strong>Playground</strong><br>Chat with agents and follow their tools and memory in the live trace.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="product-screenshots/knowledge.png"><img src="product-screenshots/knowledge.png" alt="Knowledge notebook listing saved findings, lessons, and experiments" width="480"></a>
+      <br><strong>Knowledge notebooks</strong><br>Keep documents, findings, and lessons available for future runs.
+    </td>
+    <td width="50%" valign="top">
+      <a href="product-screenshots/skills.png"><img src="product-screenshots/skills.png" alt="Skills library with reusable instructions and agent usage counts" width="480"></a>
+      <br><strong>Reusable skills</strong><br>Manage instructions that agents can load when a task needs them.
+    </td>
+  </tr>
+</table>
+
+_These screenshots show the earlier “Workflows” label, now called “Harnesses.”_
+
+<details>
+<summary>Preview the product overview PDF</summary>
+
 [![First-page preview of the OpenHarness overview](docs/images/openharness-preview.png)](OpenHarness.pdf)
+
+</details>
 
 ## Contents
 
+- [Product tour](#product-tour)
 - [Quick start](#quick-start)
 - [What you get](#what-you-get)
 - [Concepts](#concepts): [agents and patterns](#agents-and-agentic-patterns) · [harnesses](#harnesses) · [runs and conversations](#runs-conversations-and-traces)
