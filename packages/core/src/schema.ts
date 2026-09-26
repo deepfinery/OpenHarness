@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { vectorStoreKinds } from './vectorstores/types.js';
+import { validTimeZone } from './timeContext.js';
 
 export const id = z.string().uuid();
 const name = z.string().trim().min(1).max(100);
@@ -81,6 +82,8 @@ export const agentSchema = z.object({
   name,
   description: z.string().max(1000).default(''),
   systemPrompt: z.string().min(1).max(32000),
+  /** Runtime clock timezone; absent means workflow schedule timezone, then UTC. */
+  timezone: z.string().trim().min(1).max(64).refine(validTimeZone, 'Unknown time zone').optional(),
   providerId: id,
   connections: z.array(toolBindingSchema).max(30).default([]),
   knowledgeBaseIds: z.array(id).max(20).default([]),
@@ -196,14 +199,6 @@ export const nodeSchema = z.discriminatedUnion('type', [
   z.object({ ...baseNode, type: z.literal('output'), template: z.string().max(32000).default('{{last}}') }),
 ]);
 export const resumePolicies = ['safe', 'always', 'never'] as const;
-const validTimeZone = (tz: string) => {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-};
 /** Periodic runs: every N minutes, or daily/weekly at a wall-clock time in the chosen time zone. */
 export const scheduleSchema = z.object({
   enabled: z.boolean().default(false),

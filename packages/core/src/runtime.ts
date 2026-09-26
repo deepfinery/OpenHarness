@@ -44,6 +44,7 @@ import {
 } from './context.js';
 import { finalAnswerMessages, incompleteAnswer, readableToolEvidence } from './finalAnswer.js';
 import { budgetedAgent, effortPresets } from './patterns.js';
+import { timeContext, timeContextPrompt } from './timeContext.js';
 
 const SKILL_TOOL = 'load_skill';
 type EventWriter = (event: Omit<RunEvent, 'at'>) => Promise<void>;
@@ -74,6 +75,10 @@ export type AgentContext = {
   depth?: number;
   /** Lessons recalled from the workflow's experience folder for this run's input. */
   lessons?: string;
+  /** Server-owned execution anchor, shared with children; refreshed when an execution resumes. */
+  referenceTime?: string;
+  /** Workflow schedule timezone, used only when the agent has no explicit timezone. */
+  timezone?: string;
 };
 /** Tool results longer than this are saved in the workspace and summarised in the context. */
 const OFFLOAD_CHARS = 6000;
@@ -89,6 +94,8 @@ type Handler = {
 export async function runAgent(stored: Agent, input: string, history: Run['history'], ctx: AgentContext) {
   // Effort decides the loop and token budgets; `auto` resolves them per request.
   const agent = budgetedAgent(stored, input);
+  const clock = timeContext(ctx.referenceTime ?? new Date().toISOString(), agent.timezone ?? ctx.timezone);
+  const clockNote = timeContextPrompt(clock);
   const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(agent.timeoutSeconds * 1000)]);
   const sessions: Session[] = [];
   const tools: ToolDefinition[] = [];
@@ -105,6 +112,11 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
       data: { level: agent.resolvedEffort, maxTurns: agent.maxTurns, tokenBudget: agent.tokenBudget },
     });
   try {
+    await ctx.event({
+      type: 'runtime_clock',
+      message: `Time reference: ${clock.localTime} (${clock.timezone})`,
+      data: clock,
+    });
     const context: string[] = [];
     const notebook = resolveNotebook(agent, ctx);
     const workspace = notebook.workspace;
@@ -204,6 +216,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
     };
     const systemPrompt =
       agent.systemPrompt +
+      clockNote +
       skillNote +
       deviceNote +
       taskMemoryPrompt +
@@ -503,7 +516,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
         let response;
         try {
           response = await model(
-            finalizing ? finalAnswerMessages(agent.systemPrompt, input, dialog, notes) : dialog,
+            finalizing ? finalAnswerMessages(agent.systemPrompt + clockNote, input, dialog, notes) : dialog,
             finalizing ? [] : offered,
             finalizing,
           );
@@ -624,6 +637,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
                     runAgent(child, task, [], {
                       ...ctx,
                       ...childCtx,
+                      referenceTime: clock.referenceTime,
                       workspace,
                       experience: notebook.experience,
                       nodeId: undefined,
@@ -1073,6 +1087,7 @@ export function resumeDecision(run: Run): { resume: boolean; reason: string } {
 }
 
 export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaWriter) {
+  const referenceTime = new Date().toISOString();
   const runs = collection<Run>('runs');
   const filter = { _id: run._id, status: 'running' as const, leaseId: run.leaseId };
   const writeEvent: EventWriter = async (event) => {
@@ -1093,6 +1108,8 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
       data: { notes: recalled.notes },
     });
   const base = {
+    referenceTime,
+    timezone: run.snapshot.workflow?.schedule?.timezone,
     ownerId: run.ownerId,
     runId: run._id,
     taskId: run.taskId ?? run._id,

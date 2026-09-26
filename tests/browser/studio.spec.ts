@@ -461,17 +461,20 @@ test('workflow settings set a knowledge workspace and learning, agents allow sub
   await selectProvider(page, modal);
   await modal.getByLabel('Can start sub-agents').check();
   await modal.getByLabel('Sub-agents per run').fill('3');
+  await modal.getByLabel('Agent timezone').fill('America/New_York');
   await modal.getByRole('button', { name: 'Done' }).click();
   await page.locator('.workflow-header').getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByLabel('Knowledge workspace').selectOption(kb.id);
   await page.getByLabel('Learn from experience').check();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Save & test', exact: true }).click();
+  await expect(page.getByLabel('Playground agent or workflow')).toBeVisible();
   const saved = (await api(page.request, '/workflows')).find((w: any) => w.name === name);
   expect(saved.workspace.knowledgeBaseId).toBe(kb.id);
   expect(saved.experience.enabled).toBe(true);
   const node = saved.nodes.find((n: any) => n.type === 'agent');
   expect(node.config.delegation).toEqual({ enabled: true, maxAgents: 3 });
+  expect(node.config.timezone).toBe('America/New_York');
 
   await expect(await chat(page, 'Summarize the browser test plan')).toContainText('Completed:', {
     timeout: 30000,
@@ -482,6 +485,8 @@ test('workflow settings set a knowledge workspace and learning, agents allow sub
   await expect(page.locator('.feedback-bar.given').last()).toHaveText('Feedback saved');
   const runs = await api(page.request, '/runs');
   const rated = runs.find((r: any) => r.workflowId === saved.id);
+  const executed = await api(page.request, `/runs/${rated.id}`);
+  expect(executed.events.find((e: any) => e.type === 'runtime_clock').data.timezone).toBe('America/New_York');
   await expect
     .poll(async () => (await api(page.request, `/runs/${rated.id}`)).reflection?.status, { timeout: 30000 })
     .toBe('done');
