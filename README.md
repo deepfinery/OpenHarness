@@ -1,6 +1,6 @@
 # OpenHarness
 
-A self-hosted studio for AI agents, MCP tools, and knowledge. Build agents from templates, wire them into visual multi-agent workflows, watch every step stream in the playground, and expose the result through an API, a conversation, a webhook, an email, or an embedded chat — all on your own infrastructure.
+A self-hosted studio for agent harnesses, MCP tools, and knowledge, implementing the [Open Harness API](https://github.com/jeffrschneider/OpenHarness). Build agents from templates, wire them into visual multi-agent harnesses, watch every step stream in the playground, and expose the result through an API, a conversation, a webhook, an email, or an embedded chat — all on your own infrastructure.
 
 - **One tool protocol.** Every external capability arrives through MCP: paste a server URL, sign in or add a key, pick the tools each agent may call.
 - **Durable by design.** Runs are queued through RabbitMQ, checkpointed in MongoDB, and resumed on another runner if a process dies — without ever blindly replaying a step that may have acted on the outside world.
@@ -14,8 +14,8 @@ A self-hosted studio for AI agents, MCP tools, and knowledge. Build agents from 
 
 - [Quick start](#quick-start)
 - [What you get](#what-you-get)
-- [Concepts](#concepts): [agents and patterns](#agents-and-agentic-patterns) · [workflows](#workflows) · [runs and conversations](#runs-conversations-and-traces)
-- [Guides](#guides): [model provider](#1-connect-a-model-provider) · [MCP tools](#2-connect-mcp-tools) · [agents](#3-configure-an-agent) · [workflows](#4-start-a-workflow-from-a-template) · [knowledge](#5-knowledge-bases) · [email](#6-outgoing-email) · [skills](#7-give-agents-skills) · [machines](#7b-operate-a-machine) · [schedules](#8-run-it-on-a-schedule) · [API, webhooks, embeds](#9-use-it-from-outside-the-studio)
+- [Concepts](#concepts): [agents and patterns](#agents-and-agentic-patterns) · [harnesses](#harnesses) · [runs and conversations](#runs-conversations-and-traces)
+- [Guides](#guides): [model provider](#1-connect-a-model-provider) · [MCP tools](#2-connect-mcp-tools) · [agents](#3-configure-an-agent) · [harnesses](#4-start-a-harness-from-a-template) · [knowledge](#5-knowledge-bases) · [email](#6-outgoing-email) · [skills](#7-give-agents-skills) · [machines](#7b-operate-a-machine) · [schedules](#8-run-it-on-a-schedule) · [API, webhooks, embeds](#9-use-it-from-outside-the-studio)
 - [Architecture](#architecture): [components](#components) · [run lifecycle](#run-lifecycle) · [run states](#run-states) · [resilience and idempotency](#resilience-idempotency-and-resume) · [design principles](#design-principles) · [in context](#agentic-architecture-in-context)
 - [Configuration](#configuration) · [Operations and limits](#operations-and-limits) · [Upgrade](#upgrade)
 - [Development and verification](#development-and-verification) · [License](#license)
@@ -25,8 +25,8 @@ A self-hosted studio for AI agents, MCP tools, and knowledge. Build agents from 
 Install Docker with Docker Compose and OpenSSL, then run:
 
 ```sh
-git clone https://github.com/deepfinery/orchestrator.git
-cd orchestrator
+git clone https://github.com/deepfinery/OpenHarness.git
+cd OpenHarness
 ./start.sh
 ```
 
@@ -39,25 +39,31 @@ STUDIO_PORT=8090 ./start.sh              # choose a different port on first laun
 
 Allow about 4 GB of memory for the stack, plus whatever your locally hosted models need. A CPU-only laptop runs the studio with a remote model provider; Ollama or another inference server is configured separately and no model is downloaded automatically.
 
+## Open Harness API
+
+Open **Integrations → API explorer** to browse endpoints, select a harness, fill request fields, upload files, send requests, inspect streaming responses, and copy cURL examples. The explorer uses your studio session or an API key you enter for the current page. Download its OpenAPI 3.0 document for other tools.
+
+Each saved harness contains its agent cards. Existing graphs and IDs carry over automatically; `/api/workflows` and `/workflows` remain compatibility aliases. See the [API guide](docs/openharness-api.md), [generated support matrix](docs/openharness-support.md), and [conformance evidence](docs/conformance.md) for the supported contract and limitations.
+
 ## What you get
 
-See the [NeMo Guardrails setup](docs/guardrails.md) for safety policies and workflow attachments, and the [GPU cluster guide](docs/gpu-clusters.md) for shared enrollment, scheduled node agents, privileged diagnostics and controlled remediation.
+See the [NeMo Guardrails setup](docs/guardrails.md) for safety policies and harness attachments, and the [GPU cluster guide](docs/gpu-clusters.md) for shared enrollment, scheduled node agents, privileged diagnostics and controlled remediation.
 
-| Area                | What is included                                                                                                                                                                                                                                                                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Agents**          | Agents live on the workflow canvas as cards: instructions, model, an effort level (light, medium, high, extra high, max or auto) that sets loop and token budgets, one of four agentic patterns (ReAct, plan-and-execute, reflection, autonomous loop), seven templates, explicit tool permissions, knowledge bindings.              |
-| **Workflows**       | Visual designer with a thin toolbox that lists your MCP servers and knowledge bases, drag-and-drop onto the canvas or straight onto an agent, settings in popups instead of a side panel, conditions, parallel agent groups, explicit MCP actions, Email steps, bounded cycles, undo/redo, YAML view.                                |
-| **Runner**          | Durable RabbitMQ jobs, immutable execution snapshots, per-step checkpoints, automatic resume on a replacement runner under a per-workflow policy, idempotency keys on every tool call, context-window compaction with automatic recovery from provider limit errors, cancellation.                                                   |
-| **Schedules**       | Run a workflow every N minutes, hourly, daily or weekly at a wall-clock time in your time zone; deduplicated so a restart never double-fires.                                                                                                                                                                                        |
-| **Skills**          | A workspace library of skills — a name, a one-line “when to use it”, and full instructions. Give an agent several; it sees only the descriptions, loads the matching skill with a built-in `load_skill` tool, and follows it. Skills are snapshotted per run and each load appears in the trace.                                     |
-| **Machines**        | Register Linux hosts, containers, Windows machines and Chrome browsers that have no public IP: each runs a connector that dials out to the bundled gateway. Pick a machine in the playground and the workflow's agents get its tools (`run_command`, files, processes …) with per-machine allow-lists, audit and optional approvals. |
-| **Playground**      | The workflow selector sits in the top bar; saved conversations per workflow, token-by-token streaming, live execution trace, memory, and a single History tab for saved chats and runs.                                                                                                                                              |
-| **MCP connector**   | Streamable HTTP or legacy SSE; no auth, API key, or OAuth with PKCE, dynamic registration or a pre-registered client ID (for servers such as Finnhub); discovered tools shown on the connection card with their schemas; every call validated against the schema before it is sent.                                                  |
-| **Model providers** | Guided setup for OpenAI, Anthropic, Gemini, Ollama, or any OpenAI-compatible server; a workspace default provider that new agents start with; separate chat and embedding models; a connection test that reports the provider's exact error before you save.                                                                         |
-| **Knowledge bases** | A notebook view: write Markdown notes in place (indexed on every save) or upload TXT, Markdown, CSV, JSON, YAML, text PDF and DOCX; background indexing, Weaviate hybrid search, cited passages in the prompt, an **Ask** dialog that shows the exact passages an agent would get.                                                   |
-| **Outgoing email**  | Workspace SMTP settings (Amazon SES, Google Workspace, SendGrid, Mailgun, Postmark or any relay), `.env` defaults, a test send, and an Email workflow step.                                                                                                                                                                          |
-| **Workspaces**      | Local accounts, administrator-managed teammates, shared resources and run history per tenant, tenant isolation, edit-conflict detection.                                                                                                                                                                                             |
-| **Integrations**    | Target-scoped API keys, conversational API, server-sent event stream per run, authenticated JSON webhooks, revocable iframe embeds with allowed origins.                                                                                                                                                                             |
+| Area                | What is included                                                                                                                                                                                                                                                                                                                    |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agents**          | Agents live on the harness canvas as cards: instructions, model, an effort level (light, medium, high, extra high, max or auto) that sets loop and token budgets, one of four agentic patterns (ReAct, plan-and-execute, reflection, autonomous loop), seven templates, explicit tool permissions, knowledge bindings.              |
+| **Harnesses**       | Visual designer with a thin toolbox that lists your MCP servers and knowledge bases, drag-and-drop onto the canvas or straight onto an agent, settings in popups instead of a side panel, conditions, parallel agent groups, explicit MCP actions, Email steps, bounded cycles, undo/redo, YAML view.                               |
+| **Runner**          | Durable RabbitMQ jobs, immutable execution snapshots, per-step checkpoints, automatic resume on a replacement runner under a per-harness policy, idempotency keys on every tool call, context-window compaction with automatic recovery from provider limit errors, cancellation.                                                   |
+| **Schedules**       | Run a harness every N minutes, hourly, daily or weekly at a wall-clock time in your time zone; deduplicated so a restart never double-fires.                                                                                                                                                                                        |
+| **Skills**          | A workspace library of skills — a name, a one-line “when to use it”, and full instructions. Give an agent several; it sees only the descriptions, loads the matching skill with a built-in `load_skill` tool, and follows it. Skills are snapshotted per run and each load appears in the trace.                                    |
+| **Machines**        | Register Linux hosts, containers, Windows machines and Chrome browsers that have no public IP: each runs a connector that dials out to the bundled gateway. Pick a machine in the playground and the harness's agents get its tools (`run_command`, files, processes …) with per-machine allow-lists, audit and optional approvals. |
+| **Playground**      | The harness selector sits in the top bar; saved conversations per harness, token-by-token streaming, live execution trace, memory, and a single History tab for saved chats and runs.                                                                                                                                               |
+| **MCP connector**   | Streamable HTTP or legacy SSE; no auth, API key, or OAuth with PKCE, dynamic registration or a pre-registered client ID (for servers such as Finnhub); discovered tools shown on the connection card with their schemas; every call validated against the schema before it is sent.                                                 |
+| **Model providers** | Guided setup for OpenAI, Anthropic, Gemini, Ollama, or any OpenAI-compatible server; a workspace default provider that new agents start with; separate chat and embedding models; a connection test that reports the provider's exact error before you save.                                                                        |
+| **Knowledge bases** | A notebook view: write Markdown notes in place (indexed on every save) or upload TXT, Markdown, CSV, JSON, YAML, text PDF and DOCX; background indexing, Weaviate hybrid search, cited passages in the prompt, an **Ask** dialog that shows the exact passages an agent would get.                                                  |
+| **Outgoing email**  | Workspace SMTP settings (Amazon SES, Google Workspace, SendGrid, Mailgun, Postmark or any relay), `.env` defaults, a test send, and an Email harness step.                                                                                                                                                                          |
+| **Workspaces**      | Local accounts, administrator-managed teammates, shared resources and run history per tenant, tenant isolation, edit-conflict detection.                                                                                                                                                                                            |
+| **Integrations**    | Target-scoped API keys, conversational API, server-sent event stream per run, authenticated JSON webhooks, revocable iframe embeds with allowed origins.                                                                                                                                                                            |
 
 Deliberately not included: provider-specific tool catalogs, external account login, website builders, business wizards, reports, CRM, product catalogs, billing, or customer portals.
 
@@ -65,7 +71,7 @@ Deliberately not included: provider-specific tool catalogs, external account log
 
 ### Agents and agentic patterns
 
-An **agent** is a card on a workflow canvas: a model provider, instructions, an allow-list of MCP tools, optional knowledge bases, an **effort level**, and a **pattern** that decides how it organizes its passes over the model. Tools and knowledge are available in every pattern. There is no separate agent registry to maintain; a one-agent workflow (Start → Agent → Finish) is the simplest assistant.
+An **agent** is a card on a harness canvas: a model provider, instructions, an allow-list of MCP tools, optional knowledge bases, an **effort level**, and a **pattern** that decides how it organizes its passes over the model. Tools and knowledge are available in every pattern. There is no separate agent registry to maintain; a one-agent harness (Start → Agent → Finish) is the simplest assistant.
 
 | Effort         | Turns per pass                                                                                                                                                                   | Token budget | Time limit | Plan steps | Critique rounds | Loop iterations |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ---------- | ---------- | --------------- | --------------- |
@@ -80,26 +86,26 @@ Choosing a level sets these budgets in one move; **Limits** in the agent setting
 
 | Pattern              | How it works                                                                                                                                | Use it for                                       |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| **ReAct** (default)  | Each turn the model either calls tools or answers. Tool results feed the next turn, bounded by the agent's turn limit.                      | Assistants, most workflow steps                  |
+| **ReAct** (default)  | Each turn the model either calls tools or answers. Tool results feed the next turn, bounded by the agent's turn limit.                      | Assistants, most harness steps                   |
 | **Plan and execute** | One pass writes a short numbered plan without tools; each step then runs with tools and records its result; a final pass writes the answer. | Multi-step research, comparisons, reports        |
 | **Reflection**       | Draft, critique as a strict reviewer, revise with tools for verification. One to three rounds.                                              | Writing, analysis, anything that must be checked |
 | **Autonomous loop**  | Work in iterations, carrying progress forward, until the agent ends a message with the done marker or hits the iteration limit.             | Long tasks with a clear completion condition     |
 
 Patterns beyond ReAct receive up to four times the agent's turn limit in total model calls. Every pass is visible in the trace as `plan`, `plan_step`, `reflection`, and `iteration` events.
 
-### Workflows
+### Harnesses
 
-A **workflow** is a graph of steps executed in order from Start to Finish, plus resource cards (MCP tools, knowledge bases) attached to agents. Steps pass results through templates: `{{input}}` is the run input, `{{last}}` the previous step's result, `{{steps.<id>}}` any earlier step, and `{{payload.<field>}}` structured webhook or API data.
+A **harness** is a graph of steps executed in order from Start to Finish, plus resource cards (MCP tools, knowledge bases) attached to agents. Steps pass results through templates: `{{input}}` is the run input, `{{last}}` the previous step's result, `{{steps.<id>}}` any earlier step, and `{{payload.<field>}}` structured webhook or API data.
 
-| Step        | Behavior                                                                                  | Outgoing connections                                         |
-| ----------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `start`     | Entry point of the workflow                                                               | one `next`                                                   |
-| `agent`     | Runs an agent's pattern; the model chooses when to call its bound MCP tools               | one `next`, plus bottom-port MCP tool / knowledge bindings   |
-| `tool`      | Makes one fixed MCP call with templated arguments, no model involved                      | one `next`                                                   |
-| `parallel`  | Runs up to 8 agent cards from the same workflow concurrently on one prompt, waits for all | one `next`, plus a bottom **Runs** port to its member agents |
-| `email`     | Sends a templated email through the workspace SMTP settings                               | one `next`                                                   |
-| `condition` | Evaluates a templated comparison                                                          | `onTrue` and `onFalse`                                       |
-| `finish`    | Renders a template from accumulated state and ends the run (`output` is a legacy alias)   | none                                                         |
+| Step        | Behavior                                                                                 | Outgoing connections                                         |
+| ----------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `start`     | Entry point of the harness                                                               | one `next`                                                   |
+| `agent`     | Runs an agent's pattern; the model chooses when to call its bound MCP tools              | one `next`, plus bottom-port MCP tool / knowledge bindings   |
+| `tool`      | Makes one fixed MCP call with templated arguments, no model involved                     | one `next`                                                   |
+| `parallel`  | Runs up to 8 agent cards from the same harness concurrently on one prompt, waits for all | one `next`, plus a bottom **Runs** port to its member agents |
+| `email`     | Sends a templated email through the workspace SMTP settings                              | one `next`                                                   |
+| `condition` | Evaluates a templated comparison                                                         | `onTrue` and `onFalse`                                       |
+| `finish`    | Renders a template from accumulated state and ends the run (`output` is a legacy alias)  | none                                                         |
 
 Resource cards never advance execution: an agent's bound tools are available throughout its own turn budget, and the model decides when to call them. Use a `tool` step when a call must happen in a fixed order. One agent can attach several MCP servers and knowledge bases, and one card can serve several agents.
 
@@ -120,7 +126,7 @@ Every trigger — playground, API, conversation, webhook, schedule or embed — 
 | Gemini            | `https://generativelanguage.googleapis.com/v1beta` | Chat, tool use and embeddings with an API key. Unrelated to UI login.                                      |
 | Ollama            | `http://host.docker.internal:11434`                | Native chat and embedding APIs. Pull the models first. The host gateway is configured in Compose.          |
 
-Mark one provider as the **default** (Settings → Model providers → Make default): every new agent card starts with it, and each agent can still pick another, so one workflow can mix a fast model with a careful one. A knowledge base is bound to one embedding provider for its lifetime. Streaming is on by default per provider and falls back to a single response when a server ignores the `stream` flag.
+Mark one provider as the **default** (Settings → Model providers → Make default): every new agent card starts with it, and each agent can still pick another, so one harness can mix a fast model with a careful one. A knowledge base is bound to one embedding provider for its lifetime. Streaming is on by default per provider and falls back to a single response when a server ignores the `stream` flag.
 
 Each provider also has a **context window** (default 128k tokens, under Advanced). Before every model call the runner trims the conversation to fit — older tool results first, then completed turns, never the current question or a tool call without its result. If a provider still rejects a request with a context-length error (the familiar _"maximum context length is 32768 tokens"_), the runner reads the real limit from the message, stores it on the provider, compacts harder and retries; the trace records a `context_compacted` event. Long multi-turn conversations therefore keep working instead of failing with HTTP 400.
 
@@ -136,13 +142,13 @@ Private endpoints are denied unless their hostname is listed in `ALLOWED_PRIVATE
 
 ### 3. Configure an agent
 
-Agents receive a server clock at execution start: UTC timestamp, local date/time with offset, timezone, and the previous completed Monday–Sunday calendar week. Set **Timezone** to an IANA name such as `America/New_York`; otherwise the workflow schedule timezone applies, then UTC. The same reference instant is shared across workflow steps and sub-agents, remains protected during context compression and final synthesis, and is refreshed for new or resumed executions. A `runtime_clock` trace event records it. The runner instructs models to resolve relative dates, use dated queries and schema-supported MCP search filters, check publication and event dates, and disclose missing current evidence. Search tools still need to retrieve timely sources; a clock alone cannot guarantee the accuracy of a model's answer.
+Agents receive a server clock at execution start: UTC timestamp, local date/time with offset, timezone, and the previous completed Monday–Sunday calendar week. Set **Timezone** to an IANA name such as `America/New_York`; otherwise the harness schedule timezone applies, then UTC. The same reference instant is shared across harness steps and sub-agents, remains protected during context compression and final synthesis, and is refreshed for new or resumed executions. A `runtime_clock` trace event records it. The runner instructs models to resolve relative dates, use dated queries and schema-supported MCP search filters, check publication and event dates, and disclose missing current evidence. Search tools still need to retrieve timely sources; a clock alone cannot guarantee the accuracy of a model's answer.
 
-Agents are configured where they run: double-click an agent card (or its gear icon, or **Settings** in the selection bar) to open its settings. Pick a model (the workspace default is preselected), an **effort** level, a template to start the instructions from, the pattern and its options, and the message the agent receives (`{{input}}`, `{{last}}`, `{{steps.id}}`). **Tools & knowledge** lists what is attached and adds more. Try the workflow in the **Playground**: conversations are saved per workflow, answers stream as they are written, and the right panel switches between **Trace**, **History**, and **Memory**. Reopen saved chats from **History**, or use **New conversation** above the chat to start fresh. Leaving the page or reloading restores the selected conversation and reconnects to its running job.
+Agents are configured where they run: double-click an agent card (or its gear icon, or **Settings** in the selection bar) to open its settings. Pick a model (the workspace default is preselected), an **effort** level, a template to start the instructions from, the pattern and its options, and the message the agent receives (`{{input}}`, `{{last}}`, `{{steps.id}}`). **Tools & knowledge** lists what is attached and adds more. Try the harness in the **Playground**: conversations are saved per harness, answers stream as they are written, and the right panel switches between **Trace**, **History**, and **Memory**. Reopen saved chats from **History**, or use **New conversation** above the chat to start fresh. Leaving the page or reloading restores the selected conversation and reconnects to its running job.
 
-### 4. Start a workflow from a template
+### 4. Start a harness from a template
 
-**Workflows → Create workflow**, then a starter. Each opens a connected canvas you can edit.
+**Harnesses → Create harness**, then a starter. Each opens a connected canvas you can edit.
 
 | Starter               | Shape                                                  | Agents | Needs               |
 | --------------------- | ------------------------------------------------------ | ------ | ------------------- |
@@ -159,10 +165,10 @@ The designer has a thin **toolbox** on the left and nothing on the right: every 
 - **Steps** (agent, condition, parallel agents, MCP action, email, finish): click to insert after the selected step, or drag to a spot on the canvas.
 - **MCP tools** lists your connected servers with their tool counts; **Knowledge** lists your knowledge bases. Drag one **onto an agent card** to attach it to that agent (all discovered tools are granted to begin with — trim them in the card's settings), or onto empty canvas to attach it to the selected agent. The **+** next to each heading connects a new server or creates a knowledge base without leaving the canvas.
 - Double-click any card, click its gear, or press Enter to open its settings; the floating selection bar offers **Settings** and delete. Select a connection line to disconnect it.
-- **Settings** in the header holds the description, step budget, **resume policy** (see [Resilience](#resilience-idempotency-and-resume)) and the **schedule**; **Use in your app** shows the exact API calls for this workflow.
-- A **Parallel agents** step points at agent cards in the same workflow (its bottom **Runs** port, or checkboxes in its settings); **New agent in this group** adds one.
+- **Settings** in the header holds the description, step budget, **resume policy** (see [Resilience](#resilience-idempotency-and-resume)) and the **schedule**; **Use in your app** shows the exact API calls for this harness.
+- A **Parallel agents** step points at agent cards in the same harness (its bottom **Runs** port, or checkboxes in its settings); **New agent in this group** adds one.
 
-**Save & test** opens the workflow in the playground.
+**Save & test** opens the harness in the playground.
 
 For example, **Research and review** wires two agents and a knowledge binding like this:
 
@@ -188,11 +194,11 @@ On the canvas, drag the knowledge base from the toolbox onto an agent to give it
 
 **Settings → Email (SMTP)** configures one outgoing mail server per workspace, with presets for Amazon SES, Google Workspace, SendGrid, Mailgun and Postmark, a **Send test** action, and the same private-network rules as other endpoints. Operators can preconfigure every workspace through `.env` (see [Configuration](#configuration)); settings saved in the studio take precedence.
 
-Email is sent by the **Email** workflow step. Recipients, subject and body are templates (`{{last}}`, `{{steps.analyst}}`, `{{payload.email}}`). Because sending is an external side effect, a run that crashes inside an Email step is not replayed under the default resume policy.
+Email is sent by the **Email** harness step. Recipients, subject and body are templates (`{{last}}`, `{{steps.analyst}}`, `{{payload.email}}`). Because sending is an external side effect, a run that crashes inside an Email step is not replayed under the default resume policy.
 
-### 6b. Give a workflow a knowledge workspace
+### 6b. Give a harness a knowledge workspace
 
-In **Workflow settings → Knowledge workspace**, pick a knowledge base. The workflow's agents then search it (`kb_search`), read only what they need (`kb_read`), and record findings, decisions with their reasons, and feedback (`kb_write`) as notes in folders such as `research/` and `decisions/`. Completed experiments are saved automatically under `experiments/`. Large tool results remain in the temporary task notebook. A knowledge card is read only unless **Use as workflow long-term memory** is enabled; individual agents can also choose a dedicated memory workspace. See [docs/knowledge-workspace.md](docs/knowledge-workspace.md).
+In **Harness settings → Knowledge workspace**, pick a knowledge base. The harness's agents then search it (`kb_search`), read only what they need (`kb_read`), and record findings, decisions with their reasons, and feedback (`kb_write`) as notes in folders such as `research/` and `decisions/`. Completed experiments are saved automatically under `experiments/`. Large tool results remain in the temporary task notebook. A knowledge card is read only unless **Use as harness long-term memory** is enabled; individual agents can also choose a dedicated memory workspace. See [docs/knowledge-workspace.md](docs/knowledge-workspace.md).
 
 ### 6c. Let an agent start sub-agents
 
@@ -200,7 +206,7 @@ Turn on **Can hand focused tasks to sub-agents** in an agent's settings. The age
 
 ### 6d. Learn from experience
 
-With a workspace set, turn on **Learn from experience** in the workflow settings. A thumbs up or down in the playground, or `POST /api/runs/:id/feedback`, becomes a short lesson in the workspace's `experience/` folder, and so does a failed run. Later runs recall the most relevant lessons into their agents' instructions. The Memory panel shows saved experiments and lesson status. Recall works before indexing completes and during a vector-store outage; repeated feedback replaces the earlier lesson. `GET /api/workflows/:id/experience.jsonl` exports experiments, feedback and lessons. This is learning through retrieved context, not automatic training of model weights. See [docs/experience.md](docs/experience.md).
+With a workspace set, turn on **Learn from experience** in the harness settings. A thumbs up or down in the playground, or `POST /api/runs/:id/feedback`, becomes a short lesson in the workspace's `experience/` folder, and so does a failed run. Later runs recall the most relevant lessons into their agents' instructions. The Memory panel shows saved experiments and lesson status. Recall works before indexing completes and during a vector-store outage; repeated feedback replaces the earlier lesson. `GET /api/harnesses/:id/experience.jsonl` exports experiments, feedback and lessons. This is learning through retrieved context, not automatic training of model weights. See [docs/experience.md](docs/experience.md).
 
 ### 7. Give agents skills
 
@@ -216,9 +222,9 @@ Choose the tools the agent may use (deny by default; tools that change state are
 the Windows/Chrome connector. The machine dials **out** to the gateway (`GATEWAY_PUBLIC_URL`), so it needs no
 public IP; the dialog turns green when it connects.
 
-Then, in the **Playground**, pick a workflow and a machine in the top bar. Every agent in the run receives
+Then, in the **Playground**, pick a harness and a machine in the top bar. Every agent in the run receives
 the machine's tools and an instruction naming it, and each command and result shows up in the trace. Machines
-also appear in the designer toolbox under **Machines** for workflows that should always use a specific one,
+also appear in the designer toolbox under **Machines** for harnesses that should always use a specific one,
 and the API takes `"deviceId"` on `/api/runs` and `/api/chat`.
 
 Details, hardening and troubleshooting: [INSTALL.md](docs/INSTALL.md), [SECURITY.md](docs/SECURITY.md),
@@ -226,11 +232,11 @@ Details, hardening and troubleshooting: [INSTALL.md](docs/INSTALL.md), [SECURITY
 
 ### 8. Run it on a schedule
 
-**Settings** in the workflow header → **Run on a schedule**. Choose every minute, every 5/15/30 minutes, hourly, every 6 hours, **every day at a time**, **every week on a weekday at a time**, or a custom interval in minutes. Daily and weekly schedules use the time zone of your browser (changeable), including daylight-saving changes. Set the message the workflow receives; the next run time is shown once saved. Scheduled runs appear in **Executions** with trigger `schedule` and are deduplicated per slot, so an API restart never fires the same slot twice.
+**Settings** in the harness header → **Run on a schedule**. Choose every minute, every 5/15/30 minutes, hourly, every 6 hours, **every day at a time**, **every week on a weekday at a time**, or a custom interval in minutes. Daily and weekly schedules use the time zone of your browser (changeable), including daylight-saving changes. Set the message the harness receives; the next run time is shown once saved. Scheduled runs appear in **Executions** with trigger `schedule` and are deduplicated per slot, so an API restart never fires the same slot twice.
 
 ### 9. Use it from outside the studio
 
-**Use in your app** in the workflow header shows the exact calls for that workflow. Create an API key in **Integrations** for the workflow, then:
+**Use in your app** in the harness header shows the exact calls for that harness. Create an API key in **Integrations** for the harness, then:
 
 ```sh
 curl -X POST http://localhost:8088/api/runs \
@@ -311,7 +317,7 @@ flowchart LR
 | `packages/core`   | Shared schemas, agent runtime, provider adapters, MCP/OAuth, email, storage, retrieval, queue                                                                                  |
 | `tests`           | Unit, real-stack integration, fault-injection, and browser tests with test-only provider/MCP fixtures                                                                          |
 
-The dotted edges are administrative, not execution: the API calls a model provider directly only to verify credentials, calls an MCP server directly only to list its tools, calls Weaviate directly only for the Knowledge Base's retrieval test, and the SMTP relay only for the test email. Every agent turn, workflow step, email send, and document ingestion runs in the runner, reached only through RabbitMQ.
+The dotted edges are administrative, not execution: the API calls a model provider directly only to verify credentials, calls an MCP server directly only to list its tools, calls Weaviate directly only for the Knowledge Base's retrieval test, and the SMTP relay only for the test email. Every agent turn, harness step, email send, and document ingestion runs in the runner, reached only through RabbitMQ.
 
 MongoDB, RabbitMQ, and Weaviate use their community distributions, run locally, and have independent persistent volumes. Only the studio HTTP port is published by the default Compose stack.
 
@@ -374,11 +380,11 @@ stateDiagram-v2
 
 Six mechanisms cover this, each with a stated limit:
 
-- **Submission idempotency.** `POST /runs` and webhook deliveries accept an `Idempotency-Key`. The same key with the same payload returns the original run; the same key with a different payload is rejected with `409`. Scheduled workflows dedup on a `scheduleKey`, so a scheduler restart cannot double-fire an interval.
+- **Submission idempotency.** `POST /runs` and webhook deliveries accept an `Idempotency-Key`. The same key with the same payload returns the original run; the same key with a different payload is rejected with `409`. Scheduled harnesses dedup on a `scheduleKey`, so a scheduler restart cannot double-fire an interval.
 - **Durable delivery (the outbox).** A run is written to MongoDB with `status: queued` _before_ anything is published to RabbitMQ. If the broker is down at that instant, the write still succeeds and the periodic dispatcher republishes once the broker is back. The fault-injection test stops the RabbitMQ container mid-submission to verify exactly this.
 - **Exclusive execution.** A runner claims a run with an atomic `findOneAndUpdate` (`queued → running`, tagged with a `leaseId`). A duplicate delivery finds the run already claimed and no-ops. A 5-second heartbeat keeps the lease alive; if the runner dies, the lease stops renewing.
-- **Checkpointed resume.** Before each workflow step, the runner writes a checkpoint (`cursor`, previous result, step count, per-step attempts); after it, the step's output. When a lease expires, the sweep re-queues the run and a replacement runner rebuilds its scope from the checkpoint and continues at the cursor, so completed steps are never repeated. A `resumed` event names the reason; `MAX_RESUMES` caps crash loops.
-- **Side-effect-aware policy.** A checkpoint cannot prove whether the step in flight already acted on the outside world, and MCP defines no generic way to ask. The default `safe` policy therefore resumes only when that step has no external side effects (`start`, `condition`, `finish`, agents without tools) and otherwise fails to `interrupted` with the reason spelled out. Workflows calling idempotent tools can opt into `always`; audited pipelines can choose `never`.
+- **Checkpointed resume.** Before each harness step, the runner writes a checkpoint (`cursor`, previous result, step count, per-step attempts); after it, the step's output. When a lease expires, the sweep re-queues the run and a replacement runner rebuilds its scope from the checkpoint and continues at the cursor, so completed steps are never repeated. A `resumed` event names the reason; `MAX_RESUMES` caps crash loops.
+- **Side-effect-aware policy.** A checkpoint cannot prove whether the step in flight already acted on the outside world, and MCP defines no generic way to ask. The default `safe` policy therefore resumes only when that step has no external side effects (`start`, `condition`, `finish`, agents without tools) and otherwise fails to `interrupted` with the reason spelled out. Harnesses calling idempotent tools can opt into `always`; audited pipelines can choose `never`.
 - **Idempotency keys on every tool call.** Each MCP call carries `_meta.idempotencyKey = runId:nodeId:callNumber` so a server that deduplicates on it can make a replay harmless. Servers that ignore `_meta` are unaffected, which is why the default policy stays conservative.
 
 This is the saga shape without pretending to have compensations the tools cannot offer: forward recovery for everything the platform controls, an explicit stop with a reason for the one step it cannot vouch for, and the key an external system needs to close the gap.
@@ -387,7 +393,7 @@ This is the saga shape without pretending to have compensations the tools cannot
 
 - **One tool protocol, not N connectors.** Search, market data, ticketing, files — everything arrives through MCP. One auth model, one discovery mechanism, one place (`toolValidation.ts`) where every call is checked against the server's live schema. A new integration is a new MCP server, not new orchestrator code.
 - **The tool loop is explicit and inspectable.** Each turn the model sees the full tool list with schemas; each call is validated locally, dispatched inside a claimed and heartbeating run, and written to the trace as it happens. Schema violations and MCP-side errors return to the model as tool results so it can correct itself within its turn budget instead of killing the run.
-- **Bounded everywhere.** Agent turns, per-turn tool calls, pattern passes, workflow step budgets, context size, and wall-clock timeouts are all capped. An agent cannot run away with your token budget or your infrastructure.
+- **Bounded everywhere.** Agent turns, per-turn tool calls, pattern passes, harness step budgets, context size, and wall-clock timeouts are all capped. An agent cannot run away with your token budget or your infrastructure.
 - **Least privilege by default.** Tool access is an explicit allow-list per agent; an empty list grants nothing. Provider, MCP and SMTP credentials are write-only, even to administrators. Nothing the model says grants it authorization: which tools exist, which knowledge base is searched, and which tenant's data is reachable are decided by configuration before it runs.
 - **Retrieval is a context stage, not a tool the model can misuse.** Knowledge lookups happen before the model sees the prompt, are cited by source, and are labeled as reference data rather than instructions.
 - **Tested against real infrastructure.** Integration tests run against real MongoDB, RabbitMQ and Weaviate containers with deterministic MCP/model fixtures, including fault injection: killed containers, expired OAuth tokens, interrupted and resumed runs. A passing suite means the failure mode was exercised, not mocked away.
@@ -461,8 +467,8 @@ MongoDB, RabbitMQ, Weaviate and Qdrant credentials are generated into `.env` and
 - The default HTTP listener binds to loopback. For a server, put a TLS reverse proxy in front and set `PUBLIC_URL` to the HTTPS URL.
 - A Mongo run record is the durable outbox. Queue deliveries are at least once; atomic claims prevent two workers from executing the same active run.
 - A run whose runner dies resumes from its checkpoint when the in-flight step had no external side effects (`resumePolicy: safe`, the default). A run interrupted during external work is marked **interrupted**, not replayed. Review its trace before starting a new run. This is not an exactly-once guarantee for external side effects.
-- Agent tool errors, including arguments that fail the tool's schema, return to the model for correction. An explicit workflow tool error fails that run. No potentially mutating MCP tool is retried automatically.
-- Workflows have one Start and at least one Finish, every step needs a path to Finish, and cycles are bounded by the step budget (default 100, maximum 500). Agent turns and timeouts are bounded separately. Templates are not code: only `input`, `last`, `steps.<id>` and `payload.<field>` are evaluated.
+- Agent tool errors, including arguments that fail the tool's schema, return to the model for correction. An explicit harness tool error fails that run. No potentially mutating MCP tool is retried automatically.
+- Harnesses have one Start and at least one Finish, every step needs a path to Finish, and cycles are bounded by the step budget (default 100, maximum 500). Agent turns and timeouts are bounded separately. Templates are not code: only `input`, `last`, `steps.<id>` and `payload.<field>` are evaluated.
 - Parallel steps wait for all agents; a failed sibling aborts the others' in-flight requests but cannot undo completed external actions.
 - Schedules dispatch while the API is running; after downtime an overdue slot fires once. Daily and weekly schedules wait for their first wall-clock time instead of firing on save.
 - Conversations longer than a provider's context window are compacted before each model call (older tool results first, then completed turns). A provider limit error is parsed, the learned window is stored on the provider, and the call is retried up to twice.
@@ -496,7 +502,7 @@ Include browser tests (Chromium, plus WebKit for the editor drag and drop) with 
 
 For UI development against the running local Compose API, use `npm run dev` and open `http://localhost:5173`; set `DEV_API_URL` and `DEV_API_ORIGIN` for a non-default API. The fixtures provide deterministic model, MCP, OAuth and (JSON-transport) email endpoints; MongoDB, RabbitMQ, Weaviate, the API and the runner are real containers. Tests cover protocol plumbing, streaming, agentic patterns, queue recovery and resume, email, and access isolation; hosted models and your particular MCP services should also be checked with their real credentials before release.
 
-The GitHub Actions workflow builds and tests every push and pull request. Installation credentials are generated locally; `.env`, data, dependency folders and test artifacts are excluded from version control.
+The GitHub Actions harness builds and tests every push and pull request. Installation credentials are generated locally; `.env`, data, dependency folders and test artifacts are excluded from version control.
 
 ## License
 

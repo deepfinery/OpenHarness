@@ -101,7 +101,7 @@ export function TaskMemory({ runId }: { runId?: string }) {
             ? `${durable.experiments.length} experiment record${durable.experiments.length === 1 ? '' : 's'} saved. Future runs can recall the task, result and outcome.`
             : durable?.memoryPending
               ? 'The experiment will be saved when this run finishes.'
-              : 'Attach a knowledge base or choose a long-term notebook in agent or workflow settings to retain experiments.'}
+              : 'Attach a knowledge base or choose a long-term notebook in agent or harness settings to retain experiments.'}
         </p>
         {durable?.experiments?.length > 0 && <a href="/knowledge">Browse saved experiments</a>}
         {durable?.reflection?.status === 'done' ? (

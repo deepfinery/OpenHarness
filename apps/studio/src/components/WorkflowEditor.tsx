@@ -996,7 +996,7 @@ export function WorkflowEditor({
       className="workflow-screen harness-editor"
       role="dialog"
       aria-modal="true"
-      aria-label="Workflow editor"
+      aria-label="Harness editor"
       data-history={historyVersion}
     >
       {drag &&
@@ -1014,12 +1014,12 @@ export function WorkflowEditor({
           document.body,
         )}
       <header className="workflow-header">
-        <IconButton title="Close workflow editor" onClick={onClose}>
+        <IconButton title="Close harness editor" onClick={onClose}>
           <X size={20} />
         </IconButton>
         <div className="workflow-name">
           <input
-            aria-label="Workflow name"
+            aria-label="Harness name"
             value={form.name}
             disabled={tab === 'yaml'}
             onChange={(e) => change({ ...form, name: e.target.value })}
@@ -1082,7 +1082,7 @@ export function WorkflowEditor({
           Use in your app
         </Button>
         <IconButton
-          title="Export workflow YAML"
+          title="Export harness YAML"
           onClick={() => {
             const url = URL.createObjectURL(new Blob([stringify(form)], { type: 'application/yaml' }));
             const a = document.createElement('a');
@@ -1109,7 +1109,7 @@ export function WorkflowEditor({
       {error && (
         <div className="workflow-error">
           <ErrorNotice error={error} />
-          <IconButton title="Dismiss workflow error" onClick={() => setError('')}>
+          <IconButton title="Dismiss harness error" onClick={() => setError('')}>
             <X size={16} />
           </IconButton>
         </div>
@@ -1117,12 +1117,12 @@ export function WorkflowEditor({
       <div className="workflow-body">
         <aside className="toolbox" aria-label="Toolbox">
           <div className="toolbox-intro">
-            <strong>Build your workflow</strong>
+            <strong>Build your harness</strong>
             <p>Click a step to add it after the selected card. Attach tools and knowledge to an agent.</p>
           </div>
           <input
             type="search"
-            aria-label="Search workflow components"
+            aria-label="Search harness components"
             placeholder="Find a component…"
             value={toolSearch}
             onChange={(e) => setToolSearch(e.target.value)}
@@ -1268,7 +1268,7 @@ export function WorkflowEditor({
         {tab === 'yaml' ? (
           <textarea
             className="yaml-editor"
-            aria-label="Workflow YAML"
+            aria-label="Harness YAML"
             value={yaml}
             onChange={(e) => setYaml(e.target.value)}
             spellCheck={false}
@@ -1569,7 +1569,7 @@ export function WorkflowEditor({
                 <label className="check-row">
                   <input
                     type="checkbox"
-                    aria-label="Use as workflow long-term memory"
+                    aria-label="Use as harness long-term memory"
                     checked={form.workspace?.knowledgeBaseId === openResource.knowledgeBaseId}
                     onChange={(e) =>
                       change({
@@ -1583,7 +1583,7 @@ export function WorkflowEditor({
                       })
                     }
                   />
-                  Use as workflow long-term memory
+                  Use as harness long-term memory
                 </label>
                 <p className="field-help">
                   Reference knowledge is read only by default. Enable memory to save experiments
@@ -1852,11 +1852,11 @@ export function WorkflowEditor({
         </Modal>
       )}
       {open?.kind === 'workflow' && (
-        <Modal title="Workflow settings" onClose={() => setOpen(null)} wide>
+        <Modal title="Harness settings" onClose={() => setOpen(null)} wide>
           <div className="form-content">
             <Field label="Description">
               <textarea
-                aria-label="Workflow description"
+                aria-label="Harness description"
                 rows={2}
                 value={form.description}
                 onChange={(e) => change({ ...form, description: e.target.value })}
@@ -1865,7 +1865,7 @@ export function WorkflowEditor({
             <div className="two-columns">
               <Field label="Step budget" hint="Loops stop at this limit.">
                 <input
-                  aria-label="Workflow step budget"
+                  aria-label="Harness step budget"
                   type="number"
                   min={1}
                   max={500}
@@ -1902,7 +1902,7 @@ export function WorkflowEditor({
                 checked={form.enabled}
                 onChange={(e) => change({ ...form, enabled: e.target.checked })}
               />
-              Workflow enabled
+              Harness enabled
             </label>
             <div className="form-section">
               <h3>
@@ -2002,7 +2002,7 @@ export function WorkflowEditor({
         <Modal title="Use in your app" onClose={() => setOpen(null)} wide>
           <div className="form-content">
             {!value?.id ? (
-              <div className="notice">Save the workflow first. Its ID is what other apps call.</div>
+              <div className="notice">Save the harness first. Its ID is what other apps call.</div>
             ) : (
               <>
                 <p className="field-help">

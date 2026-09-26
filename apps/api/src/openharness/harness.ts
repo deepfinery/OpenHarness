@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { workflowSchema, type Stored, type Workflow } from '../../../../packages/core/src/schema.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Request } from 'express';
@@ -28,6 +30,7 @@ export const harnessVersion = (() => {
 })();
 
 async function harnessView(req: Request, registry: OperationRegistry) {
+  if (req.harness) return scopedView(req.harness, registry);
   const tenantId = req.principal!.tenantId;
   const first = await collection<User>('users')
     .find({ $or: [{ tenantId }, { _id: tenantId }] })
@@ -47,6 +50,24 @@ async function harnessView(req: Request, registry: OperationRegistry) {
     created_at: created.toISOString(),
     updated_at: (startedAt > created ? startedAt : created).toISOString(),
     // Extension fields are namespaced so they never collide with future spec fields.
+    'x-openharness': {
+      version: harnessVersion,
+      spec_version: specVersion,
+      base_path: config.OPENHARNESS_BASE_PATH,
+    },
+  };
+}
+function scopedView(w: Stored<Workflow>, registry: OperationRegistry) {
+  return {
+    id: w._id,
+    name: w.name,
+    vendor: 'OpenHarness',
+    description: w.description,
+    execution_type: 'hosted',
+    status: w.enabled ? 'active' : 'maintenance',
+    capabilities: registry.manifest(),
+    created_at: w.createdAt.toISOString(),
+    updated_at: w.updatedAt.toISOString(),
     'x-openharness': {
       version: harnessVersion,
       spec_version: specVersion,
@@ -86,11 +107,20 @@ export function harnessOperations(registry: OperationRegistry): Operation[] {
           })
           .parse(req.query);
         const harness = await harnessView(req, registry);
-        const all = [harness].filter(
-          (h) =>
-            (!query.status || h.status === query.status) &&
-            (!query.execution_type || h.execution_type === query.execution_type),
-        );
+        const token = req.principal!.token;
+        const rows = await collection<Stored<Workflow>>('workflows')
+          .find({
+            ownerId: req.principal!.tenantId,
+            ...(token && !token.scopes.includes('harness') ? { _id: { $in: token.workflowIds } } : {}),
+          })
+          .toArray();
+        const all = rows
+          .map((w) => scopedView(w, registry))
+          .filter(
+            (h) =>
+              (!query.status || h.status === query.status) &&
+              (!query.execution_type || h.execution_type === query.execution_type),
+          );
         return pageOf(all, query);
       },
     },
@@ -106,8 +136,8 @@ export function harnessOperations(registry: OperationRegistry): Operation[] {
       handler: async (req) => {
         requireAccess(req, 'read');
         return {
-          harness_id: config.OPENHARNESS_HARNESS_ID,
-          harness_name: 'OpenHarness',
+          harness_id: req.harness?._id ?? config.OPENHARNESS_HARNESS_ID,
+          harness_name: req.harness?.name ?? 'OpenHarness',
           vendor: 'OpenHarness',
           version: harnessVersion,
           capabilities: registry.manifest(),
@@ -196,22 +226,102 @@ export function harnessOperations(registry: OperationRegistry): Operation[] {
         return { valid: true, stored: body.store };
       },
     },
-    // A single installation serves exactly one harness, so the registry itself cannot be changed.
-    ...(['harnesses.register', 'harnesses.update', 'harnesses.unregister'] as const).map((id): Operation => ({
-      id,
-      handler: (req) => {
-        requireAccess(req, 'read');
-        if (id !== 'harnesses.register' && req.params.harnessId !== config.OPENHARNESS_HARNESS_ID)
-          throw notFound('Harness');
-        throw notSupported(
-          'harnesses',
-          id,
-          'This installation serves a single harness; the registry is read-only',
-          {
-            suggestion: 'Configure the harness with OPENHARNESS_HARNESS_ID and the studio settings',
-          },
-        );
+    {
+      id: 'harnesses.register',
+      handler: async (req, res) => {
+        const p = requireAccess(req, 'manage');
+        const b = z
+          .object({
+            id: z.string().uuid().optional(),
+            name: z.string().min(1).max(100),
+            description: z.string().max(1000).default(''),
+            vendor: z.string().max(100).optional(),
+            execution_type: z.literal('hosted').default('hosted'),
+            config: z.object({}).strict().default({}),
+          })
+          .parse(req.body);
+        const now = new Date();
+        const row = {
+          ...workflowSchema.parse({
+            name: b.name,
+            description: b.description,
+            startAt: 'start',
+            nodes: [
+              { id: 'start', name: 'Start', type: 'start', next: 'finish' },
+              { id: 'finish', name: 'Finish', type: 'finish', template: '{{input}}' },
+            ],
+          }),
+          _id: b.id ?? randomUUID(),
+          ownerId: p.tenantId,
+          createdAt: now,
+          updatedAt: now,
+          revision: 1,
+        };
+        try {
+          await collection<Stored<Workflow>>('workflows').insertOne(row);
+        } catch (e) {
+          if ((e as { code?: number }).code === 11000)
+            throw new OhError(409, 'CONFLICT', 'Harness id already exists');
+          throw e;
+        }
+        res.status(201).json({ harness: scopedView(row, registry) });
       },
-    })),
+    },
+    {
+      id: 'harnesses.update',
+      handler: async (req) => {
+        requireAccess(req, 'manage');
+        if (!req.harness)
+          throw notSupported('harnesses', 'harnesses.update', 'The legacy workspace alias is read-only');
+        const b = z
+          .object({
+            name: z.string().min(1).max(100).optional(),
+            description: z.string().max(1000).optional(),
+            status: z.enum(['active', 'maintenance']).optional(),
+            config: z.object({}).strict().optional(),
+          })
+          .parse(req.body);
+        const w = req.harness;
+        const row = await collection<Stored<Workflow>>('workflows').findOneAndUpdate(
+          { _id: w._id, ownerId: w.ownerId, updatedAt: w.updatedAt },
+          {
+            $set: {
+              ...(b.name ? { name: b.name } : {}),
+              ...(b.description !== undefined ? { description: b.description } : {}),
+              ...(b.status ? { enabled: b.status === 'active' } : {}),
+              updatedAt: new Date(),
+            },
+            $inc: { revision: 1 },
+          },
+          { returnDocument: 'after' },
+        );
+        if (!row) throw new OhError(409, 'CONFLICT', 'Harness changed; reload');
+        return { harness: scopedView(row, registry) };
+      },
+    },
+    {
+      id: 'harnesses.unregister',
+      handler: async (req, res) => {
+        requireAccess(req, 'manage');
+        const w = req.harness;
+        if (!w)
+          throw notSupported('harnesses', 'harnesses.unregister', 'The legacy workspace alias is read-only');
+        if (
+          (await collection('runs').findOne({
+            ownerId: w.ownerId,
+            workflowId: w._id,
+            status: { $in: ['queued', 'running', 'waiting_for_human'] },
+          })) ||
+          (await collection('conversations').findOne({
+            ownerId: w.ownerId,
+            workflowId: w._id,
+            status: { $ne: 'ended' },
+          }))
+        )
+          throw new OhError(409, 'CONFLICT', 'Harness has active sessions or executions');
+        await collection('workflows').deleteOne({ _id: w._id, ownerId: w.ownerId });
+        res.status(204).end();
+      },
+    },
   ];
 }

@@ -26,7 +26,7 @@ test('task notebook can be searched, read and promoted from the Playground', asy
     providerId: provider.id,
   });
   const workflow = await api('/workflows', {
-    name: 'Memory browser workflow',
+    name: 'Memory browser harness',
     startAt: 'agent',
     nodes: [
       {
@@ -49,7 +49,7 @@ test('task notebook can be searched, read and promoted from the Playground', asy
     .locator('.sidebar nav')
     .getByRole('button', { name: /^Playground/ })
     .click();
-  await page.getByLabel('Playground agent or workflow').selectOption(`workflow:${workflow.id}`);
+  await page.getByLabel('Playground agent or harness').selectOption(`workflow:${workflow.id}`);
   await page.getByLabel('Message your agent').fill('task notebook roundtrip');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   await expect(page.locator('.chat-message.assistant .markdown').last()).toContainText('immediate evidence');

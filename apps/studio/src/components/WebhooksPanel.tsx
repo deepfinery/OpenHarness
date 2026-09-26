@@ -133,7 +133,7 @@ export function WebhooksPanel({ data }: { data: Data }) {
                 value={form.target}
                 onChange={(e) => setForm({ ...form, target: e.target.value })}
               >
-                <option value="">Choose a workflow</option>
+                <option value="">Choose a harness</option>
                 {targets.map((t) => (
                   <option key={t.id} value={`${t.type}:${t.id}`}>
                     {t.name}

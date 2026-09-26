@@ -61,16 +61,16 @@ test.beforeEach(async ({ page, context }) => {
 const navButton = (page: Page, label: string) =>
   page.locator('.sidebar nav').getByRole('button', { name: new RegExp(`^${label}( \\d+)?$`) });
 async function selectProvider(page: Page, scope = page.locator('.modal')) {
-  await scope.getByLabel('Workflow model provider').selectOption(providerId);
+  await scope.getByLabel('Harness model provider').selectOption(providerId);
 }
 async function newBlankWorkflow(page: Page, name: string) {
-  await navButton(page, 'Workflows').click();
-  await page.getByRole('button', { name: 'Create workflow', exact: true }).first().click();
-  const starter = page.getByRole('dialog', { name: 'Start a workflow' });
+  await navButton(page, 'Harnesses').click();
+  await page.getByRole('button', { name: 'Create harness', exact: true }).first().click();
+  const starter = page.getByRole('dialog', { name: 'Start a harness' });
   await starter.getByRole('button', { name: /Blank canvas/ }).click();
   await starter.getByRole('button', { name: 'Open canvas' }).click();
   await expect(page.locator('.harness-card')).toHaveCount(2);
-  await page.getByLabel('Workflow name').fill(name);
+  await page.getByLabel('Harness name').fill(name);
 }
 // A fixed-name workflow with the MCP lookup tool, created once through the API for tests that need a target.
 const toolFlow = 'Browser tool flow';
@@ -113,7 +113,7 @@ test('navigation shows every studio page without browser exceptions', async ({ p
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   for (const [nav, landmark] of [
-    ['Workflows', page.getByRole('heading', { name: 'Workflows', exact: true })],
+    ['Harnesses', page.getByRole('heading', { name: 'Harnesses', exact: true })],
     ['Playground', page.getByLabel('Message your agent')],
     ['Machines', page.getByRole('heading', { name: 'Machines', exact: true })],
     ['Skills', page.getByRole('heading', { name: 'Skills', exact: true })],
@@ -135,7 +135,7 @@ test('navigation shows every studio page without browser exceptions', async ({ p
   expect(errors).toEqual([]);
 });
 
-test('workflow designer drops MCP tools onto an agent, keeps dragged positions and runs in the playground', async ({
+test('harness designer drops MCP tools onto an agent, keeps dragged positions and runs in the playground', async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -153,7 +153,7 @@ test('workflow designer drops MCP tools onto an agent, keeps dragged positions a
   await selectProvider(page, modal);
   await expect(modal.locator('.effort-control button')).toHaveCount(6);
   await modal.locator('.effort-control button', { hasText: /^High$/ }).click();
-  await modal.getByLabel('Component name').fill('Workflow assistant');
+  await modal.getByLabel('Component name').fill('Harness assistant');
   await modal.getByRole('button', { name: 'Done' }).click();
   await expect(agent).toContainText('High effort');
   await page.getByRole('button', { name: /auto layout/i }).click();
@@ -166,14 +166,14 @@ test('workflow designer drops MCP tools onto an agent, keeps dragged positions a
   const after = (await agent.boundingBox())!;
   expect(Math.abs(after.y - before.y)).toBeGreaterThan(20);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Workflow editor' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Harness editor' })).toHaveCount(0);
   const saved = (await api(page.request, '/workflows')).find((w: any) => w.name === name);
   const node = saved.nodes.find((n: any) => n.type === 'agent');
   expect(node.config.effort).toBe('high');
   expect(saved.bindings).toHaveLength(1);
   expect(node.position).toBeTruthy();
   await navButton(page, 'Playground').click();
-  await page.locator('select[aria-label="Playground agent or workflow"]').selectOption({ label: name });
+  await page.locator('select[aria-label="Playground agent or harness"]').selectOption({ label: name });
   await expect(page.locator('.chat-welcome h2')).toHaveText(name);
   await expect(await chat(page, 'Please use tool for a browser test')).toContainText('MCP lookup', {
     timeout: 30000,
@@ -183,12 +183,12 @@ test('workflow designer drops MCP tools onto an agent, keeps dragged positions a
 });
 
 test('MCP starter connects selected tools and executes them from Save & test', async ({ page }) => {
-  await navButton(page, 'Workflows').click();
-  await page.getByRole('button', { name: 'Create workflow', exact: true }).first().click();
-  const starter = page.getByRole('dialog', { name: 'Start a workflow' });
+  await navButton(page, 'Harnesses').click();
+  await page.getByRole('button', { name: 'Create harness', exact: true }).first().click();
+  const starter = page.getByRole('dialog', { name: 'Start a harness' });
   await starter.getByRole('button', { name: /MCP tool assistant/ }).click();
   await starter.getByRole('button', { name: 'Connect resources' }).click();
-  await starter.getByLabel('Starter workflow name').fill(`Browser MCP harness ${tag}`);
+  await starter.getByLabel('Starter harness name').fill(`Browser MCP harness ${tag}`);
   await selectProvider(page, starter);
   await starter.getByLabel('Resource MCP connection').selectOption({ label: connectionName });
   await starter.getByRole('checkbox', { name: /lookup/ }).check();
@@ -246,10 +246,10 @@ test('knowledge bases are created from the top bar, index uploads and answer sea
   await expect(page.locator('.knowledge-results')).toContainText('four release stages', { timeout: 20000 });
 });
 
-test('knowledge starter uploads a document inline and creates a grounded workflow', async ({ page }) => {
-  await navButton(page, 'Workflows').click();
-  await page.getByRole('button', { name: 'Create workflow', exact: true }).first().click();
-  const starter = page.getByRole('dialog', { name: 'Start a workflow' });
+test('knowledge starter uploads a document inline and creates a grounded harness', async ({ page }) => {
+  await navButton(page, 'Harnesses').click();
+  await page.getByRole('button', { name: 'Create harness', exact: true }).first().click();
+  const starter = page.getByRole('dialog', { name: 'Start a harness' });
   await starter.getByRole('button', { name: /Knowledge research/ }).click();
   await starter.getByRole('button', { name: 'Connect resources' }).click();
   await selectProvider(page, starter);
@@ -259,7 +259,7 @@ test('knowledge starter uploads a document inline and creates a grounded workflo
   await kbDialog.getByLabel('Embedding provider').selectOption(providerId);
   await kbDialog.getByRole('button', { name: /save knowledge base/i }).click();
   await expect(kbDialog).not.toBeVisible();
-  await starter.getByLabel('Upload workflow knowledge').setInputFiles({
+  await starter.getByLabel('Upload harness knowledge').setInputFiles({
     name: 'starter-guide.md',
     mimeType: 'text/markdown',
     buffer: Buffer.from('The Larch research guide requires five independent citations in every report.'),
@@ -310,7 +310,7 @@ test('skills created on the Skills page are attached to an agent and loaded when
     ],
   });
   await page.reload();
-  await navButton(page, 'Workflows').click();
+  await navButton(page, 'Harnesses').click();
   await page
     .locator('.workflow-card')
     .filter({ has: page.locator('.card-name', { hasText: name }) })
@@ -372,7 +372,7 @@ test('an embedded chat created in the studio works without a studio login', asyn
   }
 });
 
-test('workspace admin adds a teammate who can open and edit shared workflows', async ({ page, browser }) => {
+test('workspace admin adds a teammate who can open and edit shared harnesses', async ({ page, browser }) => {
   await ensureToolFlow(page);
   await navButton(page, 'Settings').click();
   await page.getByRole('button', { name: 'Team & workspace', exact: true }).click();
@@ -400,7 +400,7 @@ test('workspace admin adds a teammate who can open and edit shared workflows', a
     await teammate.locator('.modal').getByLabel('Component name').fill('Shared tool assistant');
     await teammate.locator('.modal').getByRole('button', { name: 'Done' }).click();
     await teammate.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(teammate.getByRole('dialog', { name: 'Workflow editor' })).toHaveCount(0);
+    await expect(teammate.getByRole('dialog', { name: 'Harness editor' })).toHaveCount(0);
     await navButton(teammate, 'Settings').click();
     await expect(teammate.getByRole('button', { name: 'Team & workspace', exact: true })).toHaveCount(0);
   } finally {
@@ -408,7 +408,7 @@ test('workspace admin adds a teammate who can open and edit shared workflows', a
   }
 });
 
-test('a webhook created in the studio runs a workflow through its scoped secret', async ({
+test('a webhook created in the studio runs a harness through its scoped secret', async ({
   page,
   request,
 }) => {
@@ -444,7 +444,7 @@ test('a webhook created in the studio runs a workflow through its scoped secret'
   expect(result.events).toBeUndefined();
 });
 
-test('workflow settings set a knowledge workspace and learning, agents allow sub-agents, and answers take feedback', async ({
+test('harness settings set a knowledge workspace and learning, agents allow sub-agents, and answers take feedback', async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -468,7 +468,7 @@ test('workflow settings set a knowledge workspace and learning, agents allow sub
   await page.getByLabel('Learn from experience').check();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Save & test', exact: true }).click();
-  await expect(page.getByLabel('Playground agent or workflow')).toBeVisible();
+  await expect(page.getByLabel('Playground agent or harness')).toBeVisible();
   const saved = (await api(page.request, '/workflows')).find((w: any) => w.name === name);
   expect(saved.workspace.knowledgeBaseId).toBe(kb.id);
   expect(saved.experience.enabled).toBe(true);
@@ -513,19 +513,19 @@ test('playground restores a running conversation after navigation and reload', a
   });
   await page.reload();
   await navButton(page, 'Playground').click();
-  await page.getByLabel('Playground agent or workflow').selectOption(`workflow:${workflow.id}`);
+  await page.getByLabel('Playground agent or harness').selectOption(`workflow:${workflow.id}`);
   const response = page.waitForResponse(
     (r) => r.url().endsWith('/api/chat') && r.request().method() === 'POST',
   );
   await chat(page, 'delay-model remember this running job');
   const started = await (await response).json();
-  await navButton(page, 'Workflows').click();
+  await navButton(page, 'Harnesses').click();
   await navButton(page, 'Playground').click();
   await expect(page.locator('.chat-message.user')).toContainText('remember this running job');
   await expect(page.getByRole('button', { name: 'Cancel run', exact: true })).toBeVisible();
   await expect(page.locator('.trace-meta')).toContainText(started.id);
   await page.reload();
-  await expect(page.getByLabel('Playground agent or workflow')).toHaveValue(`workflow:${workflow.id}`);
+  await expect(page.getByLabel('Playground agent or harness')).toHaveValue(`workflow:${workflow.id}`);
   await expect(page.locator('.chat-message.user')).toHaveCount(1);
   await expect(page.locator('.trace-meta')).toContainText(started.id);
   await expect(page.locator('.trace-meta')).toContainText('succeeded', { timeout: 45000 });
@@ -534,7 +534,7 @@ test('playground restores a running conversation after navigation and reload', a
   await expect(page.locator('.chat-message.assistant')).toHaveCount(1);
   await expect(page.locator('.chat-message.user')).toHaveCount(1);
   await page.getByRole('button', { name: 'New conversation', exact: true }).click();
-  await navButton(page, 'Workflows').click();
+  await navButton(page, 'Harnesses').click();
   await navButton(page, 'Playground').click();
   await expect(page.locator('.chat-welcome h2')).toHaveText(name);
   await expect(page.locator('.chat-message')).toHaveCount(0);
@@ -542,12 +542,12 @@ test('playground restores a running conversation after navigation and reload', a
 
 test('designer component search keeps adding accessible without dragging', async ({ page }) => {
   await newBlankWorkflow(page, `Searchable designer ${tag}`);
-  await page.getByLabel('Search workflow components').fill('AI agent');
+  await page.getByLabel('Search harness components').fill('AI agent');
   await expect(page.getByRole('button', { name: 'Add AI agent', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add Condition', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Add AI agent', exact: true }).click();
   await expect(page.locator('.harness-card.kind-agent')).toHaveCount(1);
-  await page.getByLabel('Search workflow components').fill('');
+  await page.getByLabel('Search harness components').fill('');
   await page.getByRole('button', { name: 'Set up memory', exact: true }).click();
   await expect(page.getByLabel('Knowledge workspace')).toBeVisible();
 });
@@ -555,7 +555,7 @@ test('designer component search keeps adding accessible without dragging', async
 test('playground recovers when navigation happens before the chat response arrives', async ({ page }) => {
   await ensureToolFlow(page);
   await navButton(page, 'Playground').click();
-  await page.getByLabel('Playground agent or workflow').selectOption({ label: toolFlow });
+  await page.getByLabel('Playground agent or harness').selectOption({ label: toolFlow });
   await page.getByRole('button', { name: 'New conversation', exact: true }).click();
   await page.route('**/api/chat', async (route) => {
     const response = await route.fetch();
@@ -563,11 +563,9 @@ test('playground recovers when navigation happens before the chat response arriv
     await route.fulfill({ response });
   });
   await chat(page, 'delay-model keep the late response');
-  await navButton(page, 'Workflows').click();
+  await navButton(page, 'Harnesses').click();
   await navButton(page, 'Playground').click();
-  await expect(page.getByLabel('Playground agent or workflow').locator('option:checked')).toHaveText(
-    toolFlow,
-  );
+  await expect(page.getByLabel('Playground agent or harness').locator('option:checked')).toHaveText(toolFlow);
   await expect(page.locator('.chat-message.user')).toContainText('keep the late response');
   await expect(page.locator('.trace-meta')).toContainText('running', { timeout: 10000 });
   await expect(page.getByLabel('Message your agent')).toBeDisabled();

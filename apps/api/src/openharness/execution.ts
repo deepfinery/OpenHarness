@@ -1,3 +1,4 @@
+import { sessionMessage, sessionFor } from './sessions.js';
 import { canAnswer, decideHuman, type HumanRequest } from '../../../../packages/core/src/human.js';
 import { listArtifacts, artifactContent } from '../../../../packages/core/src/artifacts.js';
 import type { Request, Response } from 'express';
@@ -70,7 +71,7 @@ async function ensureDefaultAgent(tenantId: string) {
   return _id;
 }
 /** Agents are workflows; the older stand-alone agent records are addressable too. */
-async function resolveTarget(tenantId: string, agentId?: string) {
+export async function resolveTarget(tenantId: string, agentId?: string) {
   if (!agentId) return { agentId: await ensureDefaultAgent(tenantId) };
   if (!z.string().uuid().safeParse(agentId).success) throw notFound('Agent');
   if (await collection('workflows').findOne({ _id: agentId, ownerId: tenantId }))
@@ -106,23 +107,41 @@ async function resolveSkills(tenantId: string, skills?: string[]) {
     });
   return skills;
 }
-const streamUrl = (id: string) =>
-  `${config.PUBLIC_URL.replace(/\/$/, '')}${config.OPENHARNESS_BASE_PATH}/harnesses/${config.OPENHARNESS_HARNESS_ID}/executions/${id}/stream`;
+const streamUrl = (id: string, harness: string) =>
+  `${config.PUBLIC_URL.replace(/\/$/, '')}${config.OPENHARNESS_BASE_PATH}/harnesses/${harness}/executions/${id}/stream`;
 
-async function execute(req: Request) {
+export async function execute(req: Request) {
   const principal = requireAccess(req, 'execute');
   const body = executeSchema.parse(req.body);
   if (body.message.length > MAX_INPUT)
     throw new OhError(400, 'context_length_exceeded', `Messages are limited to ${MAX_INPUT} characters`);
-  if (body.session_id)
-    throw notSupported(
-      'sessions',
-      'execution.run',
-      'session_id needs the sessions domain, which is not supported yet',
-    );
+  if (body.session_id) {
+    const s = await sessionFor(req, 'execute', body.session_id);
+    if (body.agent_id && body.agent_id !== (s.nodeId ?? s.workflowId ?? s.agentId))
+      throw new OhError(409, 'CONFLICT', 'Session agent cannot change');
+    if (body['x-openharness']?.machine_id || body['x-openharness']?.payload)
+      throw new OhError(
+        400,
+        'VALIDATION_ERROR',
+        'Set the machine when creating a session; per-message payloads are not supported',
+      );
+    const providerId = await resolveModel(principal.tenantId, body.model),
+      skillIds = await resolveSkills(principal.tenantId, body.skills);
+    return sessionMessage(req, body.message, body.session_id, {
+      ...(body.system_prompt ? { systemPrompt: body.system_prompt } : {}),
+      ...(providerId ? { providerId } : {}),
+      ...(skillIds ? { skillIds } : {}),
+    });
+  }
   const tenantId = principal.tenantId;
-  const target = await resolveTarget(tenantId, body.agent_id);
-  requireAccess(req, 'execute', body.agent_id ? target : {});
+  const target = req.harness ? { workflowId: req.harness._id } : await resolveTarget(tenantId, body.agent_id);
+  if (
+    req.harness &&
+    body.agent_id &&
+    !req.harness.nodes.some((n) => n.type === 'agent' && n.id === body.agent_id)
+  )
+    throw notFound('Agent');
+  requireAccess(req, 'execute', body.agent_id || req.harness ? target : {});
   const providerId = await resolveModel(tenantId, body.model);
   const skillIds = await resolveSkills(tenantId, body.skills);
   await rateLimit(`run:${tenantId}`, 60);
@@ -146,18 +165,23 @@ async function execute(req: Request) {
     {
       ...(idempotencyKey ? { idempotencyKey } : {}),
       ...(principal.token ? { tokenId: principal.token._id } : {}),
+      ...(req.harness && body.agent_id ? { agentNodeId: body.agent_id } : {}),
+      apiHarnessId: req.harness?._id,
       initiatedBy: principal.user._id,
       trigger: 'api',
       ...(Object.keys(overrides).length ? { overrides } : {}),
     },
   );
 }
-async function findRun(req: Request, need: 'read' | 'execute' = 'read') {
+export async function findRun(req: Request, need: 'read' | 'execute' = 'read') {
   const principal = requireAccess(req, need);
   const filter = { _id: String(req.params.executionId), ownerId: principal.tenantId, ...runScope(req) };
   const run = await runs().findOne(filter);
   if (!run) throw notFound('Execution');
-  requireAccess(req, need, { workflowId: run.workflowId, agentId: run.workflowId ? undefined : run.agentId });
+  requireAccess(req, need, {
+    workflowId: run.workflowId ?? run.apiHarnessId,
+    agentId: run.workflowId || run.apiHarnessId ? undefined : run.agentId,
+  });
   return { run, filter };
 }
 
@@ -172,7 +196,7 @@ function parseCursor(value: unknown): Cursor | undefined {
  * come from the persisted run log; `text` streams the model output as it is written and, when the run finishes,
  * whatever part of the final answer the client has not seen yet. Every stream ends with exactly one `done`.
  */
-async function stream(req: Request, res: Response, first: Run, filter: object, cursor?: Cursor) {
+export async function stream(req: Request, res: Response, first: Run, filter: object, cursor?: Cursor) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-store',
@@ -260,7 +284,6 @@ export function executionOperations(registry: OperationRegistry): Operation[] {
   registry.declare('execution', {
     limitations: [
       'temperature and max_tokens are accepted but not applied; choose the model with the model field',
-      'session_id needs the sessions domain, which is not supported yet',
       `Messages are limited to ${MAX_INPUT} characters`,
       'Artifacts capture final answers and embedded MCP resources up to 5 MiB each (50 per execution); external file URLs are not downloaded',
     ],
@@ -363,7 +386,7 @@ export function executionOperations(registry: OperationRegistry): Operation[] {
         res.status(202).json({
           execution_id: run._id,
           status: executionView(run).status,
-          stream_url: streamUrl(run._id),
+          stream_url: streamUrl(run._id, String(req.params.harnessId)),
         });
       },
     },
@@ -408,7 +431,15 @@ export function executionOperations(registry: OperationRegistry): Operation[] {
           ownerId: principal.tenantId,
           ...runScope(req),
           ...(query.status ? { status: { $in: runStatusesFor(query.status) } } : {}),
-          ...(query.agent_id ? { $or: [{ workflowId: query.agent_id }, { agentId: query.agent_id }] } : {}),
+          ...(query.agent_id
+            ? {
+                $or: [
+                  { workflowId: query.agent_id },
+                  { agentId: query.agent_id },
+                  { agentNodeId: query.agent_id },
+                ],
+              }
+            : {}),
           ...(query.since ? { createdAt: { $gte: new Date(query.since) } } : {}),
         };
         const [total, items] = await Promise.all([

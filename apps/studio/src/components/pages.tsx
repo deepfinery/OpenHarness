@@ -36,11 +36,11 @@ export function WorkflowsPage({ data, edit, navigate, act, refresh }: PageProps)
   return (
     <>
       <PageTitle
-        title="Workflows"
+        title="Harnesses"
         action={
           <Button onClick={() => edit('workflows')}>
             <Plus size={17} />
-            Create workflow
+            Create harness
           </Button>
         }
       />
@@ -50,7 +50,7 @@ export function WorkflowsPage({ data, edit, navigate, act, refresh }: PageProps)
             <GitBranch size={20} />
           </div>
           <div>
-            <span>Workflows</span>
+            <span>Harnesses</span>
             <strong>{data.workflows.length}</strong>
           </div>
           <small>{data.workflows.filter((w) => w.enabled).length} enabled</small>
@@ -73,20 +73,20 @@ export function WorkflowsPage({ data, edit, navigate, act, refresh }: PageProps)
             <span>Knowledge bases</span>
             <strong>{data.knowledge.length}</strong>
           </div>
-          <small>{data.workflows.filter((w) => w.schedule?.enabled).length} scheduled workflows</small>
+          <small>{data.workflows.filter((w) => w.schedule?.enabled).length} scheduled harnesses</small>
         </div>
       </div>
       <div className="section-toolbar">
         <div>
           <h2>
-            All workflows <span>{data.workflows.length}</span>
+            All harnesses <span>{data.workflows.length}</span>
           </h2>
         </div>
         <div className="search-input">
           <Search size={16} />
           <input
-            aria-label="Search workflows"
-            placeholder="Search workflows…"
+            aria-label="Search harnesses"
+            placeholder="Search harnesses…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -118,11 +118,11 @@ export function WorkflowsPage({ data, edit, navigate, act, refresh }: PageProps)
               <Plug size={14} /> MCP tools
             </span>
           </div>
-          <h2>Create your first workflow</h2>
+          <h2>Create your first harness</h2>
           <p>Start from a template, then adjust the agents, tools and steps on the canvas.</p>
           <Button onClick={() => edit('workflows')}>
             <Plus size={16} />
-            Create workflow
+            Create harness
           </Button>
         </div>
       ) : (
@@ -137,7 +137,7 @@ export function WorkflowsPage({ data, edit, navigate, act, refresh }: PageProps)
                 <IconButton
                   title={`Delete ${w.name}`}
                   onClick={() => {
-                    if (confirm(`Delete workflow “${w.name}”?`))
+                    if (confirm(`Delete harness “${w.name}”?`))
                       void act(async () => {
                         await api(`/workflows/${w.id}`, { method: 'DELETE' });
                         await refresh();
@@ -310,7 +310,7 @@ export function ConnectionsPage({ data, edit, act, refresh }: PageProps) {
         <Empty
           icon={<Plug size={30} />}
           title="No MCP servers yet"
-          text="Connect a server with a URL and an API key or OAuth. Its tools appear here and in the workflow designer."
+          text="Connect a server with a URL and an API key or OAuth. Its tools appear here and in the harness designer."
           action={
             <Button onClick={() => edit('connections')}>
               <Plus size={16} />
@@ -501,7 +501,7 @@ export function RunsPage() {
           <table>
             <thead>
               <tr>
-                <th>Workflow</th>
+                <th>Harness</th>
                 <th>Status</th>
                 <th>Input</th>
                 <th>Trigger</th>

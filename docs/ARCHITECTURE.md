@@ -259,3 +259,17 @@ a result can change the connector's configuration, allow-lists or token.
 5. `connector-windows`, then `connector-chrome`.
 6. Orchestrator: fleet sync, policy hook, end-to-end test through the isolated stack.
 7. Test suite and NAT simulation script; SECURITY.md and INSTALL.md finalised.
+
+## Open Harness API adapter
+
+The studio's graph is a **harness** containing agent cards and resource bindings. The existing `workflows` MongoDB collection and `/api/workflows` routes remain storage/transport compatibility names. No data migration or new IDs are needed. `/api/harnesses` is the studio CRUD alias.
+
+The versioned adapter in `apps/api/src/openharness` resolves tenant ownership and harness grants before each operation. The operation registry mounts the pinned Open Harness routes and generates capability claims. `openapi.ts` combines that registry with generated contract schemas; the studio API explorer consumes this document rather than maintaining a second endpoint catalog.
+
+Sessions use durable conversations and atomically reserve one pending turn. Executions enter the same RabbitMQ queue and use the same immutable resource snapshots, guardrails, human-input handling and resume rules as studio runs. Selecting an agent produces a single-agent snapshot while preserving the saved harness.
+
+Agent memory, execution plans, file metadata and skill versions persist in owner-scoped MongoDB collections. File blobs use the existing storage abstraction. Archival memory uses the configured vector store through its existing interface. Runtime memory/file tools and API operations share the same core functions. Memory enters the prompt as untrusted retrieval data and passes retrieval guardrails.
+
+Shared model providers, skills and MCP connections belong to the workspace. Every external tool remains MCP-based. The adapter never executes uploaded code, launches arbitrary host processes, or bypasses bound tool permissions. API child agents inherit the parent configuration and receive bounded independent execution budgets.
+
+See [the main architecture guide](../README.md#architecture), [API behavior and limits](openharness-api.md), [generated support matrix](openharness-support.md), and [verification](conformance.md).

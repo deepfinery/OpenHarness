@@ -308,8 +308,8 @@ export function GuardrailsPage({
           <Check size={18} />
           <span>
             {success}{' '}
-            <a href="/workflows">
-              Open Workflows <ArrowRight size={14} />
+            <a href="/harnesses">
+              Open Harnesses <ArrowRight size={14} />
             </a>
           </span>
           <button aria-label="Dismiss message" onClick={() => setSuccess('')}>
@@ -360,11 +360,11 @@ export function GuardrailsPage({
           <div className="guardrail-guide">
             <ShieldCheck size={22} />
             <div>
-              <h3>From policy to protected workflow</h3>
+              <h3>From policy to protected harness</h3>
               <p>
-                Choose a template → customize and save → open a workflow and add the policy from the toolbox.
-                Connect its guardrail box above an agent, or select it in Workflow settings to cover the whole
-                workflow.
+                Choose a template → customize and save → open a harness and add the policy from the toolbox.
+                Connect its guardrail box above an agent, or select it in Harness settings to cover the whole
+                harness.
               </p>
               <small>
                 Safety-model templates require a configured NeMo classifier. Templates show their coverage and
@@ -379,7 +379,7 @@ export function GuardrailsPage({
           <div className="guardrail-section-heading">
             <div>
               <h2>Your policy library</h2>
-              <p>Saved policies are available in the workflow toolbox and agent settings.</p>
+              <p>Saved policies are available in the harness toolbox and agent settings.</p>
             </div>
             <label className="guardrail-search">
               <Search size={16} />
@@ -417,7 +417,7 @@ export function GuardrailsPage({
                     <small>
                       {defaults.includes(p.id)
                         ? 'Workspace default · applies to every new run'
-                        : `${uses} workflow${uses === 1 ? '' : 's'} · ${data.agents.filter((a) => a.guardrailIds?.includes(p.id)).length} standalone agents`}
+                        : `${uses} harness${uses === 1 ? '' : 's'} · ${data.agents.filter((a) => a.guardrailIds?.includes(p.id)).length} standalone agents`}
                     </small>
                     <Button variant="secondary" onClick={() => open(p)}>
                       {isAdmin ? 'Edit policy' : 'View policy'}
@@ -434,7 +434,7 @@ export function GuardrailsPage({
               text={
                 query
                   ? 'Try a different search.'
-                  : 'Start with a template, then attach your saved policy to a workflow.'
+                  : 'Start with a template, then attach your saved policy to a harness.'
               }
               action={
                 <Button
@@ -454,7 +454,7 @@ export function GuardrailsPage({
         <section className="guardrail-panel">
           <h2>Workspace defaults</h2>
           <p>
-            Apply these policies to every new run, in addition to workflow and agent policies. Changes do not
+            Apply these policies to every new run, in addition to harness and agent policies. Changes do not
             alter runs already in progress.
           </p>
           <GuardrailPicker data={data} value={defaults} onChange={setDefaults} disabled={!isAdmin || busy} />
@@ -478,10 +478,10 @@ export function GuardrailsPage({
           <section className="guardrail-panel">
             <FlaskConical size={22} />
             <h2>Safety evaluations</h2>
-            <p>Test a saved workflow before publishing. Reports retain the evaluated revision.</p>
-            <Field label="Evaluation workflow">
+            <p>Test a saved harness before publishing. Reports retain the evaluated revision.</p>
+            <Field label="Evaluation harness">
               <select value={workflowId} onChange={(e) => setWorkflowId(e.target.value)}>
-                <option value="">Choose workflow…</option>
+                <option value="">Choose harness…</option>
                 {data.workflows.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
@@ -494,7 +494,7 @@ export function GuardrailsPage({
                 disabled={!workflowId || busy || !isAdmin}
                 onClick={() => act(() => send('/guardrail-evaluations', { workflowId }))}
               >
-                Evaluate workflow
+                Evaluate harness
               </Button>
               <Button
                 variant="secondary"
@@ -508,7 +508,7 @@ export function GuardrailsPage({
               </Button>
             </div>
             {!evaluations.length && (
-              <p className="guardrail-muted">No evaluations yet. Choose a workflow to begin.</p>
+              <p className="guardrail-muted">No evaluations yet. Choose a harness to begin.</p>
             )}
             {evaluations.map((e) => (
               <details className="guardrail-report" key={e.id}>
@@ -563,7 +563,7 @@ export function GuardrailsPage({
                 setEditing(undefined);
                 setTab('policies');
                 setQuery('');
-                setSuccess(`${policy.name} saved. Add it to a workflow to start using it.`);
+                setSuccess(`${policy.name} saved. Add it to a harness to start using it.`);
               });
             }}
           >
@@ -675,7 +675,7 @@ export function GuardrailsPage({
                     />
                     <span>
                       <strong>Enable policy</strong>
-                      <small>Available for new workflow and agent runs.</small>
+                      <small>Available for new harness and agent runs.</small>
                     </span>
                   </label>
                   <h3>What this policy checks</h3>

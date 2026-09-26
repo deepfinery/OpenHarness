@@ -305,6 +305,14 @@ test('agents with running executions cannot be deleted; others can', async () =>
 
 test('tools list MCP and built-in tools, and invoke them directly with validation', async () => {
   const list = await call(`${harness}/tools?limit=100`);
+  let offset = 100,
+    more = list.data.has_more;
+  while (more) {
+    const next = await call(`${harness}/tools?limit=100&offset=${offset}`);
+    list.data.data.push(...next.data.data);
+    more = next.data.has_more;
+    offset += 100;
+  }
   const ids = list.data.data.map((t: any) => t.id);
   assert.ok(ids.includes('builtin.load_skill'));
   const lookup = list.data.data.find((t: any) => t.id === `mcp.${connection.id}.lookup`);

@@ -42,5 +42,10 @@ export function requireAccess(req: Request, need: Need, target?: { workflowId?: 
 /** Workflow-scoped keys see only the runs they created, as on /api/runs; workspace keys and sessions see all. */
 export function runScope(req: Request) {
   const token = req.principal!.token;
-  return token && !token.scopes.includes('harness') ? { tokenId: token._id } : {};
+  return {
+    ...(token && !token.scopes.includes('harness') ? { tokenId: token._id } : {}),
+    ...(req.harness
+      ? { $and: [{ $or: [{ workflowId: req.harness._id }, { apiHarnessId: req.harness._id }] }] }
+      : {}),
+  };
 }

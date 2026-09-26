@@ -36,6 +36,10 @@ export async function createRun(
     conversationId?: string;
     runId?: string;
     evaluation?: boolean;
+    agentNodeId?: string;
+    apiHarnessId?: string;
+    apiParentAgentId?: string;
+    apiSubagentId?: string;
     monitoring?: { clusterId: string; cycleId: string };
     /** Per-run changes applied to every agent's snapshot; the stored agents and workflow are untouched. */
     overrides?: RunOverrides;
@@ -51,6 +55,7 @@ export async function createRun(
       webhookId: options.webhookId,
       overrides: options.overrides,
       evaluation: options.evaluation,
+      agentNodeId: options.agentNodeId,
       monitoring: options.monitoring,
     }),
   );
@@ -80,6 +85,17 @@ export async function createRun(
     : null;
   if (input.workflowId && !workflowRecord) throw new HttpError(404, 'Workflow unavailable');
   const workflow = workflowRecord ? workflowSchema.parse(workflowRecord) : null;
+  if (options.agentNodeId && workflow) {
+    const node = workflow.nodes.find((n) => n.id === options.agentNodeId && n.type === 'agent');
+    if (!node || node.type !== 'agent') throw new HttpError(404, 'Agent unavailable in this harness');
+    workflow.startAt = 'api_start';
+    workflow.nodes = [
+      { id: 'api_start', name: 'Start', type: 'start', next: node.id },
+      { ...node, next: 'api_finish' },
+      { id: 'api_finish', name: 'Finish', type: 'finish', template: '{{last}}' },
+    ];
+    workflow.bindings = workflow.bindings.filter((b) => b.agentNodeId === node.id);
+  }
   const ids = new Set<string>(input.agentId ? [input.agentId] : []);
   for (const node of workflow?.nodes ?? []) {
     if (node.type === 'agent' && node.agentId) ids.add(node.agentId);

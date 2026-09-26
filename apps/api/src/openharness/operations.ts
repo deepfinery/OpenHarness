@@ -1,3 +1,4 @@
+import { resolveHarness } from './scope.js';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import { config } from '../../../../packages/core/src/config.js';
@@ -101,11 +102,13 @@ export class OperationRegistry {
           next();
         },
         operation?.auth === 'optional' ? auth.optional : auth.required,
-        (req: Request, _res: Response, next: NextFunction) => {
-          const harnessId = req.params.harnessId;
-          if (harnessId !== undefined && harnessId !== config.OPENHARNESS_HARNESS_ID)
-            return next(notFound('Harness', { details: { harness_id: harnessId } }));
-          next();
+        async (req: Request, _res: Response, next: NextFunction) => {
+          try {
+            await resolveHarness(req);
+            next();
+          } catch (error) {
+            next(error);
+          }
         },
         async (req: Request, res: Response, next: NextFunction) => {
           try {

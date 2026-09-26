@@ -67,7 +67,7 @@ export function WorkflowStarter({
     }
   }
   return (
-    <Modal title="Start a workflow" wide onClose={onClose}>
+    <Modal title="Start a harness" wide onClose={onClose}>
       <div className="starter-body">
         <div className="starter-progress">
           <span className="active">
@@ -114,9 +114,9 @@ export function WorkflowStarter({
         ) : (
           <>
             <h3>{recipe.name}</h3>
-            <Field label="Workflow name">
+            <Field label="Harness name">
               <input
-                aria-label="Starter workflow name"
+                aria-label="Starter harness name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
@@ -168,7 +168,7 @@ export function WorkflowStarter({
                   <Laptop size={16} />
                   <span>
                     {data.machines.length
-                      ? 'After saving, open the Playground, pick this workflow and ask, for example, “list the files in the work directory”, “run uname -a” or “how much disk space is free?”. Commands run only if the machine’s allow-list permits them.'
+                      ? 'After saving, open the Playground, pick this harness and ask, for example, “list the files in the work directory”, “run uname -a” or “how much disk space is free?”. Commands run only if the machine’s allow-list permits them.'
                       : 'No machines yet. Enroll one on the Machines page, then choose it here or in the Playground.'}
                   </span>
                 </div>

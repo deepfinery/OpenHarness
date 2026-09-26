@@ -97,7 +97,7 @@ test('a knowledge base dragged onto an existing agent is bound to it and saved',
   await expect(page.locator('.harness-card.kind-agent.drop-target')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Workflow editor' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Harness editor' })).toHaveCount(0);
   const saved = await api(page.request, `/workflows/${workflow.id}`);
   const resource = saved.resources.find((r: any) => r.type === 'knowledge');
   expect(resource.knowledgeBaseId).toBe(kb.id);
@@ -154,7 +154,7 @@ test('an MCP server whose tools were never discovered gets them when it is dropp
   await page.mouse.up();
   await expect(page.locator('.harness-card.kind-mcp', { hasText: server.name })).toContainText('6 tools');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Workflow editor' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Harness editor' })).toHaveCount(0);
   const saved = await api(page.request, `/workflows/${workflow.id}`);
   expect(saved.resources[0].tools.length).toBeGreaterThan(0);
   expect(saved.bindings).toEqual([{ agentNodeId: 'assistant', resourceId: saved.resources[0].id }]);

@@ -448,6 +448,10 @@ export type RunDevice = {
   hostname?: string;
 };
 export type Run = Stored<RunInput> & {
+  apiHarnessId?: string;
+  agentNodeId?: string;
+  apiParentAgentId?: string;
+  apiSubagentId?: string;
   evaluation?: boolean;
   monitoring?: { clusterId: string; cycleId: string };
   status: RunStatus;

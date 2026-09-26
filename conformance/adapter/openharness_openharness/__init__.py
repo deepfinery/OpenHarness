@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+from types import SimpleNamespace
 from typing import Any, AsyncIterator
 
 import httpx
@@ -62,6 +63,7 @@ class OpenHarnessAdapter(HarnessAdapter):
         base = (base_url or os.environ.get("OPENHARNESS_URL", "http://localhost:8088/openharness/v1")).rstrip("/")
         key = api_key or os.environ.get("OPENHARNESS_API_KEY", "")
         self._harness = harness_id or os.environ.get("OPENHARNESS_HARNESS_ID", "openharness")
+        self.memory = MemoryClient(self)
         self._default_agent = default_agent_id or os.environ.get("OPENHARNESS_AGENT_ID") or None
         self._client = httpx.AsyncClient(
             base_url=f"{base}/harnesses/{self._harness}",
@@ -86,7 +88,7 @@ class OpenHarnessAdapter(HarnessAdapter):
     @property
     def capabilities(self) -> AdapterCapabilities:
         # Only what the harness serves today; the capability manifest has the details.
-        return AdapterCapabilities(agents=True, execution=True, streaming=True, mcp=True, hooks=False)
+        return AdapterCapabilities(agents=True, execution=True, streaming=True, mcp=True, sessions=True, memory=True, skills=True, hooks=False)
 
     # Execution ----------------------------------------------------------------------------------------------
 
@@ -159,7 +161,10 @@ class OpenHarnessAdapter(HarnessAdapter):
         )
         if response.status_code != 201:
             raise _error(response)
-        return response.json()["agent"]["id"]
+        agent_id = response.json()["agent"]["id"]
+        for block in config.get("memory_blocks", []):
+            await self.memory.add_block(agent_id, SimpleNamespace(**block))
+        return agent_id
 
     async def get_agent(self, agent_id: str) -> dict[str, Any]:
         response = await self._client.get(f"/agents/{agent_id}")
@@ -184,6 +189,36 @@ class OpenHarnessAdapter(HarnessAdapter):
         response = await self._client.delete(f"/agents/{agent_id}")
         if response.status_code not in (204, 404):
             raise _error(response)
+
+    async def start_session(self, **options: Any) -> str:
+        data = {"agent_id": self._default_agent} if self._default_agent else {}
+        response = await self._client.post("/sessions", json=data)
+        if response.status_code != 201:
+            raise _error(response)
+        return response.json()["session"]["id"]
+
+    async def get_session(self, session_id: str) -> dict[str, Any]:
+        response = await self._client.get(f"/sessions/{session_id}")
+        if response.status_code != 200:
+            raise _error(response)
+        return response.json()["session"]
+
+    async def list_sessions(self) -> list[dict[str, Any]]:
+        response = await self._client.get("/sessions", params={"status": "active", "limit": 100})
+        if response.status_code != 200:
+            raise _error(response)
+        return response.json()["data"]
+
+    async def stop_session(self, session_id: str) -> None:
+        response = await self._client.delete(f"/sessions/{session_id}")
+        if response.status_code not in (204, 404):
+            raise _error(response)
+
+    async def list_skills(self) -> list[dict[str, Any]]:
+        response = await self._client.get("/skills", params={"limit": 100})
+        if response.status_code != 200:
+            raise _error(response)
+        return response.json()["data"]
 
     # Tools --------------------------------------------------------------------------------------------------
 
@@ -211,6 +246,32 @@ class OpenHarnessAdapter(HarnessAdapter):
 
     async def close(self) -> None:
         await self._client.aclose()
+
+
+class MemoryClient:
+    def __init__(self, adapter):
+        self.adapter = adapter
+
+    async def call(self, agent_id, method, path, body=None):
+        response = await self.adapter._client.request(method, f"/agents/{agent_id}/memory{path}", **({"json": body} if body is not None else {}))
+        if response.status_code >= 400:
+            raise _error(response)
+        return response.json() if response.content else None
+
+    async def get_blocks(self, agent_id):
+        return [SimpleNamespace(**b) for b in (await self.call(agent_id, "GET", "/blocks"))["blocks"]]
+
+    async def get_block(self, agent_id, label):
+        return SimpleNamespace(**(await self.call(agent_id, "GET", f"/blocks/{label}"))["block"])
+
+    async def update_block(self, agent_id, label, value):
+        return SimpleNamespace(**(await self.call(agent_id, "PUT", f"/blocks/{label}", {"value": value}))["block"])
+
+    async def add_block(self, agent_id, block):
+        return SimpleNamespace(**(await self.call(agent_id, "POST", "/blocks", {"label": block.label, "value": block.value}))["block"])
+
+    async def delete_block(self, agent_id, label):
+        await self.call(agent_id, "DELETE", f"/blocks/{label}")
 
 
 def _event(kind: str, data: dict[str, Any]) -> Any:

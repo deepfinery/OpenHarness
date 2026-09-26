@@ -8,7 +8,7 @@ export type Conversation = {
   workflowId?: string;
   deviceId?: string;
   // Assistant messages carry the run that produced them, for feedback.
-  messages: (Run['history'][number] & { runId?: string })[];
+  messages: (Run['history'][number] & { runId?: string; id?: string; createdAt?: string })[];
   createdAt: Date;
   updatedAt: Date;
   pending?: { runId: string; since: Date };
@@ -28,10 +28,21 @@ export async function settleConversation(run: Run) {
             $push: {
               messages: {
                 $each: [
-                  { role: 'user' as const, content: run.input },
-                  { role: 'assistant' as const, content: (run.output ?? '').slice(0, 32000), runId: run._id },
+                  {
+                    id: `${run._id}:user`,
+                    createdAt: run.createdAt.toISOString(),
+                    role: 'user' as const,
+                    content: run.input,
+                  },
+                  {
+                    id: `${run._id}:assistant`,
+                    createdAt: (run.finishedAt ?? new Date()).toISOString(),
+                    role: 'assistant' as const,
+                    content: (run.output ?? '').slice(0, 32000),
+                    runId: run._id,
+                  },
                 ],
-                $slice: -20,
+                $slice: -100,
               },
             },
           }

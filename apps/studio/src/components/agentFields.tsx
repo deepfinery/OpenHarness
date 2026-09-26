@@ -113,7 +113,7 @@ export function AgentFields({
       <EffortControl value={effort} onChange={(level) => onChange(applyEffort(value, level))} />
       <Field
         label="Timezone"
-        hint="Used for the runtime clock and relative dates. Defaults to the workflow schedule timezone, then UTC."
+        hint="Used for the runtime clock and relative dates. Defaults to the harness schedule timezone, then UTC."
       >
         <input
           aria-label="Agent timezone"
@@ -208,7 +208,7 @@ export function AgentFields({
       </Field>
       <Field
         label="Long-term memory"
-        hint="Use a knowledge base as a persistent Markdown notebook for environment findings, conversation notes, skill-directed notes and feedback lessons. The default is workflow memory, then the first attached knowledge base."
+        hint="Use a knowledge base as a persistent Markdown notebook for environment findings, conversation notes, skill-directed notes and feedback lessons. The default is harness memory, then the first attached knowledge base."
       >
         <select
           aria-label="Agent long-term memory"
@@ -224,7 +224,7 @@ export function AgentFields({
             })
           }
         >
-          <option value="">Use workflow memory or first attached knowledge base</option>
+          <option value="">Use harness memory or first attached knowledge base</option>
           {data.knowledge.map((kb) => (
             <option key={kb.id} value={kb.id}>
               {kb.name}

@@ -258,7 +258,7 @@ export function MachinesPage({
                           Manage
                         </Button>
                         <IconButton
-                          title={`Create operator workflow for ${m.name}`}
+                          title={`Create operator harness for ${m.name}`}
                           disabled={!m.connectionId || !m.tools.length || !m.online || m.disabled}
                           onClick={() => onUseMachine(m)}
                         >

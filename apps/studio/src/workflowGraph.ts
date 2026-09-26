@@ -209,7 +209,7 @@ export function defaultAgent(data: Data): Agent {
 export function editableWorkflow(value: Entity | Workflow | undefined, data: Data): Workflow {
   const f: Workflow = value
     ? (structuredClone(value) as Workflow)
-    : makeStarter({ kind: 'blank', name: 'Untitled workflow' });
+    : makeStarter({ kind: 'blank', name: 'Untitled harness' });
   f.resources ??= [];
   f.bindings ??= [];
   f.maxSteps ??= 100;
@@ -281,7 +281,7 @@ export function editableWorkflow(value: Entity | Workflow | undefined, data: Dat
 export function removeGraphNode(form: Workflow, id: string): Workflow {
   const n = form.nodes.find((node) => node.id === id);
   if (n?.type === 'start' || (n && isFinish(n) && form.nodes.filter(isFinish).length === 1))
-    throw new Error('Keep one Start and Finish in the workflow.');
+    throw new Error('Keep one Start and Finish in the harness.');
   const replacement = n && 'next' in n ? n.next : undefined;
   const removedResources = new Set(
     form.resources

@@ -26,7 +26,7 @@ test('Playground answers a paused question and Inbox reviews edited tool argumen
   const c = await api('/connections', { name: 'Human browser tools', url: 'http://fixtures:9090/mcp' });
   await api(`/connections/${c.id}/discover`, {});
   const w = await api('/workflows', {
-    name: 'Human browser workflow',
+    name: 'Human browser harness',
     startAt: 'agent',
     nodes: [
       {
@@ -47,7 +47,7 @@ test('Playground answers a paused question and Inbox reviews edited tool argumen
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/playground');
-  await page.getByLabel('Playground agent or workflow').selectOption(`workflow:${w.id}`);
+  await page.getByLabel('Playground agent or harness').selectOption(`workflow:${w.id}`);
   await page.getByLabel('Message your agent').fill('human checkpoint test');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   await expect(page.getByLabel('Human input request')).toContainText('Which region');

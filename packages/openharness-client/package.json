@@ -1,0 +1,19 @@
+{
+  "name": "@openharness/http-client",
+  "version": "0.2.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}

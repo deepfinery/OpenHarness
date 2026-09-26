@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-test('create a safety policy and connect its box above the workflow agent', async ({ page }) => {
+test('create a safety policy and connect its box above the harness agent', async ({ page }) => {
   const base = process.env.TEST_BASE_URL ?? 'http://localhost:8088';
   const api = async (path: string, data?: unknown) => {
     const r = await page.request.fetch('/api' + path, {

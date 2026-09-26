@@ -51,7 +51,7 @@ import './styles.css';
 import './refresh.css';
 
 const nav = [
-  { id: 'workflows', label: 'Workflows', icon: GitBranch },
+  { id: 'workflows', label: 'Harnesses', icon: GitBranch },
   { id: 'playground', label: 'Playground', icon: MessageSquare },
   { id: 'machines', label: 'Machines & clusters', icon: Laptop },
   { id: 'skills', label: 'Skills', icon: Sparkles },
@@ -208,7 +208,9 @@ function Auth({ needsSetup, onLogin }: { needsSetup: boolean; onLogin: (u: User)
 const currentPage = () =>
   location.pathname.split('/')[1] === 'clusters'
     ? 'machines'
-    : location.pathname.split('/')[1] || 'workflows';
+    : location.pathname.split('/')[1] === 'harnesses'
+      ? 'workflows'
+      : location.pathname.split('/')[1] || 'workflows';
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checking, setChecking] = useState(true);
@@ -332,7 +334,7 @@ function App() {
     setPage(next);
     if (newTarget) setTarget(newTarget);
     setSidebar(false);
-    history.pushState({}, '', `/${next}`);
+    history.pushState({}, '', `/${next === 'workflows' ? 'harnesses' : next}`);
   };
   const edit = (type: string, value?: Entity) =>
     setEditor({ type: type === 'workflows' && !value ? 'starter' : type, value });
@@ -445,12 +447,12 @@ function App() {
               <>
                 <select
                   className="topbar-select"
-                  aria-label="Playground agent or workflow"
+                  aria-label="Playground agent or harness"
                   value={target}
                   onChange={(e) => setTarget(e.target.value)}
                 >
                   <option value="" disabled>
-                    Choose a workflow
+                    Choose a harness
                   </option>
                   {playgroundTargets(data).map((t) => (
                     <option key={`${t.type}:${t.id}`} value={`${t.type}:${t.id}`}>
@@ -461,7 +463,7 @@ function App() {
                 </select>
               </>
             ) : (
-              <strong>{nav.find((n) => n.id === page)?.label ?? 'Workflows'}</strong>
+              <strong>{nav.find((n) => n.id === page)?.label ?? 'Harnesses'}</strong>
             )}
           </div>
           <div className="topbar-right">

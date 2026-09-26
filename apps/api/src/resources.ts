@@ -1,3 +1,8 @@
+import {
+  snapshotSkill,
+  skillVersion,
+  type VersionedSkill,
+} from '../../../packages/core/src/skillVersions.js';
 import { guardrailPolicySchema } from '../../../packages/core/src/guardrailPolicy.js';
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
@@ -205,6 +210,26 @@ for (const [kind, schema] of Object.entries(definitions)) {
       )
         throw new HttpError(409, 'Remove the documents before changing the embedding provider');
       const data = { ...body };
+      if (kind === 'skills') {
+        if (previous) await snapshotSkill(previous as VersionedSkill);
+        const previousVersion = previous ? skillVersion(previous as VersionedSkill) : '1.0.0';
+        const [major, minor, patch] = previousVersion.split('.').map(Number);
+        let nextPatch = patch + 1;
+        if (previous)
+          while (
+            await collection('skill_versions').findOne({
+              ownerId,
+              skillId: id,
+              version: `${major}.${minor}.${nextPatch}`,
+            })
+          )
+            nextPatch++;
+        data.version = previous ? `${major}.${minor}.${nextPatch}` : '1.0.0';
+        data.files = {
+          ...(previous?.files ?? {}),
+          'SKILL.md': `---\nname: ${JSON.stringify(body.name)}\ndescription: ${JSON.stringify(body.description)}\nversion: ${data.version}\n---\n\n${body.instructions}\n`,
+        };
+      }
       for (const [plain, encrypted] of [
         ['apiKey', 'apiKeyEncrypted'],
         ['token', 'tokenEncrypted'],
@@ -240,6 +265,7 @@ for (const [kind, schema] of Object.entries(definitions)) {
           {
             _id: id,
             ownerId,
+            ...(kind === 'skills' ? { updatedAt: previous!.updatedAt } : {}),
             ...(expected === undefined
               ? {}
               : previous?.revision === undefined
@@ -263,6 +289,8 @@ for (const [kind, schema] of Object.entries(definitions)) {
           createdAt: now,
           updatedAt: now,
         });
+      if (kind === 'skills')
+        await snapshotSkill((await records().findOne({ _id: id, ownerId })) as VersionedSkill);
       if (kind === 'skills' && method === 'post')
         await emitHarnessEvent(ownerId, 'skill.installed', { skill_id: id, name: body.name });
       res

@@ -137,6 +137,11 @@ app.post('/api/auth/login', login);
 app.use('/api/embed', embedApi);
 app.use('/api/hooks', webhookApi);
 app.use('/api', authenticate);
+// Public studio terminology; persisted workflow IDs and legacy routes stay compatible.
+app.use('/api', (req, _res, next) => {
+  req.url = req.url.replace(/^\/harnesses(?=\/|\?|$)/, '/workflows');
+  next();
+});
 app.use('/api', conversationApi);
 app.get('/api/auth/me', requireSession, (req, res) => res.json(publicUser(req.principal!.user)));
 app.post('/api/auth/logout', requireSession, logout);

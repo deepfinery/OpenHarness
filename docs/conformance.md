@@ -1,40 +1,35 @@
-# Open Harness conformance
+# Open Harness conformance and API verification
 
-OpenHarness runs the [Open Harness](https://github.com/jeffrschneider/OpenHarness) conformance suite in CI. The
-suite is pinned to upstream commit `f727de1` and drives the harness through the adapter in `conformance/adapter`.
-That adapter is a thin Python client that implements the spec's `HarnessAdapter` over the `/openharness/v1` HTTP
-API. Other clients can use it too:
+OpenHarness tests against [the upstream Open Harness specification](https://github.com/jeffrschneider/OpenHarness), pinned to `f727de17dffe5adac4f54c7e87f3aae2afe7b864` (0.2.0). A fresh clone contains the Python adapter, TypeScript client/adapter, test fixtures, and isolated Compose configuration.
+
+`BROWSER_TESTS=1 ./scripts/test-stack.sh` builds a new `openharness-test-*` project, runs unit tests, real-stack integration tests, the pinned pytest suite and browser tests, then removes only that isolated stack. CI publishes `test-results/conformance.xml`. Any failure in these suites fails CI. The integration suite exercises every advertised domain, including remote API features that the upstream adapter tests do not cover.
+
+## Recorded upstream result
+
+2026-09-26: **56 passed, 27 skipped, 2 deselected** using deterministic fixture model responses and actual MongoDB, RabbitMQ, runner and MCP transports. This verifies harness behavior; it does not evaluate model intelligence or imply independent certification.
+
+| Coverage                                 | Verification                                                                                                                                                                           |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Execution, SSE, tool events, agents, MCP | Pinned upstream suite and real HTTP integration tests                                                                                                                                  |
+| Sessions, core memory, skill discovery   | Pinned upstream suite plus durable-turn, WebSocket, memory archive and versioning API tests                                                                                            |
+| Files, subagents, planning, hooks        | Real-stack HTTP tests: tenant/harness isolation, file bytes and traversal, child execution/results/cancellation, live pending-plan edits, signed webhook delivery and lifecycle events |
+| TypeScript adapter                       | Real HTTP execution, streaming, manifest, agent enumeration and file roundtrip                                                                                                         |
+| Explorer and terminology                 | Browser checks on desktop/mobile, plus existing studio tests updated for Harnesses labels                                                                                              |
+
+The 27 upstream skips are files (8), hooks (6), planning (7), and subagents (6): those tests use the upstream adapter's local callback, filesystem, todo-management or spawn conventions, rather than this service's HTTP contracts. Their remote API equivalents are tested in `tests/integration/openharness*.test.ts`; the Python adapter does not claim the incompatible local conventions. Two custom-tool registration tests are deselected because this project requires external tools to be served through MCP (the upstream tests also omit awaiting registration).
+
+## Runtime diagnostics versus CI conformance
+
+`POST /conformance/run` runs read-only route, manifest and storage checks, records their results and exposes an SSE replay. `/conformance/status` reports **partial**, never certified, because these are runtime protocol checks rather than the full upstream behavioral suite. `/diagnostics`, `/logs` and `/logs/stream` expose operational state without conversation bodies, tool arguments, credentials or stack traces.
+
+The [generated support matrix](openharness-support.md) and [API guide](openharness-api.md) list operation availability and intentional limits, including MCP-only tools and hosted execution. They are the compatibility contract; a green protocol check alone is not proof that every optional feature in the upstream specification exists.
+
+## Running separately
 
 ```sh
-pip install ./conformance/adapter   # needs the spec's `openharness` Python package
-export OPENHARNESS_URL=https://studio.example.com/openharness/v1
-export OPENHARNESS_API_KEY=oh_sk_...   # a workspace key from Integrations → API key
-export OPENHARNESS_AGENT_ID=...        # optional: the agent (workflow) used when a request names none
+TEST_BASE_URL=http://localhost:18088 ./conformance/run.sh
+# Against an already-running isolated test stack, with Node.js 22+:
+TEST_BASE_URL=http://localhost:18088 node --import tsx --test --test-concurrency=1 tests/integration/openharness*.test.ts
 ```
 
-`conformance/run.sh` downloads the pinned suite and adds the adapter to its list. Through the API, it prepares a
-conformance agent with the fixture's MCP tools and a workspace key, then runs pytest. The results are written to
-`test-results/conformance.xml`, which CI uploads as the `conformance-results` artifact.
-
-In CI, the model is the deterministic fixture model. It answers the suite's prompts the way a model would, for
-example "56" for 7 × 8, a pirate greeting for the pirate persona, and a tool call when a prompt asks for one. So
-the run checks the harness (routes, events, agents, tools, errors), not a model's quality. To run the suite against
-a real model, point the conformance agent at a real provider.
-
-## Latest results
-
-Run: 2026-09-25, OpenHarness 0.2.0, spec 0.2.0 (`f727de1`).
-
-| Category                                                     | Result                      | Notes                                                                                                                                                                                                                                                                           |
-| ------------------------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Execution                                                    | 6 of 6 passed               | An empty message returns an empty result: the spec requires a non-empty message, so the adapter doesn't send it.                                                                                                                                                                |
-| Streaming                                                    | 6 of 6 passed               | Event types, text content, the terminal `done`, and stream output matching `execute`.                                                                                                                                                                                           |
-| Tool events                                                  | 5 of 5 passed               | Real tool calls: start, end and result pair by id, and a failing tool reports its error.                                                                                                                                                                                        |
-| Agents                                                       | 7 of 7 passed               | Create, get, list, delete, config, execute with `agent_id`, and an invalid id.                                                                                                                                                                                                  |
-| MCP                                                          | 6 of 6 passed               | Tools come from MCP servers, including a server error and several servers.                                                                                                                                                                                                      |
-| Tools                                                        | 5 of 7 passed, 2 deselected | Registering and unregistering custom tools is deselected. External tools are MCP-only here, and the upstream tests call the async API without awaiting it, so they fail for every adapter upstream as well.                                                                     |
-| Sessions, memory, sub-agents, skills, hooks, planning, files | Skipped                     | The adapter does not claim these yet. See the support table in [openharness-api.md](openharness-api.md). Sub-agents and hooks exist in OpenHarness, but their spec domains are not mapped yet (#12). The suite's hooks are Python callbacks, which a remote harness cannot run. |
-
-In total, 35 passed, 0 failed and 48 skipped, with 2 deselected.
-
-The spec's conformance routes (`/conformance/run`, `/results`, `/status`, `/diagnostics`, `/logs`) still answer 501. The suite runs in CI rather than inside the harness.
+The Python adapter can be installed from `conformance/adapter` with the pinned upstream Python package. Configure `OPENHARNESS_URL`, `OPENHARNESS_API_KEY`, and optionally `OPENHARNESS_HARNESS_ID` and `OPENHARNESS_AGENT_ID`. The TypeScript adapter is in `packages/openharness-client`; API keys are supplied by the caller and never bundled.

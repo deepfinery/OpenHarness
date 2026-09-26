@@ -1,3 +1,4 @@
+import { ApiExplorer } from './ApiExplorer';
 import { useEffect, useState } from 'react';
 import {
   Bot,
@@ -292,7 +293,7 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
         <>
           <div className="settings-card workspace-settings">
             <h2>Workspace</h2>
-            <p>Members share workflows, knowledge, providers and connections. Admins manage accounts.</p>
+            <p>Members share harnesses, knowledge, providers and connections. Admins manage accounts.</p>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -534,7 +535,7 @@ export function EmailSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
       <div className="section-toolbar">
         <div>
           <h2>Outgoing email</h2>
-          <p>Used by Email steps in workflows.</p>
+          <p>Used by Email steps in harnesses.</p>
         </div>
         {settings && (
           <span
@@ -803,24 +804,31 @@ export function IntegrationsPage({
   const chat = `curl -X POST '${publicUrl}/api/chat' \\\n  -H 'Authorization: Bearer YOUR_API_KEY' \\\n  -H 'Content-Type: application/json' \\\n  -d '{${exampleTarget}, "message": "Research this topic"}'\n\n# stream status, trace and the answer as it is written\ncurl -N '${publicUrl}/api/runs/RUN_ID/stream' -H 'Authorization: Bearer YOUR_API_KEY'`;
   const ways = [
     {
+      id: 'explorer',
+      icon: <Code2 size={20} />,
+      title: 'API explorer',
+      text: 'Explore the Open Harness API and send requests.',
+      steps: ['Choose a harness', 'Edit the request', 'Inspect the response'],
+    },
+    {
       id: 'api',
       icon: <Code2 size={20} />,
       title: 'API key',
-      text: 'Run a workflow from your own code.',
-      steps: ['Create a key for one workflow', 'POST /api/runs', 'Poll or stream the run'],
+      text: 'Run a harness from your own code.',
+      steps: ['Create a key for one harness', 'POST /api/runs', 'Poll or stream the run'],
     },
     {
       id: 'webhooks',
       icon: <Webhook size={20} />,
       title: 'Webhook',
-      text: 'Another system posts JSON to start a workflow.',
+      text: 'Another system posts JSON to start a harness.',
       steps: ['Create a webhook', 'POST JSON with its secret', 'Poll the run with the same secret'],
     },
     {
       id: 'embed',
       icon: <Bot size={20} />,
       title: 'Embedded chat',
-      text: 'A chat with one workflow on your website.',
+      text: 'A chat with one harness on your website.',
       steps: ['Create an embed for your site’s origin', 'Paste the iframe', 'Revoke any time'],
     },
   ];
@@ -847,7 +855,9 @@ export function IntegrationsPage({
           </button>
         ))}
       </div>
-      {tab === 'webhooks' ? (
+      {tab === 'explorer' ? (
+        <ApiExplorer data={data} />
+      ) : tab === 'webhooks' ? (
         <WebhooksPanel data={data} />
       ) : (
         <>
@@ -1024,7 +1034,7 @@ export function IntegrationsPage({
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                   />
                 </Field>
-                <Field label="Workflow">
+                <Field label="Harness">
                   <select
                     aria-label="Integration target"
                     required
@@ -1032,7 +1042,7 @@ export function IntegrationsPage({
                     onChange={(e) => setForm({ ...form, target: e.target.value })}
                   >
                     <option value="" disabled>
-                      Select a workflow
+                      Select a harness
                     </option>
                     {tab === 'api' && isAdmin && (
                       <option value="harness:workspace">Whole workspace · Open Harness API</option>
