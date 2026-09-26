@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   BookOpen,
@@ -12,6 +12,9 @@ import {
   Search,
   ShieldCheck,
   ShieldAlert,
+  Code2,
+  Download,
+  Upload,
 } from 'lucide-react';
 import {
   guardrailPolicySchema,
@@ -23,6 +26,12 @@ import {
   guardrailTemplates,
   type GuardrailTemplate,
 } from '../../../../packages/core/src/guardrailTemplates.js';
+import {
+  guardrailYaml,
+  guardrailYamlFilename,
+  guardrailYamlMaxBytes,
+  parseGuardrailYaml,
+} from '../../../../packages/core/src/guardrailYaml.js';
 import { api, send, errorMessage, type Data, type Entity } from '../api';
 import { Button, Empty, ErrorNotice, Field, Modal, PageTitle } from './ui';
 
@@ -100,8 +109,12 @@ export function GuardrailsPage({
   const tab = selectedTab ?? (data.guardrails.length ? 'policies' : 'templates');
   const [editing, setEditing] = useState<Entity | null | undefined>();
   const [form, setForm] = useState<GuardrailPolicy>(guardrailPolicySchema.parse({ name: 'Safety policy' }));
-  const [editorTab, setEditorTab] = useState<'configure' | 'test'>('configure');
+  const [editorTab, setEditorTab] = useState<'configure' | 'yaml' | 'test'>('configure');
   const [rules, setRules] = useState('[]');
+  const [yamlText, setYamlText] = useState('');
+  const [yamlError, setYamlError] = useState('');
+  const importInput = useRef<HTMLInputElement>(null);
+  const importIntoEditor = useRef(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [busy, setBusy] = useState(false);
@@ -133,6 +146,8 @@ export function GuardrailsPage({
     setEditing(p);
     setForm(next);
     setRules(JSON.stringify(next.argumentRules, null, 2));
+    setYamlText(guardrailYaml(next));
+    setYamlError('');
     setProbe(template?.sample ?? 'Contact alice@example.com');
     setProbeStage(next.stages[0]);
     setProbeTool('');
@@ -141,6 +156,7 @@ export function GuardrailsPage({
     setEditorTab('configure');
   }
   function parsedPolicy() {
+    if (editorTab === 'yaml') return parseGuardrailYaml(yamlText);
     return guardrailPolicySchema.parse({
       ...form,
       argumentRules: JSON.parse(rules),
@@ -148,6 +164,59 @@ export function GuardrailsPage({
       blockedTopics: form.blockedTopics.filter((s) => s.trim()),
       deniedTools: form.deniedTools.filter((s) => s.trim()),
     });
+  }
+  function applyYaml(text: string) {
+    const policy = parseGuardrailYaml(text);
+    setForm(policy);
+    setRules(JSON.stringify(policy.argumentRules, null, 2));
+    setYamlError('');
+    setResult(undefined);
+    if (!policy.stages.includes(probeStage)) setProbeStage(policy.stages[0]);
+    return policy;
+  }
+  function switchEditor(next: 'configure' | 'yaml' | 'test') {
+    try {
+      const policy = parsedPolicy();
+      if (editorTab === 'yaml') applyYaml(yamlText);
+      if (next === 'yaml' && editorTab !== 'yaml') setYamlText(guardrailYaml(policy));
+      setError('');
+      setYamlError('');
+      setEditorTab(next);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+  function exportYaml() {
+    try {
+      const policy = parsedPolicy();
+      const url = URL.createObjectURL(new Blob([guardrailYaml(policy)], { type: 'application/yaml' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = guardrailYamlFilename(policy.name);
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setError('');
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+  async function importYaml(file: File, intoEditor: boolean) {
+    if (!isAdmin || busy) return;
+    await act(async () => {
+      if (!/\.ya?ml$/i.test(file.name)) throw new Error('Choose a .yaml or .yml file.');
+      if (file.size > guardrailYamlMaxBytes) throw new Error('Policy YAML must be 256 KiB or smaller.');
+      const text = await file.text();
+      // Validate on the server too. Import only opens a draft; Save policy persists it.
+      const { policy } = await send('/guardrail-yaml/validate', { yaml: text });
+      if (!intoEditor) open(null);
+      setForm(policy);
+      setRules(JSON.stringify(policy.argumentRules, null, 2));
+      setYamlText(text);
+      setYamlError('');
+      setProbeStage(policy.stages[0]);
+      setResult(undefined);
+      setEditorTab('yaml');
+    }, false);
   }
   async function act(fn: () => Promise<unknown>, reload = true) {
     setBusy(true);
@@ -176,16 +245,41 @@ export function GuardrailsPage({
   );
   return (
     <div className="guardrails-page">
+      <input
+        ref={importInput}
+        type="file"
+        accept=".yaml,.yml,application/yaml,text/yaml"
+        aria-label="Import policy YAML file"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void importYaml(file, importIntoEditor.current);
+        }}
+      />
       <PageTitle
         eyebrow="SAFETY & CONTROL"
         title="Guardrails"
         text="Build reusable safety policies. Choose a starting point, make it yours, and connect it to your agents."
         action={
           isAdmin && (
-            <Button onClick={() => setTab('templates')}>
-              <Plus size={16} />
-              New policy
-            </Button>
+            <div className="guardrail-actions">
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  importIntoEditor.current = false;
+                  importInput.current?.click();
+                }}
+              >
+                <Upload size={15} />
+                Import YAML
+              </Button>
+              <Button onClick={() => setTab('templates')}>
+                <Plus size={16} />
+                New policy
+              </Button>
+            </div>
           )
         }
       />
@@ -488,7 +582,7 @@ export function GuardrailsPage({
                   type="button"
                   className={editorTab === 'configure' ? 'active' : ''}
                   aria-pressed={editorTab === 'configure'}
-                  onClick={() => setEditorTab('configure')}
+                  onClick={() => switchEditor('configure')}
                 >
                   Configure policy
                 </button>
@@ -496,10 +590,48 @@ export function GuardrailsPage({
                   type="button"
                   className={editorTab === 'test' ? 'active' : ''}
                   aria-pressed={editorTab === 'test'}
-                  onClick={() => setEditorTab('test')}
+                  onClick={() => switchEditor('test')}
                 >
                   Try it out
                 </button>
+                <button
+                  type="button"
+                  className={editorTab === 'yaml' ? 'active' : ''}
+                  aria-pressed={editorTab === 'yaml'}
+                  onClick={() => switchEditor('yaml')}
+                >
+                  <Code2 size={14} />
+                  Policy YAML
+                </button>
+              </div>
+              <div className="guardrail-yaml-toolbar">
+                <span>
+                  <Code2 size={15} />
+                  {guardrailYamlFilename(form.name)}
+                </span>
+                {isAdmin && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      importIntoEditor.current = true;
+                      importInput.current?.click();
+                    }}
+                  >
+                    <Upload size={14} />
+                    Import YAML into draft
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy || Boolean(yamlError)}
+                  onClick={exportYaml}
+                >
+                  <Download size={14} />
+                  Export YAML
+                </Button>
               </div>
               {editorTab === 'configure' ? (
                 <fieldset className="guardrail-editor-fields" disabled={!isAdmin || busy}>
@@ -705,6 +837,60 @@ export function GuardrailsPage({
                     </div>
                   </details>
                 </fieldset>
+              ) : editorTab === 'yaml' ? (
+                <div className="guardrail-yaml-panel">
+                  <p>
+                    Edit <code>custom_data.openharness.policy</code> to configure this policy. Valid YAML
+                    updates the form and previews; form changes update the YAML.
+                  </p>
+                  <label className="guardrail-code-label" htmlFor="guardrail-policy-yaml">
+                    Policy YAML content
+                  </label>
+                  <textarea
+                    id="guardrail-policy-yaml"
+                    aria-label="Policy YAML content"
+                    spellCheck={false}
+                    readOnly={!isAdmin || busy}
+                    value={yamlText}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      setYamlText(text);
+                      setResult(undefined);
+                      setError('');
+                      try {
+                        applyYaml(text);
+                      } catch (err) {
+                        setYamlError(errorMessage(err));
+                      }
+                    }}
+                  />
+                  <ErrorNotice error={yamlError} />
+                  <div className="guardrail-yaml-status">
+                    <span>
+                      {yamlError
+                        ? 'Fix the YAML before saving, exporting, or switching views.'
+                        : 'Valid policy · synchronized with the form'}
+                    </span>
+                    {isAdmin && yamlError && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          setYamlText(guardrailYaml(form));
+                          setYamlError('');
+                          setError('');
+                        }}
+                      >
+                        Restore last valid policy
+                      </Button>
+                    )}
+                  </div>
+                  <small>
+                    Uses the installed NeMo OpenHarness flow. Stage routing and tool rules are enforced by
+                    OpenHarness. Formatting and comments are normalized when saved or changed through the
+                    form; service credentials are configured separately.
+                  </small>
+                </div>
               ) : (
                 <div className="guardrail-test">
                   <h3>Preview a decision</h3>
@@ -811,7 +997,7 @@ export function GuardrailsPage({
                 Cancel
               </Button>
               {isAdmin && (
-                <Button type="submit" disabled={busy}>
+                <Button type="submit" disabled={busy || Boolean(yamlError)}>
                   {busy ? 'Saving…' : 'Save policy'}
                 </Button>
               )}

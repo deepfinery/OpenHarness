@@ -23,7 +23,11 @@
     "devices:typecheck": "npm --prefix connector-core run build && npm --prefix connector-core run typecheck && npm --prefix connector-linux run typecheck && npm --prefix gateway run typecheck",
     "devices:test": "npm --prefix connector-core run build && npm --prefix connector-core test && npm --prefix connector-linux test && npm --prefix gateway test",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "generate:guardrail-templates": "node --import tsx scripts/generate-guardrail-templates.ts",
+    "pretypecheck": "npm run generate:guardrail-templates",
+    "pretest": "npm run generate:guardrail-templates",
+    "predev": "npm run generate:guardrail-templates"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.1",

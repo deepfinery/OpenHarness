@@ -1,49 +1,51 @@
 import { z } from 'zod';
 export const railStages = ['input', 'output', 'retrieval', 'tool_input', 'tool_output'] as const;
 export type RailStage = (typeof railStages)[number];
-export const guardrailPolicySchema = z
-  .object({
-    name: z.string().trim().min(1).max(100),
-    description: z.string().max(1000).default(''),
-    provider: z.enum(['builtin', 'nemo']).default('nemo'),
-    configId: z
-      .string()
-      .regex(/^[a-zA-Z0-9_-]{1,100}$/)
-      .default('openharness'),
-    stages: z
-      .array(z.enum(railStages))
-      .min(1)
-      .default([...railStages]),
-    failMode: z.enum(['closed', 'open']).default('closed'),
-    timeoutMs: z.number().int().min(100).max(30000).default(5000),
-    latencyBudgetMs: z.number().int().min(1000).max(600000).default(120000),
-    pii: z.boolean().default(true),
-    jailbreak: z.boolean().default(true),
-    contentSafety: z.boolean().default(true),
-    semanticChecks: z.boolean().default(false),
-    templateId: z.enum(['bias', 'toxicity', 'hallucinations', 'opacity', 'pii', 'vulnerability']).optional(),
-    safetyInstructions: z.string().trim().max(4000).default(''),
-    deniedTerms: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
-    blockedTopics: z.array(z.string().trim().min(1).max(200)).max(30).default([]),
-    deniedTools: z.array(z.string().trim().min(1).max(250)).max(100).default([]),
-    argumentRules: z
-      .array(
-        z.object({
+export const guardrailPolicyObjectSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: z.string().max(1000).default(''),
+  provider: z.enum(['builtin', 'nemo']).default('nemo'),
+  configId: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]{1,100}$/)
+    .default('openharness'),
+  stages: z
+    .array(z.enum(railStages))
+    .min(1)
+    .default([...railStages]),
+  failMode: z.enum(['closed', 'open']).default('closed'),
+  timeoutMs: z.number().int().min(100).max(30000).default(5000),
+  latencyBudgetMs: z.number().int().min(1000).max(600000).default(120000),
+  pii: z.boolean().default(true),
+  jailbreak: z.boolean().default(true),
+  contentSafety: z.boolean().default(true),
+  semanticChecks: z.boolean().default(false),
+  templateId: z.enum(['bias', 'toxicity', 'hallucinations', 'opacity', 'pii', 'vulnerability']).optional(),
+  safetyInstructions: z.string().trim().max(4000).default(''),
+  deniedTerms: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
+  blockedTopics: z.array(z.string().trim().min(1).max(200)).max(30).default([]),
+  deniedTools: z.array(z.string().trim().min(1).max(250)).max(100).default([]),
+  argumentRules: z
+    .array(
+      z
+        .object({
           tool: z.string().min(1).max(250),
           path: z.string().regex(/^[a-zA-Z0-9_.]{1,200}$/),
           operator: z.enum(['contains', 'equals', 'missing']),
           value: z.string().max(200).default(''),
-        }),
-      )
-      .max(100)
-      .default([]),
-    blockMessage: z
-      .string()
-      .min(1)
-      .max(500)
-      .default('This request was blocked by the configured safety policy.'),
-    enabled: z.boolean().default(true),
-  })
+        })
+        .strict(),
+    )
+    .max(100)
+    .default([]),
+  blockMessage: z
+    .string()
+    .min(1)
+    .max(500)
+    .default('This request was blocked by the configured safety policy.'),
+  enabled: z.boolean().default(true),
+});
+export const guardrailPolicySchema = guardrailPolicyObjectSchema
   .refine((p) => p.latencyBudgetMs >= p.timeoutMs, {
     message: 'Latency budget must cover at least one check timeout',
     path: ['latencyBudgetMs'],

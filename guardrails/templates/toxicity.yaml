@@ -1,0 +1,40 @@
+# NeMo Guardrails configuration for the OpenHarness policy adapter.
+# Requires the bundled openharness rails.co and actions.py.
+# Edit custom_data.openharness.policy; model credentials stay on the service.
+models: []
+colang_version: "1.0"
+rails:
+  input:
+    flows:
+      - openharness policy
+  dialog:
+    user_messages:
+      embeddings_only: true
+custom_data:
+  openharness:
+    version: 1
+    policy:
+      name: Toxicity policy
+      description: Screen for targeted abuse, hateful language, harassment, and threats.
+      provider: nemo
+      configId: openharness
+      stages:
+        - input
+        - output
+      failMode: closed
+      timeoutMs: 5000
+      latencyBudgetMs: 120000
+      pii: false
+      jailbreak: false
+      contentSafety: true
+      semanticChecks: true
+      templateId: toxicity
+      safetyInstructions: Block targeted harassment, hateful or dehumanizing abuse, credible threats, and
+        requests to generate such content. Allow respectful disagreement and neutral reporting or
+        educational discussion of harmful language without endorsing it.
+      deniedTerms: []
+      blockedTopics: []
+      deniedTools: []
+      argumentRules: []
+      blockMessage: This content was blocked by the toxicity policy. Use respectful, non-threatening language.
+      enabled: true

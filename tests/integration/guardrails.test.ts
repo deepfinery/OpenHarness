@@ -433,3 +433,68 @@ test(
     }
   },
 );
+
+test('YAML import validation and export preserve editable policies and tenant boundaries', async () => {
+  const { parseGuardrailYaml, guardrailYaml } = await import('../../packages/core/src/guardrailYaml.js');
+  const source = await raw('/guardrail-templates/bias/yaml');
+  assert.equal(source.status, 200);
+  assert.match(source.headers.get('content-disposition')!, /bias\.yaml/);
+  const original = await source.text();
+  const imported = await ok('/guardrail-yaml/validate', {
+    yaml: original.replace('name: Bias policy', 'name: Imported fairness'),
+  });
+  assert.equal(imported.policy.name, 'Imported fairness');
+  const saved = await ok('/guardrails', imported.policy);
+  const exported = await raw(`/guardrails/${saved.id}/yaml`);
+  assert.equal(exported.status, 200);
+  const parsed = parseGuardrailYaml(await exported.text());
+  assert.equal(parsed.safetyInstructions, imported.policy.safetyInstructions);
+  const changed = await ok('/guardrail-yaml/validate', {
+    yaml: guardrailYaml({
+      ...parsed,
+      name: 'Updated fairness',
+      safetyInstructions: 'Review this edited policy.',
+      stages: ['output'],
+    }),
+  });
+  const updated = await ok(`/guardrails/${saved.id}`, changed.policy, 'PUT');
+  assert.ok(updated.revision > saved.revision);
+  assert.equal(
+    parseGuardrailYaml(await (await raw(`/guardrails/${saved.id}/yaml`)).text()).name,
+    'Updated fairness',
+  );
+  assert.equal(
+    (await raw('/guardrail-yaml/validate', { yaml: original + '\nimport_paths: [/etc]' })).status,
+    400,
+  );
+  assert.equal((await raw('/guardrail-yaml/validate', { yaml: original + '\nmodels: []' })).status, 400);
+  const runtimeImport = await ok('/guardrail-yaml/validate', {
+    yaml: guardrailYaml({
+      ...guardrailTemplates[5].policy,
+      provider: 'builtin',
+      stages: ['input'],
+      deniedTerms: ['yaml-runtime-marker'],
+    }),
+  });
+  const runtimePolicy = await ok('/guardrails', runtimeImport.policy);
+  const guarded = await run(await agent(runtimePolicy.id), 'yaml-runtime-marker');
+  assert.match(guarded.output, /blocked/);
+  assert.equal(guarded.events.filter((e: any) => e.type === 'model').length, 0);
+  const tenantCookie = cookie;
+  cookie = adminCookie;
+  assert.equal((await raw(`/guardrails/${saved.id}/yaml`)).status, 404);
+  cookie = tenantCookie;
+  const member = {
+    email: `yaml-member-${randomUUID()}@openharness.test`,
+    password: 'Integration-test-password-42',
+  };
+  await ok('/users', { ...member, name: 'YAML viewer', workspace: 'current' });
+  cookie = (await raw('/auth/login', member)).headers.get('set-cookie')!.split(';')[0];
+  try {
+    assert.equal((await raw(`/guardrails/${saved.id}/yaml`)).status, 200);
+    assert.equal((await raw('/guardrail-yaml/validate', { yaml: original })).status, 403);
+    assert.equal((await raw(`/guardrails/${saved.id}`, changed.policy, 'PUT')).status, 403);
+  } finally {
+    cookie = tenantCookie;
+  }
+});

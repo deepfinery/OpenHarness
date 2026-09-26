@@ -6719,3 +6719,80 @@ details.advanced summary {
     max-width: 100%;
   }
 }
+
+.guardrail-yaml-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 0 20px;
+}
+.guardrail-yaml-toolbar > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.guardrail-yaml-toolbar .button {
+  font-size: 11px;
+  padding: 7px 10px;
+}
+.guardrail-yaml-panel > p {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.7;
+  margin: 0 0 16px;
+}
+.guardrail-yaml-panel > textarea {
+  width: 100%;
+  min-height: 430px;
+  resize: vertical;
+  font-family: var(--mono), monospace;
+  font-size: 12px;
+  line-height: 1.75;
+  tab-size: 2;
+  padding: 18px;
+  white-space: pre;
+  overflow: auto;
+  background: #f7f9f8;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.guardrail-yaml-panel > small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.7;
+  margin-top: 14px;
+}
+.guardrail-yaml-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.guardrail-editor .guardrail-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (max-width: 650px) {
+  .guardrail-yaml-toolbar > span {
+    width: 100%;
+  }
+  .guardrail-yaml-panel > textarea {
+    min-height: 330px;
+  }
+}
+.guardrail-code-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 9px;
+}
