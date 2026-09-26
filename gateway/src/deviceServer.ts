@@ -44,7 +44,13 @@ export function createDeviceServer(deviceId: string, identity: string, deps: Dev
     const allow = await allowed();
     try {
       const { tools, stale } = await deps.hub.listTools(deviceId);
-      const visible = tools.filter((t) => allow.has(t.name));
+      const visible = tools
+        .filter((t) => allow.has(t.name))
+        .map((t) =>
+          deps.approval.studio && deps.approvalTools.has(t.name)
+            ? { ...t, _meta: { ...t._meta, 'openharness/approvalRequired': true } }
+            : t,
+        );
       return { tools: visible, ...(stale ? { _meta: { stale: true } } : {}) };
     } catch (error) {
       if (error instanceof HubError) return { tools: [], _meta: { offline: true } };
@@ -71,7 +77,17 @@ export function createDeviceServer(deviceId: string, identity: string, deps: Dev
     }
     if (deps.approvalTools.has(name)) {
       const decision = await deps.approval.decide(
-        { device_id: deviceId, tool: name, arguments: args, identity },
+        {
+          device_id: deviceId,
+          tool: name,
+          arguments: args,
+          identity,
+          callId:
+            typeof request.params._meta?.idempotencyKey === 'string'
+              ? request.params._meta.idempotencyKey
+              : undefined,
+          proof: request.params._meta?.humanApproval,
+        },
         extra.signal,
       );
       if (decision !== 'approved') {

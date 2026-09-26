@@ -139,7 +139,8 @@ test('the manifest now reports execution and models as supported', async () => {
   assert.equal(caps.execution.supported, true);
   for (const op of ['sync', 'stream', 'cancel', 'tool-calls'])
     assert.ok(caps.execution.operations.includes(op), op);
-  assert.ok(!caps.execution.operations.includes('artifacts'));
+  assert.ok(caps.execution.operations.includes('artifacts'));
+  assert.ok(caps.execution.operations.includes('input'));
   assert.ok(caps.execution.limitations.length > 0);
   assert.deepEqual(caps.models.operations, ['multi-model', 'model-switch']);
 });

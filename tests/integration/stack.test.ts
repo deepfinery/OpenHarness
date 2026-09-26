@@ -142,6 +142,7 @@ test('Streamable HTTP MCP token authentication and real tool discovery', async (
     'bigdata',
     'calculate',
     'fail',
+    'file_resource',
     'lookup',
     'strict',
   ]);
@@ -153,7 +154,7 @@ test('legacy SSE servers can expose tools through the same connector', async () 
     url: 'http://fixtures:9090/sse',
     transport: 'sse',
   });
-  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 5);
+  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 6);
 });
 test('MCP OAuth discovery, registration, PKCE, state binding and token refresh', async () => {
   const c = await ok('/connections', {
@@ -174,14 +175,14 @@ test('MCP OAuth discovery, registration, PKCE, state binding and token refresh',
   const result = await request(callback.pathname.replace('/api', '') + callback.search);
   assert.equal(result.status, 302, JSON.stringify(result.data));
   assert.equal((await ok(`/connections/${c.id}`)).authorized, true);
-  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 5);
+  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 6);
   assert.equal(
     (await request(callback.pathname.replace('/api', '') + callback.search)).status,
     400,
     'state cannot be replayed',
   );
   await fetch(`${fixture}/expire-token`, { method: 'POST' });
-  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 5);
+  assert.equal((await ok(`/connections/${c.id}/discover`, {})).length, 6);
   const stats = (await (await fetch(`${fixture}/stats`)).json()) as any;
   assert.ok(stats.refreshes >= 1);
 });

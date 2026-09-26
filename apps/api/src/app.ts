@@ -1,3 +1,9 @@
+import {
+  canAnswer,
+  decideHuman,
+  validHumanLink,
+  type HumanRequest,
+} from '../../../packages/core/src/human.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -176,6 +182,100 @@ app.get('/api/mcp/oauth/callback', requireSession, async (req, res) => {
     req.principal!.sessionHash!,
   );
   res.redirect(`/connections?authorized=1&connection=${encodeURIComponent(connectionId)}`);
+});
+app.get('/api/approvals', async (req, res) => {
+  checkTokenScope(req, 'read');
+  const p = req.principal!;
+  const ownedRuns =
+    p.token && !p.token.scopes.includes('harness')
+      ? await collection<Run>('runs')
+          .find({ ownerId: p.tenantId, tokenId: p.token._id })
+          .project({ _id: 1 })
+          .toArray()
+      : undefined;
+  const requests = await collection<HumanRequest>('human_requests')
+    .find({
+      ownerId: p.tenantId,
+      status: 'pending',
+      ...(ownedRuns ? { runId: { $in: ownedRuns.map((r) => r._id) } } : {}),
+    })
+    .sort({ createdAt: 1 })
+    .limit(200)
+    .toArray();
+  res.json({ requests: requests.filter((r) => canAnswer(r, { id: p.user._id, role: p.user.role })) });
+});
+app.post('/api/approvals/:id', async (req, res) => {
+  checkTokenScope(req, 'execute');
+  const p = req.principal!;
+  const request = await collection<HumanRequest>('human_requests').findOne({
+    _id: String(req.params.id),
+    ownerId: p.tenantId,
+  });
+  const run =
+    request &&
+    (await collection<Run>('runs').findOne({
+      _id: request.runId,
+      ownerId: p.tenantId,
+      ...(p.token && !p.token.scopes.includes('harness') ? { tokenId: p.token._id } : {}),
+    }));
+  if (!request || !run) throw new HttpError(404, 'Human request not found');
+  const target = run.parentRunId
+    ? await collection<Run>('runs').findOne({ _id: run.parentRunId, ownerId: p.tenantId })
+    : run;
+  if (!target) throw new HttpError(404, 'Run not found');
+  checkTokenScope(req, 'execute', target);
+  await decideHuman(p.tenantId, request._id, { id: p.user._id, role: p.user.role }, req.body);
+  res.json({ accepted: true });
+});
+app.get('/api/inbox', requireSession, async (req, res) => {
+  const principal = req.principal!;
+  const query = z
+    .object({
+      runId: z.string().uuid().optional(),
+      requestId: z.string().uuid().optional(),
+      token: z.string().max(128).optional(),
+    })
+    .parse(req.query);
+  if (query.requestId) {
+    const r = await collection<HumanRequest>('human_requests').findOne({
+      _id: query.requestId,
+      ownerId: principal.tenantId,
+    });
+    if (!r || !validHumanLink(r, query.token ?? ''))
+      throw new HttpError(410, 'This request link has expired or is invalid');
+  }
+  const related = query.runId
+    ? await collection<Run>('runs')
+        .find({ parentRunId: query.runId, ownerId: principal.tenantId })
+        .project({ _id: 1 })
+        .toArray()
+    : [];
+  const requests = await collection<HumanRequest>('human_requests')
+    .find({
+      ownerId: principal.tenantId,
+      status: 'pending',
+      ...(query.requestId ? { _id: query.requestId } : {}),
+      ...(query.runId ? { runId: { $in: [query.runId, ...related.map((r) => r._id)] } } : {}),
+    })
+    .sort({ createdAt: 1 })
+    .limit(200)
+    .toArray();
+  const actor = { id: principal.user._id, role: principal.user.role };
+  res.json({
+    requests: requests
+      .filter((r) => canAnswer(r, actor))
+      .map(({ inputSchema: _schema, key: _key, ...r }) => r),
+  });
+});
+app.post('/api/inbox/:id/decision', requireSession, async (req, res) => {
+  const principal = req.principal!;
+  await decideHuman(
+    principal.tenantId,
+    String(req.params.id),
+    { id: principal.user._id, role: principal.user.role },
+    req.body,
+  );
+  res.json({ accepted: true });
 });
 app.get('/api/runs', async (req, res) => {
   checkTokenScope(req, 'read');

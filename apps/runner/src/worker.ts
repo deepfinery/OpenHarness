@@ -1,3 +1,5 @@
+import { recordArtifact } from '../../../packages/core/src/artifacts.js';
+import { HumanPause, wakeHumanRun } from '../../../packages/core/src/human.js';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { config } from '../../../packages/core/src/config.js';
@@ -45,11 +47,23 @@ async function processJob(job: Job, controller: AbortController) {
     const runs = collection<Run>('runs');
     const run = await runs.findOneAndUpdate(
       { _id: job.id, status: 'queued', cancelRequested: { $ne: true } },
-      { $set: { status: 'running', leaseId, leaseUntil, startedAt: now, updatedAt: now } },
+      [
+        {
+          $set: {
+            status: 'running',
+            leaseId,
+            leaseUntil,
+            startedAt: { $ifNull: ['$startedAt', now] },
+            updatedAt: now,
+          },
+        },
+      ],
       { returnDocument: 'after' },
     );
     if (!run) return;
-    await emitHarnessEvent(run.ownerId, 'execution.started', {
+    // Consume the flag only in this lease; an unrelated crash retains the ordinary safe replay policy.
+    await runs.updateOne({ _id: run._id, leaseId }, { $unset: { resumeFromHuman: '' } });
+    await emitHarnessEvent(run.ownerId, run.resumeFromHuman ? 'human.resumed' : 'execution.started', {
       execution_id: run._id,
       agent_id: run.workflowId ?? run.agentId,
     });
@@ -94,6 +108,24 @@ async function processJob(job: Job, controller: AbortController) {
       const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(1800000)]);
       const output = await executeRun(run, signal, onDelta);
       signal.throwIfAborted();
+      await recordArtifact(run.ownerId, run._id, 'answer.md', 'text/markdown', Buffer.from(output)).catch(
+        async () => {
+          await runs.updateOne(filter, {
+            $push: {
+              events: {
+                $each: [
+                  {
+                    at: new Date().toISOString(),
+                    type: 'artifact_error',
+                    message: 'Could not save an answer artifact; the answer remains in the run result',
+                  },
+                ],
+                $slice: -500,
+              },
+            },
+          });
+        },
+      );
       clearInterval(flush);
       await runs.updateOne(
         { ...filter, cancelRequested: { $ne: true } },
@@ -105,15 +137,26 @@ async function processJob(job: Job, controller: AbortController) {
     } catch (error) {
       clearInterval(flush);
       const current = await runs.findOne({ _id: run._id });
-      const status = current?.cancelRequested
-        ? 'cancelled'
-        : stopping || controller.signal.aborted
-          ? 'interrupted'
-          : 'failed';
-      await runs.updateOne(filter, {
-        $set: { status, error: safeError(error), finishedAt: new Date(), updatedAt: new Date() },
-        $unset: { partial: '' },
-      });
+      if (error instanceof HumanPause && !current?.cancelRequested && !controller.signal.aborted) {
+        await runs.updateOne(
+          { ...filter, cancelRequested: { $ne: true } },
+          {
+            $set: { status: 'waiting_for_human', waitingSince: new Date(), updatedAt: new Date() },
+            $unset: { partial: '', leaseId: '', leaseUntil: '' },
+          },
+        );
+        await wakeHumanRun(run._id);
+      } else {
+        const status = current?.cancelRequested
+          ? 'cancelled'
+          : stopping || controller.signal.aborted
+            ? 'interrupted'
+            : 'failed';
+        await runs.updateOne(filter, {
+          $set: { status, error: safeError(error), finishedAt: new Date(), updatedAt: new Date() },
+          $unset: { partial: '' },
+        });
+      }
     } finally {
       clearInterval(timer);
       clearInterval(flush);
@@ -123,7 +166,7 @@ async function processJob(job: Job, controller: AbortController) {
       { $set: { status: 'cancelled', finishedAt: new Date() } },
     );
     const finished = await runs.findOne({ _id: run._id });
-    if (finished) {
+    if (finished && !['waiting_for_human', 'queued'].includes(finished.status)) {
       await settleConversation(finished);
       await saveExperiments(finished).catch((error) =>
         console.warn('Memory save will retry:', safeError(error)),
@@ -131,7 +174,7 @@ async function processJob(job: Job, controller: AbortController) {
       if (['succeeded', 'failed', 'cancelled', 'interrupted'].includes(finished.status)) {
         // Sub-agents run inside their parent; any still marked running lost their parent.
         await runs.updateMany(
-          { parentRunId: finished._id, status: 'running' },
+          { parentRunId: finished._id, status: { $in: ['running', 'waiting_for_human'] } },
           {
             $set: {
               status: 'interrupted',

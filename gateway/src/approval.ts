@@ -1,9 +1,18 @@
+import { verifyApprovalCall } from '@openharness/connector-core';
 // Human approval before selected tools are forwarded. `noop` allows; `webhook` asks a URL and waits for a decision.
 import type { Logger } from '@openharness/connector-core';
 
-export type ApprovalRequest = { device_id: string; tool: string; arguments: unknown; identity: string };
+export type ApprovalRequest = {
+  device_id: string;
+  tool: string;
+  arguments: unknown;
+  identity: string;
+  callId?: string;
+  proof?: unknown;
+};
 export type Decision = 'approved' | 'denied';
 export interface ApprovalProvider {
+  studio?: boolean;
   decide(request: ApprovalRequest, signal?: AbortSignal): Promise<Decision>;
 }
 export const noopApproval: ApprovalProvider = { decide: async () => 'approved' };
@@ -45,6 +54,31 @@ export function webhookApproval(
       }
       log.warn('approval timed out', { tool: request.tool, device_id: request.device_id });
       return 'denied';
+    },
+  };
+}
+
+/** The orchestrator parks before calling MCP; this verifies its human decision without holding a gateway socket open. */
+export function studioApproval(
+  secret: string,
+  consume: (id: string, expires: Date) => Promise<boolean>,
+): ApprovalProvider {
+  return {
+    studio: true,
+    async decide(request) {
+      if (!request.callId) return 'denied';
+      const expires = verifyApprovalCall(
+        secret,
+        {
+          deviceId: request.device_id,
+          tool: request.tool,
+          arguments: request.arguments ?? {},
+          callId: request.callId,
+        },
+        request.proof,
+      );
+      if (!expires) return 'denied';
+      return (await consume(request.callId, new Date(expires))) ? 'approved' : 'denied';
     },
   };
 }

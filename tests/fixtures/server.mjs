@@ -142,6 +142,11 @@ app.post('/openai/v1/vector_stores/:id/search', vectorAuth, (req, res) => {
   });
 });
 const stats = { tools: 0, models: 0, embeddings: 0, refreshes: 0, oauthTokens: 0 };
+let humanToolChanged = false;
+app.post('/human-tool-schema', (req, res) => {
+  humanToolChanged = req.body.changed === true;
+  res.json({ ok: true });
+});
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('/stats', (_req, res) => res.json(stats));
 const sessions = new Map();
@@ -154,7 +159,8 @@ function mcpServer() {
     'lookup',
     {
       description: 'Look up deterministic test data',
-      inputSchema: { query: z.string() },
+      inputSchema: { query: humanToolChanged ? z.string().max(30) : z.string() },
+      annotations: { readOnlyHint: humanToolChanged },
       outputSchema: { answer: z.string() },
     },
     async ({ query }) => {
@@ -173,6 +179,23 @@ function mcpServer() {
       stats.tools++;
       return { content: [{ type: 'text', text: String(a + b) }], structuredContent: { sum: a + b } };
     },
+  );
+  server.registerTool(
+    'file_resource',
+    { description: 'Return embedded file data', inputSchema: {} },
+    async () => ({
+      content: [
+        {
+          type: 'resource',
+          resource: {
+            uri: 'file:///reports/result.txt',
+            mimeType: 'text/plain',
+            text: 'Artifact test bytes\n',
+          },
+        },
+        { type: 'resource_link', uri: 'http://127.0.0.1/private', name: 'must-not-fetch' },
+      ],
+    }),
   );
   server.registerTool('bigdata', { description: 'Return a very large result', inputSchema: {} }, async () => {
     stats.tools++;
@@ -315,6 +338,72 @@ function answer(messages, tools) {
     content: '',
     tool_calls: [{ id: randomUUID(), type: 'function', function: { name, arguments: JSON.stringify(args) } }],
   });
+  if (String(input).includes('parallel human checkpoint')) {
+    if (last?.role === 'tool') return { content: `Parallel result: ${last.content}` };
+    if (messages.some((m) => m.role === 'system' && String(m.content).includes('human-question-member')))
+      return memoryCall('ask_human', { question: 'Parallel region?' });
+    return memoryCall('memory_write', {
+      title: 'Completed parallel sibling',
+      content: 'This sibling must not rerun.',
+      kind: 'finding',
+    });
+  }
+  if (String(input).includes('human repeated checkpoint')) {
+    const calls = messages.flatMap((m) => m.tool_calls ?? []).filter((c) => c.function.name === 'ask_human');
+    if (calls.length >= 2 && last?.role === 'tool')
+      return { content: `Repeated questions complete: ${last.content}` };
+    if (calls.length) return memoryCall('ask_human', { question: 'Second question?' });
+    return {
+      content: '',
+      tool_calls: [
+        ...memoryCall('memory_write', {
+          title: 'Repeated pause evidence',
+          content: 'Only once.',
+          kind: 'finding',
+        }).tool_calls,
+        ...memoryCall('ask_human', { question: 'First question?' }).tool_calls,
+      ],
+    };
+  }
+  if (String(input).includes('human delegate test')) {
+    if (last?.role === 'tool') return { content: `Delegate finished: ${last.content}` };
+    return memoryCall('spawn_agents', {
+      agents: [{ task: 'human checkpoint test child', effort: 'light' }, { task: 'A normal sibling task' }],
+    });
+  }
+  if (String(input).includes('human checkpoint test')) {
+    if (last?.role === 'tool') return { content: `Human resumed: ${last.content}` };
+    const first = memoryCall('memory_write', {
+      title: 'Before human pause',
+      content: 'This note must be written exactly once.',
+      kind: 'finding',
+    });
+    const ask = memoryCall('ask_human', { question: 'Which region should I use?' });
+    return { content: '', tool_calls: [...first.tool_calls, ...ask.tool_calls] };
+  }
+  if (String(input).includes('human approval test')) {
+    if (last?.role === 'tool') return { content: `Approval result: ${last.content}` };
+    const tool = tools.find((t) => t.function.description.includes('/ lookup:'));
+    const first = memoryCall('memory_write', {
+      title: 'Before tool approval',
+      content: 'One prior effect.',
+      kind: 'finding',
+    });
+    return {
+      content: '',
+      tool_calls: [
+        ...first.tool_calls,
+        ...memoryCall(tool.function.name, { query: 'original approved query' }).tool_calls,
+      ],
+    };
+  }
+  if (String(input).includes('artifact resource test')) {
+    if (last?.role === 'tool') return { content: 'File captured.' };
+    return memoryCall(
+      tools.find((t) => t.function.description.includes('/ file_resource:')).function.name,
+      {},
+    );
+  }
   const notebookTarget = /write notebook ([0-9a-f-]{36})/.exec(String(input));
   if (notebookTarget) {
     if (last?.role === 'tool') return { content: `Notebook write: ${last.content}` };

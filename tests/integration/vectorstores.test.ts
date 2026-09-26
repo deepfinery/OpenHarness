@@ -197,6 +197,16 @@ for (const store of stores)
     assert.equal(finished.status, 'succeeded', finished.error);
     assert.match(finished.output, new RegExp(`${store} release process has four stages`));
 
+    // Attached knowledge bases now also receive a durable run notebook entry. Remove that
+    // derived record before checking that deleting the original clears the store.
+    const recorded = await until(
+      () => ok(`/knowledge/${kb.id}/documents`),
+      (docs: any[]) => docs.some((d) => d.folder === 'experiments'),
+      'the automatic notebook record',
+    );
+    for (const doc of recorded.filter((d: any) => d.folder === 'experiments'))
+      await ok(`/documents/${doc.id}`, undefined, 'DELETE');
+
     const moved = await request(
       `/knowledge/${kb.id}`,
       { ...kb, vectorStore: store === 'weaviate' ? 'qdrant' : 'weaviate' },

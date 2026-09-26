@@ -62,7 +62,8 @@ export async function createRun(
     if (existing) return existing;
   }
   if (
-    (await runs.countDocuments({ ownerId, status: { $in: ['queued', 'running'] } })) >= config.MAX_ACTIVE_RUNS
+    (await runs.countDocuments({ ownerId, status: { $in: ['queued', 'running', 'waiting_for_human'] } })) >=
+    config.MAX_ACTIVE_RUNS
   )
     throw new HttpError(429, 'Too many active runs. Wait for a run to finish.');
   const workflowRecord = input.workflowId
@@ -199,6 +200,10 @@ export async function createRun(
     events: [],
     outputs: {},
     snapshot: { ...(workflow ? { workflow, nodeAgents } : {}), agents },
+    approvalOwnerId:
+      workflowRecord?.createdBy ??
+      (input.agentId ? (agents[input.agentId] as Stored<Agent>).createdBy : undefined) ??
+      options.initiatedBy,
     ...(overrides ? { overrides } : {}),
   };
   try {
@@ -230,13 +235,33 @@ export async function requestCancel(filter: { _id: string; ownerId: string; toke
   const runs = collection<Run>('runs');
   const now = new Date();
   const queued = await runs.updateOne(
-    { ...filter, status: 'queued' },
+    { ...filter, status: { $in: ['queued', 'waiting_for_human'] } },
     { $set: { cancelRequested: true, status: 'cancelled', updatedAt: now, finishedAt: now } },
   );
   const running = await runs.updateOne(
     { ...filter, status: 'running' },
     { $set: { cancelRequested: true, updatedAt: now } },
   );
+  if (queued.modifiedCount) {
+    const current = await runs.findOne(filter);
+    if (current) await settleConversation(current);
+    const children = await runs
+      .find({ parentRunId: filter._id, ownerId: filter.ownerId })
+      .project({ _id: 1 })
+      .toArray();
+    await runs.updateMany(
+      { parentRunId: filter._id, ownerId: filter.ownerId, status: { $in: ['waiting_for_human', 'queued'] } },
+      { $set: { status: 'cancelled', cancelRequested: true, finishedAt: now } },
+    );
+    await collection('human_requests').updateMany(
+      {
+        runId: { $in: [filter._id, ...children.map((r) => r._id)] },
+        ownerId: filter.ownerId,
+        status: 'pending',
+      },
+      { $set: { status: 'cancelled' } },
+    );
+  }
   return queued.modifiedCount + running.modifiedCount > 0;
 }
 export async function dispatchPending() {
@@ -317,6 +342,17 @@ export async function recoverStaleJobs() {
           events: { $each: [{ at: now.toISOString(), type: 'interrupted', message: error }], $slice: -500 },
         },
       });
+      await runs.updateMany(
+        { parentRunId: run._id, status: { $in: ['running', 'waiting_for_human'] } },
+        {
+          $set: {
+            status: 'interrupted',
+            error: 'The parent runner was lost',
+            finishedAt: now,
+            updatedAt: now,
+          },
+        },
+      );
       const finished = await runs.findOne({ _id: run._id });
       if (finished) await settleConversation(finished);
     }

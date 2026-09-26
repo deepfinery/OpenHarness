@@ -1,3 +1,4 @@
+import { dispatchHumanRequests, deliverHumanNotifications } from '../../../packages/core/src/human.js';
 import { app } from './app.js';
 import { config } from '../../../packages/core/src/config.js';
 import { connectDatabase, mongo } from '../../../packages/core/src/db.js';
@@ -17,6 +18,7 @@ async function tick() {
   dispatching = true;
   try {
     await recoverStaleJobs();
+    await dispatchHumanRequests();
     await dispatchPending();
     await dispatchSchedules();
     await deliverWebhooks();
@@ -27,10 +29,23 @@ async function tick() {
     dispatching = false;
   }
 }
+let notifying = false;
+const notifications = setInterval(async () => {
+  if (notifying) return;
+  notifying = true;
+  try {
+    await deliverHumanNotifications();
+  } catch (error) {
+    console.warn('Human notifications will retry:', safeError(error));
+  } finally {
+    notifying = false;
+  }
+}, 3000);
 const timer = setInterval(() => void tick(), 3000);
 void tick();
 async function shutdown() {
   clearInterval(timer);
+  clearInterval(notifications);
   server.close();
   await closeQueue();
   await mongo.close();

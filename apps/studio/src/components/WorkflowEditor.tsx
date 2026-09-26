@@ -69,7 +69,7 @@ import { ConnectionEditor, KnowledgeEditor } from './editors';
 import { AgentFields, ScheduleFields } from './agentFields';
 
 type GraphItem = WorkflowNode | WorkflowResource;
-type StepType = 'agent' | 'tool' | 'parallel' | 'condition' | 'email' | 'finish';
+type StepType = 'review' | 'agent' | 'tool' | 'parallel' | 'condition' | 'email' | 'finish';
 type Payload =
   | { type: StepType }
   | { type: 'mcp'; connectionId?: string }
@@ -90,6 +90,7 @@ const icons = {
   agent: Bot,
   tool: Plug,
   condition: GitBranch,
+  review: GitBranch,
   parallel: GitFork,
   email: Mail,
   mcp: Plug,
@@ -102,13 +103,15 @@ const labels = {
   agent: 'AI agent',
   tool: 'MCP action',
   condition: 'Condition',
+  review: 'Human review',
   parallel: 'Parallel agents',
   email: 'Send email',
   mcp: 'MCP tools',
   knowledge: 'Knowledge',
 };
-const stepTypes: StepType[] = ['agent', 'condition', 'parallel', 'tool', 'email', 'finish'];
+const stepTypes: StepType[] = ['agent', 'review', 'condition', 'parallel', 'tool', 'email', 'finish'];
 const stepHints: Record<StepType, string> = {
+  review: 'Pause for approval',
   agent: 'Reasons and acts',
   condition: 'Yes / no branch',
   parallel: 'Agents together',
@@ -219,7 +222,7 @@ function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
           </div>
         </>
       )}
-      {n.type === 'condition' ? (
+      {n.type === 'condition' || n.type === 'review' ? (
         <>
           <Handle
             type="source"
@@ -495,7 +498,9 @@ export function WorkflowEditor({
                         ? `${count} agent${count === 1 ? '' : 's'} run together`
                         : n.type === 'email'
                           ? `To ${n.to || '…'}`
-                          : `${n.value} ${n.operator} ${n.compare}`;
+                          : n.type === 'review'
+                            ? n.prompt
+                            : `${n.value} ${n.operator} ${n.compare}`;
         const warning =
           n.type === 'agent' && !agent?.providerId
             ? 'Choose a model'
@@ -722,23 +727,32 @@ export function WorkflowEditor({
     const n: WorkflowNode =
       type === 'agent'
         ? { ...base, type, config: defaultAgent(data), prompt: '{{last}}' }
-        : type === 'tool'
-          ? { ...base, type, connectionId: data.connections[0]?.id ?? '', tool: '', arguments: {} }
-          : type === 'parallel'
-            ? { ...base, type, agentNodeIds: [], agentIds: [], prompt: '{{last}}' }
-            : type === 'condition'
-              ? {
-                  ...base,
-                  type,
-                  value: '{{last}}',
-                  operator: 'contains',
-                  compare: '',
-                  onTrue: '',
-                  onFalse: '',
-                }
-              : type === 'email'
-                ? { ...base, type, to: '', subject: 'Report: {{input}}', body: '{{last}}' }
-                : { ...base, type: 'finish', template: '{{last}}' };
+        : type === 'review'
+          ? {
+              ...base,
+              type,
+              prompt: 'Review this result before continuing.',
+              value: '{{last}}',
+              onApprove: '',
+              onReject: '',
+            }
+          : type === 'tool'
+            ? { ...base, type, connectionId: data.connections[0]?.id ?? '', tool: '', arguments: {} }
+            : type === 'parallel'
+              ? { ...base, type, agentNodeIds: [], agentIds: [], prompt: '{{last}}' }
+              : type === 'condition'
+                ? {
+                    ...base,
+                    type,
+                    value: '{{last}}',
+                    operator: 'contains',
+                    compare: '',
+                    onTrue: '',
+                    onFalse: '',
+                  }
+                : type === 'email'
+                  ? { ...base, type, to: '', subject: 'Report: {{input}}', body: '{{last}}' }
+                  : { ...base, type: 'finish', template: '{{last}}' };
     const inserted = type === 'finish' ? { ...f, nodes: [...f.nodes, n] } : insertStep(f, n, selected);
     change(position ? inserted : autoPlace(inserted));
     select(id);
@@ -1625,6 +1639,25 @@ export function WorkflowEditor({
                 <p className="field-help">Sent through Settings → Email.</p>
               </>
             )}
+            {openStep?.type === 'review' && (
+              <>
+                <Field label="Review prompt">
+                  <textarea
+                    aria-label="Review prompt"
+                    value={openStep.prompt}
+                    onChange={(e) => patch(openStep.id, { prompt: e.target.value })}
+                  />
+                </Field>
+                <Field label="Result to review">
+                  <textarea
+                    value={openStep.value}
+                    onChange={(e) => patch(openStep.id, { value: e.target.value })}
+                  />
+                </Field>
+                {flowSelect(openStep, 'When approved', 'onApprove', openStep.onApprove)}
+                {flowSelect(openStep, 'When rejected', 'onReject', openStep.onReject)}
+              </>
+            )}
             {openStep?.type === 'condition' && (
               <>
                 <div className="two-columns">
@@ -1732,6 +1765,7 @@ export function WorkflowEditor({
             {openStep &&
               !isFinish(openStep) &&
               openStep.type !== 'condition' &&
+              openStep.type !== 'review' &&
               openStep.type !== 'start' &&
               flowSelect(openStep, 'Next step', 'next', openStep.next)}
           </div>

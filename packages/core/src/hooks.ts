@@ -42,7 +42,13 @@ export type HookContext = {
   /** Records each decision in the run trace. */
   event?: (e: { type: string; message: string; data?: unknown }) => Promise<void>;
 };
-type Reply = { decision?: 'allow' | 'deny' | 'modify'; reason?: string; input?: unknown; output?: unknown };
+type Reply = {
+  risk_score?: number;
+  decision?: 'allow' | 'deny' | 'modify';
+  reason?: string;
+  input?: unknown;
+  output?: unknown;
+};
 
 async function call(hook: HookRecord, payload: Record<string, unknown>) {
   const body = JSON.stringify({
@@ -91,7 +97,7 @@ async function record(hook: HookRecord, ctx: HookContext, decision: string, reas
   });
 }
 export type PreToolResult =
-  { allowed: true; input: Record<string, unknown> } | { allowed: false; reason: string };
+  { allowed: true; input: Record<string, unknown>; riskScore?: number } | { allowed: false; reason: string };
 /** Runs every pre_tool hook in order. A deny stops the chain; a modify replaces the input for the next hooks. */
 export async function beforeTool(
   hooks: HookRecord[],
@@ -99,6 +105,7 @@ export async function beforeTool(
   tool: ToolRef,
 ): Promise<PreToolResult> {
   let input = tool.input;
+  let riskScore = 0;
   for (const hook of hooks.filter((h) => h.event === 'pre_tool')) {
     let reply: Reply;
     try {
@@ -116,6 +123,8 @@ export async function beforeTool(
       await record(hook, ctx, 'deny', `hook unavailable: ${safeError(error)}`);
       return { allowed: false, reason: 'A required hook could not be reached' };
     }
+    if (typeof reply.risk_score === 'number' && Number.isFinite(reply.risk_score))
+      riskScore = Math.max(riskScore, Math.min(1, Math.max(0, reply.risk_score)));
     if (reply.decision === 'deny') {
       const reason = String(reply.reason ?? 'Denied by a hook').slice(0, 500);
       await record(hook, ctx, 'deny', reason);
@@ -130,7 +139,7 @@ export async function beforeTool(
       await record(hook, ctx, 'modify', reply.reason ? String(reply.reason).slice(0, 500) : undefined);
     } else await record(hook, ctx, 'allow');
   }
-  return { allowed: true, input };
+  return { allowed: true, input, ...(riskScore ? { riskScore } : {}) };
 }
 /** Runs every post_tool hook in order; each may replace the output text the agent sees. */
 export async function afterTool(

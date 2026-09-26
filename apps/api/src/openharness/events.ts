@@ -6,6 +6,7 @@ export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | '
 const toSpec: Record<RunStatus, ExecutionStatus> = {
   queued: 'pending',
   running: 'running',
+  waiting_for_human: 'running',
   succeeded: 'completed',
   failed: 'failed',
   cancelled: 'cancelled',
@@ -113,6 +114,14 @@ export class EventTranslator {
         }
         return [{ type: 'tool_result', id, success, output }];
       }
+      case 'human_requested':
+        return [
+          this.progress(event.message, {
+            ...extra,
+            human_request: { id: data.requestId, kind: data.kind },
+            waiting_for_human: true,
+          }),
+        ];
       case 'node_started':
         if (this.nodeTypes.get(event.nodeId ?? '') === 'start') return [];
         return [this.progress(event.message, extra)];
@@ -187,7 +196,7 @@ export function executionView(run: Run, translator = EventTranslator.replay(run)
       : {}),
     started_at: (run.startedAt ?? run.createdAt).toISOString(),
     ...(run.finishedAt ? { completed_at: run.finishedAt.toISOString() } : {}),
-    artifacts_count: 0,
+    artifacts_count: run.artifactIds?.length ?? 0,
     'x-openharness': {
       agent_id: run.workflowId ?? run.agentId,
       label: run.label,

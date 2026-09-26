@@ -7,3 +7,4 @@ export * from './policy.js';
 export * from './config.js';
 export * from './audit.js';
 export * from './idempotency.js';
+export * from './approvalProof.js';

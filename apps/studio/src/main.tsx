@@ -1,3 +1,4 @@
+import { HumanInbox } from './components/HumanInbox';
 import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -55,6 +56,7 @@ const nav = [
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'connections', label: 'MCP connections', icon: Plug },
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
+  { id: 'inbox', label: 'Inbox', icon: ShieldCheck },
   { id: 'executions', label: 'Executions', icon: Activity },
   { id: 'integrations', label: 'Integrations', icon: Code2 },
   { id: 'settings', label: 'Settings', icon: Settings2 },
@@ -226,6 +228,23 @@ function App() {
   const [tenant, setTenant] = useState({ name: 'Team workspace', members: 1 });
   const [healthy, setHealthy] = useState(false);
   const [sidebar, setSidebar] = useState(false);
+  const [inboxCount, setInboxCount] = useState(0);
+  useEffect(() => {
+    if (!user) return;
+    let live = true;
+    const check = () =>
+      void api('/inbox')
+        .then((r) => {
+          if (live) setInboxCount(r.requests.length);
+        })
+        .catch(() => {});
+    check();
+    const timer = setInterval(check, 5000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [user?.id]);
   const [playgroundActions, setPlaygroundActions] = useState<HTMLDivElement | null>(null);
   const refresh = useCallback(async () => {
     const [values, workspace, devices] = await Promise.all([
@@ -371,7 +390,10 @@ function App() {
                 onClick={() => navigate(item.id)}
               >
                 <item.icon size={18} />
-                <span>{item.label}</span>
+                <span>
+                  {item.label}
+                  {item.id === 'inbox' && inboxCount > 0 ? ` (${inboxCount})` : ''}
+                </span>
               </button>
             </React.Fragment>
           ))}
@@ -496,6 +518,8 @@ function App() {
               />
             ) : page === 'connections' ? (
               <ConnectionsPage {...props} />
+            ) : page === 'inbox' ? (
+              <HumanInbox />
             ) : page === 'executions' ? (
               <RunsPage />
             ) : page === 'integrations' ? (

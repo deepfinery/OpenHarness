@@ -1,3 +1,4 @@
+import { HumanInbox } from './HumanInbox';
 import { displayAnswer } from '../../../../packages/core/src/finalAnswer.js';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -503,6 +504,7 @@ export function Playground({
               </div>
             </div>
           )}
+          {run?.status === 'waiting_for_human' && <HumanInbox runId={run.id} />}
           <div ref={bottom} />
         </div>
         <div className="chat-compose">

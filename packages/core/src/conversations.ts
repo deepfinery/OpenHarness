@@ -17,7 +17,7 @@ export type Conversation = {
 };
 /** Compare-and-update makes completion safe after duplicate delivery or a runner restart. */
 export async function settleConversation(run: Run) {
-  if (!run.conversationId || ['queued', 'running'].includes(run.status)) return;
+  if (!run.conversationId || ['queued', 'running', 'waiting_for_human'].includes(run.status)) return;
   await collection<Conversation>('conversations').updateOne(
     { _id: run.conversationId, ownerId: run.ownerId, 'pending.runId': run._id },
     {

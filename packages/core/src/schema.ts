@@ -78,12 +78,32 @@ export const skillSchema = z.object({
   enabled: z.boolean().default(true),
 });
 export type Skill = z.infer<typeof skillSchema>;
+export const approvalModeSchema = z.enum(['never', 'always', 'when_risky']);
+export const humanSettingsSchema = z.object({
+  mode: approvalModeSchema.default('never'),
+  /** Exact MCP reference (mcp.<connectionId>.<name>) or builtin name; never grants a tool. */
+  tools: z.record(z.string().max(300), approvalModeSchema).default({}),
+  timeoutSeconds: z.number().int().min(60).max(604800).default(86400),
+  timeoutAction: z.enum(['deny', 'continue', 'escalate']).default('deny'),
+  approvers: z
+    .object({
+      admins: z.boolean().default(true),
+      owner: z.boolean().default(true),
+      userIds: z.array(id).max(30).default([]),
+    })
+    .default({}),
+  notifyEmail: z.boolean().default(false),
+});
+export type HumanSettings = z.infer<typeof humanSettingsSchema>;
 export const agentSchema = z.object({
   name,
   description: z.string().max(1000).default(''),
   systemPrompt: z.string().min(1).max(32000),
   /** Runtime clock timezone; absent means workflow schedule timezone, then UTC. */
   timezone: z.string().trim().min(1).max(64).refine(validTimeZone, 'Unknown time zone').optional(),
+  /** Builtin clarification requests; enabled unless explicitly disabled. */
+  humanInput: z.boolean().optional(),
+  approvals: humanSettingsSchema.optional(),
   providerId: id,
   connections: z.array(toolBindingSchema).max(30).default([]),
   knowledgeBaseIds: z.array(id).max(20).default([]),
@@ -167,7 +187,17 @@ export const nodeSchema = z.discriminatedUnion('type', [
     connectionId: id,
     tool: z.string().min(1).max(200),
     arguments: z.record(z.unknown()).default({}),
+    approvals: humanSettingsSchema.optional(),
     next,
+  }),
+  z.object({
+    ...baseNode,
+    type: z.literal('review'),
+    prompt: z.string().min(1).max(32000).default('Review the previous result before continuing.'),
+    value: z.string().max(32000).default('{{last}}'),
+    approvals: humanSettingsSchema.optional(),
+    onApprove: z.string().min(1).max(64),
+    onReject: z.string().min(1).max(64),
   }),
   z.object({
     ...baseNode,
@@ -247,6 +277,7 @@ export const workflowSchema = z
       .default([]),
     maxSteps: z.number().int().min(1).max(500).default(100),
     resumePolicy: z.enum(resumePolicies).default('safe'),
+    approvals: humanSettingsSchema.optional(),
     /**
      * The knowledge base agents use as shared working memory: they search and read it selectively and write
      * findings, decisions and feedback into folders there instead of carrying everything in their context.
@@ -323,7 +354,10 @@ export const workflowSchema = z
         return;
       }
       visiting.add(nodeId);
-      if (n.type === 'condition') {
+      if (n.type === 'review') {
+        walk(n.onApprove);
+        walk(n.onReject);
+      } else if (n.type === 'condition') {
         walk(n.onTrue);
         walk(n.onFalse);
       } else if ('next' in n && n.next) walk(n.next);
@@ -340,7 +374,13 @@ export const workflowSchema = z
       for (let i = 0; i < w.nodes.length; i++)
         for (const n of w.nodes) {
           const targets =
-            n.type === 'condition' ? [n.onTrue, n.onFalse] : 'next' in n && n.next ? [n.next] : [];
+            n.type === 'review'
+              ? [n.onApprove, n.onReject]
+              : n.type === 'condition'
+                ? [n.onTrue, n.onFalse]
+                : 'next' in n && n.next
+                  ? [n.next]
+                  : [];
           if (targets.some((t) => canFinish.has(t))) canFinish.add(n.id);
           if (i === 0 && targets.includes(w.startAt)) issue('Execution cannot return to Start');
         }
@@ -377,8 +417,15 @@ export type WorkflowNode = z.infer<typeof nodeSchema>;
 export type WorkflowResource = z.infer<typeof resourceSchema>;
 export type KnowledgeBase = z.infer<typeof knowledgeSchema>;
 export type RunInput = z.infer<typeof runSchema>;
-export type Stored<T> = T & { _id: string; ownerId: string; createdAt: Date; updatedAt: Date };
-export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+export type Stored<T> = T & {
+  _id: string;
+  ownerId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  createdBy?: string;
+};
+export type RunStatus =
+  'queued' | 'running' | 'waiting_for_human' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type RunEvent = { at: string; type: string; nodeId?: string; message: string; data?: unknown };
 /** Per-run agent changes requested by an API caller (for example the Open Harness execute request). */
 export type RunOverrides = { systemPrompt?: string; providerId?: string; skillIds?: string[] };
@@ -408,6 +455,15 @@ export type Run = Stored<RunInput> & {
   outputs: Record<string, unknown>;
   checkpoint?: RunCheckpoint;
   resumeCount?: number;
+  /** Human continuations preserve the pending node attempt and do not consume failure-recovery attempts. */
+  approvalOwnerId?: string;
+  resumeFromHuman?: boolean;
+  humanResumeCount?: number;
+  waitingSince?: Date;
+  humanCheckedAt?: Date;
+  waitingForChildren?: string[];
+  childNotes?: { note_id: string; path: string }[];
+  artifactIds?: string[];
   startedAt?: Date;
   finishedAt?: Date;
   leaseUntil?: Date;

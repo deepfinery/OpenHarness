@@ -97,7 +97,9 @@ export async function connectMongoStorage(
   const db = client.db(database);
   const devices = db.collection<DeviceDoc>('devices');
   const calls = db.collection<StoredAuditRecord>('tool_calls');
+  const approvalUses = db.collection<{ _id: string; expires: Date }>('approval_uses');
   await Promise.all([
+    approvalUses.createIndex({ expires: 1 }, { expireAfterSeconds: 0 }),
     devices.createIndex({ owner: 1, created_at: 1 }),
     calls.createIndex({ device_id: 1, ts: -1 }),
     // Old audit entries expire on their own; 0 keeps them forever.
@@ -106,5 +108,18 @@ export async function connectMongoStorage(
       : []),
   ]);
   const registry = new MongoRegistry(devices, client);
-  return { registry, audit: new MongoAuditStore(calls), close: () => registry.close() };
+  return {
+    consumeApproval: async (_id, expires) => {
+      try {
+        await approvalUses.insertOne({ _id, expires });
+        return true;
+      } catch (error) {
+        if (error instanceof MongoServerError && error.code === 11000) return false;
+        throw error;
+      }
+    },
+    registry,
+    audit: new MongoAuditStore(calls),
+    close: () => registry.close(),
+  };
 }

@@ -1,3 +1,5 @@
+import { canAnswer, decideHuman, type HumanRequest } from '../../../../packages/core/src/human.js';
+import { listArtifacts, artifactContent } from '../../../../packages/core/src/artifacts.js';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { config } from '../../../../packages/core/src/config.js';
@@ -260,7 +262,7 @@ export function executionOperations(registry: OperationRegistry): Operation[] {
       'temperature and max_tokens are accepted but not applied; choose the model with the model field',
       'session_id needs the sessions domain, which is not supported yet',
       `Messages are limited to ${MAX_INPUT} characters`,
-      'Artifacts are not recorded yet',
+      'Artifacts capture final answers and embedded MCP resources up to 5 MiB each (50 per execution); external file URLs are not downloaded',
     ],
   });
   registry.declare('models', {
@@ -268,6 +270,91 @@ export function executionOperations(registry: OperationRegistry): Operation[] {
     limitations: ['model selects a configured provider by id, name or model name for one execution'],
   });
   return [
+    {
+      id: 'execution.sendInput',
+      provides: { domain: 'execution', operations: ['input'] },
+      handler: async (req) => {
+        const { run } = await findRun(req, 'execute');
+        if (isTerminal(run.status)) throw new OhError(410, 'GONE', 'Execution has finished');
+        if (run.status !== 'waiting_for_human')
+          throw new OhError(409, 'CONFLICT', 'Execution is not waiting for input');
+        const body = z
+          .object({
+            data: z.string().min(1).max(32000),
+            'x-openharness': z
+              .object({
+                request_id: z.string().uuid().optional(),
+                decision: z.enum(['answer', 'approve', 'deny']).optional(),
+                arguments: z.record(z.unknown()).optional(),
+                feedback: z.string().max(4000).optional(),
+              })
+              .optional(),
+          })
+          .parse(req.body);
+        const principal = req.principal!;
+        const actor = { id: principal.user._id, role: principal.user.role };
+        const children = await runs()
+          .find({ parentRunId: run._id, ownerId: run.ownerId })
+          .project({ _id: 1 })
+          .toArray();
+        const pending = (
+          await collection<HumanRequest>('human_requests')
+            .find({
+              ownerId: run.ownerId,
+              runId: { $in: [run._id, ...children.map((r) => r._id)] },
+              status: 'pending',
+              ...(body['x-openharness']?.request_id ? { _id: body['x-openharness'].request_id } : {}),
+            })
+            .toArray()
+        ).filter((r) => canAnswer(r, actor));
+        if (pending.length !== 1)
+          throw new OhError(
+            409,
+            'CONFLICT',
+            'Select one authorized pending request using x-openharness.request_id',
+          );
+        const r = pending[0];
+        const extension = body['x-openharness'];
+        const choice =
+          extension?.decision ??
+          (r.kind === 'question'
+            ? 'answer'
+            : /^(yes|approve)\s*$/i.test(body.data)
+              ? 'approve'
+              : /^(no|deny)\s*$/i.test(body.data)
+                ? 'deny'
+                : undefined);
+        if (!choice)
+          throw new OhError(400, 'VALIDATION_ERROR', 'For approvals supply yes, no, approve or deny');
+        await decideHuman(run.ownerId, r._id, actor, {
+          decision: choice,
+          ...(choice === 'answer' ? { answer: body.data } : {}),
+          ...(extension?.arguments ? { arguments: extension.arguments } : {}),
+          ...(extension?.feedback ? { feedback: extension.feedback } : {}),
+        });
+        return { accepted: true };
+      },
+    },
+    {
+      id: 'execution.listArtifacts',
+      provides: { domain: 'execution', operations: ['artifacts'] },
+      handler: async (req) => {
+        const { run } = await findRun(req);
+        return { artifacts: await listArtifacts(run.ownerId, run._id) };
+      },
+    },
+    {
+      id: 'execution.downloadArtifact',
+      handler: async (req, res) => {
+        const { run } = await findRun(req);
+        const result = await artifactContent(run.ownerId, run._id, String(req.params.artifactId));
+        if (!result) throw notFound('Artifact');
+        res.attachment(result.artifact.name);
+        res.setHeader('Content-Type', result.artifact.mimeType);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.send(result.bytes);
+      },
+    },
     {
       id: 'execution.run',
       provides: { domain: 'execution', operations: ['sync'] },
@@ -344,7 +431,37 @@ export function executionOperations(registry: OperationRegistry): Operation[] {
     },
     {
       id: 'execution.get',
-      handler: async (req) => ({ execution: executionView((await findRun(req)).run) }),
+      handler: async (req) => {
+        const { run } = await findRun(req);
+        const children = await runs()
+          .find({ parentRunId: run._id, ownerId: run.ownerId })
+          .project({ _id: 1 })
+          .toArray();
+        const pending = await collection<HumanRequest>('human_requests')
+          .find({
+            ownerId: run.ownerId,
+            runId: { $in: [run._id, ...children.map((r) => r._id)] },
+            status: 'pending',
+          })
+          .toArray();
+        const view = executionView(run);
+        return {
+          execution: {
+            ...view,
+            'x-openharness': {
+              ...view['x-openharness'],
+              human_requests: pending.map((r) => ({
+                id: r._id,
+                kind: r.kind,
+                prompt: r.prompt,
+                tool: r.tool,
+                arguments: r.arguments,
+                expires_at: r.expiresAt,
+              })),
+            },
+          },
+        };
+      },
     },
     {
       id: 'execution.cancel',
@@ -362,7 +479,7 @@ export function executionOperations(registry: OperationRegistry): Operation[] {
       handler: async (req) => {
         const { run } = await findRun(req);
         if (!isTerminal(run.status)) throw new OhError(409, 'CONFLICT', 'The execution is still running');
-        return { result: executionResult(run) };
+        return { result: { ...executionResult(run), artifacts: await listArtifacts(run.ownerId, run._id) } };
       },
     },
     {
