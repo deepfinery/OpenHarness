@@ -80,8 +80,13 @@ export async function loadConnectorConfig({
 }): Promise<{ config: ConnectorConfig; warnings: string[] }> {
   let fromFile: Record<string, unknown> = {};
   if (path) {
-    const text = await readFile(path, 'utf8').catch(() => {
-      throw new Error(`config file not found: ${path}`);
+    const text = await readFile(path, 'utf8').catch((cause: NodeJS.ErrnoException) => {
+      throw new Error(
+        cause.code === 'ENOENT'
+          ? `config file not found: ${path}`
+          : `cannot read config file ${path}: ${cause.code ?? 'unknown error'} (${cause.message})`,
+        { cause },
+      );
     });
     fromFile = JSON.parse(text) as Record<string, unknown>;
   }

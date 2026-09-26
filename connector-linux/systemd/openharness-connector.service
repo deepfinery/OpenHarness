@@ -1,6 +1,6 @@
 [Unit]
 Description=OpenHarness device connector (MCP over outbound WebSocket)
-Documentation=https://github.com/deepfinery/orchestrator/blob/main/docs/INSTALL.md
+Documentation=https://github.com/deepfinery/OpenHarness/blob/main/docs/INSTALL.md
 After=network-online.target
 Wants=network-online.target
 
