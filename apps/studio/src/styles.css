@@ -5785,3 +5785,26 @@ details.advanced summary {
   max-height: 320px;
   overflow: auto;
 }
+
+.guardrail-picker {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.guardrail-picker label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.guardrail-picker input {
+  width: auto;
+}
+.harness-card.kind-guardrail {
+  border-color: #6e8e73;
+}
+.guardrail-port {
+  background: #477d55 !important;
+}

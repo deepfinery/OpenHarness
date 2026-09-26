@@ -1,3 +1,4 @@
+import { GuardrailPicker } from './GuardrailsPage';
 import { humanSettingsSchema } from '../../../../packages/core/src/schema.js';
 import { useState } from 'react';
 import { Clock3 } from 'lucide-react';
@@ -104,6 +105,11 @@ export function AgentFields({
           ))}
         </select>
       </Field>
+      <GuardrailPicker
+        data={data}
+        value={value.guardrailIds}
+        onChange={(guardrailIds) => onChange({ guardrailIds })}
+      />
       <EffortControl value={effort} onChange={(level) => onChange(applyEffort(value, level))} />
       <Field
         label="Timezone"

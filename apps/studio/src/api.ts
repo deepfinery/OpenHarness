@@ -24,6 +24,7 @@ export type User = {
   tenantId: string;
 };
 export const collections = [
+  'guardrails',
   'agents',
   'workflows',
   'providers',
@@ -57,6 +58,7 @@ export type Data = Record<(typeof collections)[number], Entity[]> & {
   gateway: { configured: boolean; publicUrl: string; catalog: Partial<ToolCatalog>; error?: string };
 };
 export const emptyData: Data = {
+  guardrails: [],
   agents: [],
   workflows: [],
   providers: [],
