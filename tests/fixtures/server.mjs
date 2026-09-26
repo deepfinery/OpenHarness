@@ -711,6 +711,57 @@ function clockAnswer(messages, tools) {
   }
   return { content: `${tools?.length ? 'Analysis' : 'Final synthesis'}: ${clock}` };
 }
+function selectionAnswer(model, messages, tools) {
+  const system = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content)
+    .join('\n');
+  const input = messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+  const call = (name, args) => ({
+    id: randomUUID(),
+    type: 'function',
+    function: { name, arguments: JSON.stringify(args) },
+  });
+  const reply = (...calls) => ({ content: '', tool_calls: calls });
+  const corrected = system.includes('the entire tool batch was rejected');
+  if (system.includes('Analysis has ended.'))
+    return {
+      content: `Assessment incomplete: tool selection blocked further checks. ${input.includes('prior evidence retained') ? 'Prior evidence retained.' : 'No prior evidence.'}`,
+    };
+  if (model === 'test-selection-plan') {
+    if (input.includes('Before doing anything'))
+      return corrected
+        ? { content: '1. Summarize the available evidence.' }
+        : reply(
+            call('memory_write', { title: 'Unapproved planning write', content: 'should never be stored' }),
+          );
+    return { content: 'Plan completed without unauthorized writes.' };
+  }
+  const last = messages.at(-1);
+  if (last?.role !== 'tool')
+    return reply(
+      call('memory_write', { title: 'Prior evidence', content: 'prior evidence retained', kind: 'finding' }),
+    );
+  const previous = messages.flatMap((m) => m.tool_calls ?? []).find((c) => c.id === last.tool_call_id)
+    ?.function.name;
+  if (previous !== 'memory_write') return { content: `Recovered using the allowed tool: ${last.content}` };
+  const allowed = tools?.find((t) => t.function.description?.includes('Look up deterministic test data'))
+    ?.function.name;
+  if (corrected && model !== 'test-selection-persistent')
+    return reply(call(allowed, { query: 'corrected request' }));
+  if (model === 'test-selection-batch')
+    return reply(...Array.from({ length: 21 }, () => call(allowed, { query: 'must not execute' })));
+  const unavailable =
+    model === 'test-selection-disabled'
+      ? 'memory_promote'
+      : model === 'test-selection-unselected'
+        ? 'calculate'
+        : 'functions.lookup';
+  return reply(
+    call(allowed, { query: 'must not execute' }),
+    call(unavailable, { secret: 'private rejected argument' }),
+  );
+}
 app.post('/v1/chat/completions', async (req, res) => {
   stats.models++;
   if (JSON.stringify(req.body).includes('delay-model')) await new Promise((r) => setTimeout(r, 15000));
@@ -766,8 +817,9 @@ app.post('/v1/chat/completions', async (req, res) => {
       },
     });
   }
-  let message =
-    req.body.model === 'test-clock'
+  let message = req.body.model.startsWith('test-selection-')
+    ? selectionAnswer(req.body.model, req.body.messages, req.body.tools)
+    : req.body.model === 'test-clock'
       ? clockAnswer(req.body.messages, req.body.tools)
       : answer(req.body.messages, req.body.tools);
   // Fail only after a real MCP result, so recovery must preserve already completed tool calls.

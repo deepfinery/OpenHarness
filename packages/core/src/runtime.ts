@@ -30,7 +30,11 @@ import {
 } from './workspace.js';
 import { sendEmail } from './email.js';
 import { asText, evaluateCondition, render, type Scope } from './templates.js';
-import { validateToolArguments } from './toolValidation.js';
+import {
+  ToolSelectionRecoveryError,
+  validateToolArguments,
+  validateToolSelection,
+} from './toolValidation.js';
 import {
   compactDialog,
   ContextCapacityError,
@@ -220,6 +224,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
       skillNote +
       deviceNote +
       taskMemoryPrompt +
+      '\nCall only exact function names from the current tool definitions. Match MCP names mentioned in skills or notes to the attached tool descriptions; never guess aliases.' +
       (workspace
         ? workspaceNote +
           `\nDefault notebook id: ${workspace.knowledgeBaseId}. Writable notebook ids: ${JSON.stringify(notebookNames.map((base) => ({ id: base._id, name: base.name })))}.`
@@ -256,6 +261,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
       contextAllowance(provider.contextWindow ?? 128000, provider.maxOutputTokens).maxOutputTokens + 8000,
     );
     let terminalAnswer: string | undefined;
+    let rejectedToolBatches = 0;
     let estimateScale = Math.max(1, provider.contextTokenScale ?? 1);
     let learnedPromptBudget = Infinity;
     const usage = (spent: number) => {
@@ -278,6 +284,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
       const toolTokens = offered.length ? estimateTokens(JSON.stringify(offered)) + offered.length * 16 : 0;
       let responseRetries = 0;
       let contextRetries = 0;
+      let toolCorrection: string | undefined;
       let checkpoint: ChatMessage | undefined;
       for (;;) {
         const allowance = contextAllowance(
@@ -297,6 +304,10 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
             retryMessages[0] = { ...retryMessages[0], content: retryMessages[0].content + guidance };
           else retryMessages.unshift({ role: 'system', content: guidance.trim() });
         }
+        const correctionMessage: ChatMessage | undefined = toolCorrection
+          ? { role: 'system', content: toolCorrection }
+          : undefined;
+        if (correctionMessage) retryMessages.unshift(correctionMessage);
         const originalRequest = retryMessages.filter((m) => m.role === 'user').at(-1);
         const keepsRequest = (messages: ChatMessage[]) =>
           messages.filter((m) => m.role === 'user').at(-1)?.content === originalRequest?.content;
@@ -390,8 +401,45 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
                   estimateTokens(response.text) +
                   estimateTokens(JSON.stringify(response.toolCalls)),
           );
-          // Carry the compressed conversation forward instead of repeatedly growing the original dialog.
-          if (fitted.changed && !finalAnswer) dialog.splice(0, dialog.length, ...fitted.messages);
+          const rejected = !finalAnswer && validateToolSelection(response.toolCalls, offered);
+          if (rejected) {
+            rejectedToolBatches++;
+            await ctx.event({
+              type: 'tool_selection_error',
+              message:
+                rejectedToolBatches >= 3
+                  ? 'Tool selection recovery exhausted; summarizing saved evidence'
+                  : 'Rejected tool batch; requesting corrected tool names',
+              data: {
+                reason: rejected.reason,
+                unavailable: rejected.unavailable,
+                callCount: response.toolCalls.length,
+                attempt: rejectedToolBatches,
+                executed: false,
+                tokensUsed,
+              },
+            });
+            ctx.onDelta?.('', true);
+            if (rejectedToolBatches >= 3) {
+              dialog.push({
+                role: 'assistant',
+                content:
+                  'Runtime observation: tool selection recovery exhausted. Rejected batches executed no calls. Complete the answer using earlier evidence and disclose checks that could not be performed.',
+              });
+              throw new ToolSelectionRecoveryError('Tool selection recovery exhausted');
+            }
+            // Retry without replaying invalid tool names/ids into provider message history. The correction
+            // is protected during compaction, but temporary; it cannot become a new user authorization.
+            toolCorrection = rejected.feedback;
+            continue;
+          }
+          // Carry the compressed conversation forward, without retaining temporary repair instructions.
+          if (fitted.changed && !finalAnswer)
+            dialog.splice(
+              0,
+              dialog.length,
+              ...fitted.messages.filter((message) => message !== correctionMessage),
+            );
           return response;
         } catch (error) {
           signal.throwIfAborted();
@@ -523,12 +571,16 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
         } catch (error) {
           signal.throwIfAborted();
           if (!finalizing) {
-            if (!(error instanceof ContextCapacityError)) throw error;
+            if (!(error instanceof ContextCapacityError) && !(error instanceof ToolSelectionRecoveryError))
+              throw error;
             finalizing = true;
             stopPatterns = true;
             await ctx.event({
-              type: 'context_limit',
-              message: 'Context capacity reached; synthesizing saved evidence without tools',
+              type: error instanceof ToolSelectionRecoveryError ? 'recovery_limit' : 'context_limit',
+              message:
+                error instanceof ToolSelectionRecoveryError
+                  ? 'Tool selection recovery exhausted; synthesizing saved evidence without tools'
+                  : 'Context capacity reached; synthesizing saved evidence without tools',
             });
             ctx.onDelta?.('', true);
             continue;
@@ -566,7 +618,6 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
             ? `Analysis turn limit reached. This response summarizes the available evidence; unfinished checks are listed below.\n\n${response.text}`
             : response.text;
         }
-        if (response.toolCalls.length > 20) throw new Error('Model exceeded the per-turn tool-call limit');
         dialog.push({ role: 'assistant', content: response.text, toolCalls: response.toolCalls });
         for (const call of response.toolCalls) {
           signal.throwIfAborted();

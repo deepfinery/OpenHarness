@@ -128,6 +128,8 @@ Each provider also has a **context window** (default 128k tokens, under Advanced
 
 Discovered tools appear as chips on the connection card; click one to see its input schema. Agents receive that schema with the tool, and every call is checked against it before it leaves the runner — a wrong enum or missing field comes back to the model as a correctable error instead of an opaque server failure.
 
+MCP functions use connection-specific aliases. Before executing a model's batch, the runner checks every name against the tools offered for that turn, including built-in tools. An unavailable name or a batch larger than 20 calls rejects the entire batch; earlier successful calls are retained. The model receives the current names and descriptions to correct its selection. Three rejected batches across the agent's passes end analysis and reserve a final summary of the available evidence. The trace records `tool_selection_error` with rejected names and counts, without recording rejected arguments or granting additional permissions.
+
 Private endpoints are denied unless their hostname is listed in `ALLOWED_PRIVATE_HOSTS` (default: `host.docker.internal,ollama`). A stdio-only MCP server should be exposed through an HTTP/SSE gateway; the studio never runs shell commands from the UI.
 
 ### 3. Configure an agent
