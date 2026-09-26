@@ -49,12 +49,17 @@ const slug = (name: string) =>
     .slice(0, 40);
 
 /** Machines: remote Linux hosts, containers, Windows hosts and Chrome browsers that agents can operate. */
-export function MachinesPage({ data, refresh, act, onUseMachine }: PageProps) {
+export function MachinesPage({ data, refresh, act, onUseMachine, navigate }: PageProps) {
   const [adding, setAdding] = useState(false);
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [editing, setEditing] = useState<Machine | null>(null);
   const [busy, setBusy] = useState('');
-  const machines = data.machines;
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(0);
+  const filtered = data.machines.filter((m) =>
+    `${m.name} ${m.device_id} ${m.cluster_id ?? ''}`.toLowerCase().includes(query.toLowerCase()),
+  );
+  const machines = filtered.slice(page * 100, page * 100 + 100);
   // While a new machine is expected to connect, poll until it shows up online.
   useEffect(() => {
     if (!enrollment) return;
@@ -91,6 +96,31 @@ export function MachinesPage({ data, refresh, act, onUseMachine }: PageProps) {
         }
       />
       <ErrorNotice error={data.gateway.error} />
+      <div className="row-actions">
+        <Button variant="secondary" onClick={() => navigate('clusters')}>
+          Enroll cluster nodes
+        </Button>
+        <input
+          aria-label="Filter machines"
+          placeholder="Filter machines"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setPage(0);
+          }}
+        />
+        <span>{filtered.length} machines</span>
+        <Button variant="secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>
+          Previous
+        </Button>
+        <Button
+          variant="secondary"
+          disabled={(page + 1) * 100 >= filtered.length}
+          onClick={() => setPage(page + 1)}
+        >
+          Next
+        </Button>
+      </div>
       {!data.gateway.configured ? (
         <Empty
           icon={<Laptop size={30} />}

@@ -41,6 +41,8 @@ Allow about 4 GB of memory for the stack, plus whatever your locally hosted mode
 
 ## What you get
 
+See the [NeMo Guardrails setup](docs/guardrails.md) for safety policies and workflow attachments, and the [GPU cluster guide](docs/gpu-clusters.md) for shared enrollment, scheduled node agents, privileged diagnostics and controlled remediation.
+
 | Area                | What is included                                                                                                                                                                                                                                                                                                                     |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Agents**          | Agents live on the workflow canvas as cards: instructions, model, an effort level (light, medium, high, extra high, max or auto) that sets loop and token budgets, one of four agentic patterns (ReAct, plan-and-execute, reflection, autonomous loop), seven templates, explicit tool permissions, knowledge bindings.              |

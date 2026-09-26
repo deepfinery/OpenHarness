@@ -48,6 +48,17 @@ Environment: GATEWAY_URL DEVICE_ID DEVICE_PLATFORM DEVICE_TOKEN|DEVICE_TOKEN_FIL
     write: (line) => process.stderr.write(line + '\n'),
   });
   for (const w of warnings) log.warn(w);
+  const gateway = new URL(config.gateway_url);
+  if (
+    gateway.username ||
+    gateway.password ||
+    gateway.search ||
+    gateway.hash ||
+    (gateway.protocol !== 'wss:' && !(gateway.protocol === 'ws:' && config.allow_insecure))
+  )
+    throw new Error(
+      'Use wss://, or explicitly enable insecure ws:// for development; credentials belong in the token setting',
+    );
   if (args.printConfig) {
     process.stdout.write(JSON.stringify({ ...config, token: '[redacted]' }, null, 2) + '\n');
     return;

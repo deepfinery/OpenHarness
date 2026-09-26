@@ -1,4 +1,5 @@
 // HTTP surface: Streamable HTTP MCP per device and for the fleet, the admin API, and health endpoints.
+import { clusterSchema, clusterView, type ClusterStore } from './clusters.js';
 import { randomUUID } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -17,6 +18,7 @@ import { constantEquals, generateDeviceToken, hashDeviceToken, orchestratorAuthe
 export type HttpDeps = {
   config: GatewayConfig;
   registry: Registry;
+  clusters: ClusterStore;
   hub: DeviceHub;
   audit: GatewayAudit;
   approval: ApprovalProvider;
@@ -43,7 +45,7 @@ const wrap =
     fn(req, res).catch(next);
 
 export function createHttpApp(deps: HttpDeps) {
-  const { config, registry, hub, audit, approval, log } = deps;
+  const { config, registry, clusters, hub, audit, approval, log } = deps;
   const app = express();
   app.disable('x-powered-by');
   app.set(
@@ -92,6 +94,7 @@ export function createHttpApp(deps: HttpDeps) {
         : createDeviceServer(target, identity, {
             hub,
             registry,
+            clusters,
             audit,
             approval,
             approvalTools: needApproval,
@@ -143,6 +146,62 @@ export function createHttpApp(deps: HttpDeps) {
       return next(new HttpError(401, 'unauthorized'));
     next();
   };
+  const disconnectCluster = async (id: string) => {
+    for (const d of await registry.list()) if (d.cluster_id === id) hub.disconnect(d.device_id);
+  };
+  app.get(
+    '/admin/clusters',
+    requireAdmin,
+    wrap(async (req, res) => {
+      res.json({
+        clusters: (
+          await clusters.list(typeof req.query.owner === 'string' ? req.query.owner : undefined)
+        ).map(clusterView),
+      });
+    }),
+  );
+  app.post(
+    '/admin/clusters',
+    requireAdmin,
+    wrap(async (req, res) => {
+      const body = clusterSchema.extend({ owner: z.string().min(1).max(200) }).parse(req.body);
+      const id = randomUUID(),
+        token = `cl_${id}.${generateDeviceToken()}`;
+      const cluster = {
+        ...body,
+        _id: id,
+        token_hash: await hashDeviceToken(token),
+        created_at: new Date().toISOString(),
+        slots: [],
+      };
+      await clusters.create(cluster);
+      res.status(201).json({ cluster: clusterView(cluster), token });
+    }),
+  );
+  app.put(
+    '/admin/clusters/:id',
+    requireAdmin,
+    wrap(async (req, res) => {
+      const id = String(req.params.id);
+      if (!(await clusters.get(id))) throw new HttpError(404, 'unknown cluster');
+      const patch = clusterSchema.partial().parse(req.body);
+      await clusters.update(id, patch);
+      if (patch.disabled) await disconnectCluster(id);
+      res.json({ cluster: clusterView((await clusters.get(id))!) });
+    }),
+  );
+  app.post(
+    '/admin/clusters/:id/rotate-token',
+    requireAdmin,
+    wrap(async (req, res) => {
+      const id = String(req.params.id);
+      if (!(await clusters.get(id))) throw new HttpError(404, 'unknown cluster');
+      const token = `cl_${id}.${generateDeviceToken()}`;
+      await clusters.update(id, { token_hash: await hashDeviceToken(token) });
+      await disconnectCluster(id);
+      res.json({ token });
+    }),
+  );
   const enrollBody = z.object({
     device_id: z.string().regex(deviceIdPattern),
     name: z.string().trim().max(100).default(''),
@@ -202,6 +261,8 @@ export function createHttpApp(deps: HttpDeps) {
     '/admin/devices/:id/rotate-token',
     requireAdmin,
     wrap(async (req, res) => {
+      if ((await registry.get(String(req.params.id)))?.cluster_id)
+        throw new HttpError(409, 'Rotate the cluster token for this node');
       const token = generateDeviceToken();
       if (!(await registry.update(String(req.params.id), { token_hash: await hashDeviceToken(token) })))
         throw new HttpError(404, 'unknown device');

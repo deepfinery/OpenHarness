@@ -25,6 +25,7 @@ export const gatewayConfigSchema = z
     GATEWAY_AUDIT_FILE: z.string().optional(),
     /** Accept device sockets that did not arrive over TLS (no `X-Forwarded-Proto: https`). Development only. */
     GATEWAY_ALLOW_INSECURE_WS: bool.default(false),
+    GATEWAY_HELLO_RATE_LIMIT: z.coerce.number().int().min(20).max(20000).default(600),
     GATEWAY_HEARTBEAT_SECONDS: z.coerce.number().int().min(5).max(300).default(30),
     GATEWAY_SESSION_RETENTION_SECONDS: z.coerce.number().int().min(0).default(600),
     GATEWAY_HTTP_SESSION_IDLE_SECONDS: z.coerce.number().int().min(60).default(1800),

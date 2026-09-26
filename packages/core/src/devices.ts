@@ -9,6 +9,7 @@ import type { devicePlatforms } from './schema.js';
 export type Platform = (typeof devicePlatforms)[number];
 export type DeviceView = {
   device_id: string;
+  cluster_id?: string;
   name: string;
   platform: Platform;
   owner: string;
@@ -55,6 +56,12 @@ export const deviceToolCatalog: Record<Platform, { name: string; description: st
     { name: 'list_dir', description: 'List a directory' },
     { name: 'search_files', description: 'Find files by name or content' },
     { name: 'system_info', description: 'Host, OS, CPU, memory, load' },
+    { name: 'gpu_inspect', description: 'Host NVIDIA, NVLink, DCGM and kernel logs (host access required)' },
+    {
+      name: 'gpu_remediate',
+      description: 'Controlled GPU reset, Fabric Manager restart or host reboot',
+      risky: true,
+    },
     { name: 'process_list', description: 'Running processes' },
   ],
   windows: [
@@ -86,7 +93,7 @@ export const gatewayConfigured = () =>
 export const gatewayPublicUrl = () => (config.GATEWAY_PUBLIC_URL || config.GATEWAY_URL).replace(/\/$/, '');
 const connections = () => collection<ConnectionRecord>('connections');
 
-async function admin<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+export async function gatewayAdmin<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   if (!gatewayConfigured())
     throw new HttpError(
       501,
@@ -117,7 +124,6 @@ async function admin<T>(path: string, method = 'GET', body?: unknown): Promise<T
 }
 /** Creates or refreshes the `device` connection that lets agents call this machine through the gateway. */
 export async function ensureDeviceConnection(ownerId: string, device: DeviceView, userId?: string) {
-  const existing = await connections().findOne({ ownerId, kind: 'device', deviceId: device.device_id });
   const now = new Date();
   const fields = {
     name: device.name || device.device_id,
@@ -132,19 +138,26 @@ export async function ensureDeviceConnection(ownerId: string, device: DeviceView
     platform: device.platform,
     updatedAt: now,
   };
-  let id = existing?._id;
-  if (existing) await connections().updateOne({ _id: existing._id }, { $set: fields, $inc: { revision: 1 } });
-  else {
-    id = randomUUID();
-    await connections().insertOne({
-      ...fields,
-      _id: id,
-      ownerId,
-      revision: 1,
-      createdAt: now,
-      ...(userId ? { createdBy: userId } : {}),
+  const record = await connections()
+    .findOneAndUpdate(
+      { ownerId, kind: 'device', deviceId: device.device_id },
+      {
+        $set: fields,
+        $inc: { revision: 1 },
+        $setOnInsert: {
+          _id: randomUUID(),
+          ownerId,
+          createdAt: now,
+          ...(userId ? { createdBy: userId } : {}),
+        },
+      },
+      { upsert: true, returnDocument: 'after' },
+    )
+    .catch(async (error) => {
+      if (error?.code !== 11000) throw error;
+      return connections().findOne({ ownerId, kind: 'device', deviceId: device.device_id });
     });
-  }
+  const id = record!._id;
   // Tool discovery needs the device online; a failure leaves the previous list in place.
   if (device.online) await discoverTools(ownerId, id!).catch(() => undefined);
   return id!;
@@ -153,14 +166,18 @@ export async function listMachines(
   ownerId: string,
 ): Promise<{ configured: boolean; publicUrl: string; machines: Machine[] }> {
   if (!gatewayConfigured()) return { configured: false, publicUrl: '', machines: [] };
-  const { devices } = await admin<{ devices: DeviceView[] }>(`/devices?owner=${encodeURIComponent(ownerId)}`);
+  const { devices } = await gatewayAdmin<{ devices: DeviceView[] }>(
+    `/devices?owner=${encodeURIComponent(ownerId)}`,
+  );
   let records = await connections().find({ ownerId, kind: 'device' }).toArray();
   // A machine that came online after enrollment has no tool list yet: discover it now, so no manual sync is needed.
   const pending = devices.filter(
     (d) => d.online && !d.disabled && !records.find((r) => r.deviceId === d.device_id)?.tools?.length,
   );
   if (pending.length) {
-    await Promise.all(pending.map((d) => ensureDeviceConnection(ownerId, d).catch(() => undefined)));
+    await Promise.all(
+      pending.slice(0, 8).map((d) => ensureDeviceConnection(ownerId, d).catch(() => undefined)),
+    );
     records = await connections().find({ ownerId, kind: 'device' }).toArray();
   }
   const machines = devices.map((d) => {
@@ -171,7 +188,9 @@ export async function listMachines(
 }
 /** Keeps connections in step with the gateway: online devices get fresh tool lists, removed devices lose their connection. */
 export async function syncMachines(ownerId: string, userId?: string) {
-  const { devices } = await admin<{ devices: DeviceView[] }>(`/devices?owner=${encodeURIComponent(ownerId)}`);
+  const { devices } = await gatewayAdmin<{ devices: DeviceView[] }>(
+    `/devices?owner=${encodeURIComponent(ownerId)}`,
+  );
   for (const device of devices) await ensureDeviceConnection(ownerId, device, userId);
   const known = new Set(devices.map((d) => d.device_id));
   const stale = (await connections().find({ ownerId, kind: 'device' }).toArray()).filter(
@@ -200,13 +219,17 @@ export async function enrollMachine(
   input: { deviceId: string; name: string; platform: Platform; allowedTools: string[] },
   userId?: string,
 ) {
-  const result = await admin<{ device: DeviceView; token: string; connect_url: string }>('/devices', 'POST', {
-    device_id: input.deviceId,
-    name: input.name,
-    platform: input.platform,
-    owner: ownerId,
-    allowed_tools: input.allowedTools,
-  });
+  const result = await gatewayAdmin<{ device: DeviceView; token: string; connect_url: string }>(
+    '/devices',
+    'POST',
+    {
+      device_id: input.deviceId,
+      name: input.name,
+      platform: input.platform,
+      owner: ownerId,
+      allowed_tools: input.allowedTools,
+    },
+  );
   const connectionId = await ensureDeviceConnection(ownerId, result.device, userId);
   const connectUrl = `${gatewayPublicUrl()}/connect`;
   return {
@@ -217,7 +240,9 @@ export async function enrollMachine(
   };
 }
 async function owned(ownerId: string, deviceId: string) {
-  const { devices } = await admin<{ devices: DeviceView[] }>(`/devices?owner=${encodeURIComponent(ownerId)}`);
+  const { devices } = await gatewayAdmin<{ devices: DeviceView[] }>(
+    `/devices?owner=${encodeURIComponent(ownerId)}`,
+  );
   const device = devices.find((d) => d.device_id === deviceId);
   if (!device) throw new HttpError(404, 'Machine not found');
   return device;
@@ -229,7 +254,7 @@ export async function updateMachine(
   userId?: string,
 ) {
   await owned(ownerId, deviceId);
-  const result = await admin<{ device: DeviceView }>(`/devices/${deviceId}`, 'PUT', {
+  const result = await gatewayAdmin<{ device: DeviceView }>(`/devices/${deviceId}`, 'PUT', {
     ...(patch.name !== undefined ? { name: patch.name } : {}),
     ...(patch.allowedTools !== undefined ? { allowed_tools: patch.allowedTools } : {}),
     ...(patch.disabled !== undefined ? { disabled: patch.disabled } : {}),
@@ -240,7 +265,7 @@ export async function updateMachine(
 }
 export async function rotateMachineToken(ownerId: string, deviceId: string) {
   const device = await owned(ownerId, deviceId);
-  const result = await admin<{ token: string; connect_url: string }>(
+  const result = await gatewayAdmin<{ token: string; connect_url: string }>(
     `/devices/${deviceId}/rotate-token`,
     'POST',
   );
@@ -262,5 +287,5 @@ export async function removeMachine(ownerId: string, deviceId: string) {
     if (used) throw new HttpError(409, 'A workflow still uses this machine; remove it from the canvas first');
     await connections().deleteOne({ _id: record._id, ownerId });
   }
-  await admin(`/devices/${deviceId}`, 'DELETE');
+  await gatewayAdmin(`/devices/${deviceId}`, 'DELETE');
 }

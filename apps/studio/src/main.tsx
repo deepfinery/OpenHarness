@@ -1,3 +1,4 @@
+import { ClustersPage } from './components/ClustersPage';
 import { GuardrailsPage } from './components/GuardrailsPage';
 import { HumanInbox } from './components/HumanInbox';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -53,6 +54,7 @@ import './refresh.css';
 const nav = [
   { id: 'workflows', label: 'Workflows', icon: GitBranch },
   { id: 'playground', label: 'Playground', icon: MessageSquare },
+  { id: 'clusters', label: 'Clusters', icon: Laptop },
   { id: 'machines', label: 'Machines', icon: Laptop },
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'connections', label: 'MCP connections', icon: Plug },
@@ -496,6 +498,8 @@ function App() {
           <main className="page-content">
             {page === 'skills' ? (
               <SkillsPage data={data} refresh={refresh} act={act} />
+            ) : page === 'clusters' ? (
+              <ClustersPage data={data} isAdmin={user.role === 'admin'} />
             ) : page === 'machines' ? (
               <MachinesPage
                 {...props}

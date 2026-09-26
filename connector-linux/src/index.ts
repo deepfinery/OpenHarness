@@ -1,3 +1,4 @@
+import { registerGpuTools } from './gpu.js';
 // Programmatic entry point: build a connector server without starting a transport (used by tests and the CLI).
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Policy, createAuditLog, type ConnectorConfig } from '@openharness/connector-core';
@@ -21,6 +22,11 @@ export async function createConnectorServer(config: ConnectorConfig) {
     { name: 'openharness-connector-linux', version: connectorVersion },
     { capabilities: { tools: { listChanged: true } } },
   );
+  registerGpuTools(server, audit, {
+    enabled: process.env.HOST_ACCESS === 'true',
+    actions: config.read_only ? [] : (process.env.HOST_REMEDIATION_ACTIONS ?? '').split(',').filter(Boolean),
+    stateDir: process.env.HOST_STATE_DIR ?? '/host-state',
+  });
   registerLinuxTools(server, { policy, audit, hostname: config.hostname });
   return { server, policy, audit };
 }

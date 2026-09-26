@@ -449,6 +449,7 @@ export type RunDevice = {
 };
 export type Run = Stored<RunInput> & {
   evaluation?: boolean;
+  monitoring?: { clusterId: string; cycleId: string };
   status: RunStatus;
   label: string;
   device?: RunDevice;

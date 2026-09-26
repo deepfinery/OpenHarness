@@ -1,9 +1,11 @@
 // Storage contracts for the gateway. Everything the gateway persists goes through these two interfaces, so
 // swapping MongoDB for another database (for example PostgreSQL) means adding one implementation of each.
+import { MemoryClusters, type ClusterStore } from './clusters.js';
 import type { Platform } from '@openharness/connector-core';
 
 export type DeviceRecord = {
   device_id: string;
+  cluster_id?: string;
   name: string;
   /** argon2id hash of the device token; the token itself is never stored. */
   token_hash: string;
@@ -51,6 +53,7 @@ export class DuplicateDeviceError extends Error {
 export type Storage = {
   consumeApproval(id: string, expires: Date): Promise<boolean>;
   registry: Registry;
+  clusters: ClusterStore;
   audit: AuditStore;
   close(): Promise<void>;
 };
@@ -111,6 +114,7 @@ export const memoryStorage = (): Storage => {
       return true;
     },
     registry: new MemoryRegistry(),
+    clusters: new MemoryClusters(),
     audit: new MemoryAuditStore(),
     close: async () => {},
   };

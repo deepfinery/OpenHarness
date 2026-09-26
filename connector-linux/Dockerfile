@@ -10,7 +10,7 @@ COPY connector-linux/src connector-linux/src
 RUN cd connector-linux && npm ci --no-audit --no-fund && npm run build
 
 FROM node:22-alpine
-RUN apk add --no-cache coreutils findutils grep procps
+RUN apk add --no-cache coreutils findutils grep procps util-linux
 ENV NODE_ENV=production DEVICE_PLATFORM=linux WORK_DIR=/work ALLOW_COMMANDS="ls,cat,grep,find,head,tail,wc,df,du,uname,uptime,ps,env,echo,date,sh" LOG_LEVEL=info
 WORKDIR /opt/openharness-connector
 COPY --from=build /src/connector-linux/package.json connector-linux/

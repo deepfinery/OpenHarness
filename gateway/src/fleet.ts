@@ -9,6 +9,7 @@ export function deviceView(record: DeviceRecord, hub: DeviceHub, publicUrl: stri
   const httpBase = publicUrl.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/$/, '');
   return {
     device_id: record.device_id,
+    cluster_id: record.cluster_id,
     name: record.name || record.device_id,
     platform: record.platform,
     owner: record.owner,
