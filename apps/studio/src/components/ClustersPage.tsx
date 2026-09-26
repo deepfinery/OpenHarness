@@ -1,8 +1,20 @@
+import { AgentFields } from './agentFields';
+import { defaultAgent } from '../workflowGraph';
+import type { Agent } from '../../../../packages/core/src/schema.js';
 import { useEffect, useState } from 'react';
 import { api, send, errorMessage, timestamp, type Data } from '../api';
 import { Button, CopyButton, ErrorNotice, Field, Modal, PageTitle } from './ui';
 const actions = ['gpu_reset', 'restart_fabric_manager', 'reboot'];
-export function ClustersPage({ data, isAdmin }: { data: Data; isAdmin: boolean }) {
+export function ClustersPage({
+  data,
+  isAdmin,
+  refreshData,
+}: {
+  data: Data;
+  isAdmin: boolean;
+  refreshData: () => Promise<void>;
+}) {
+  const [draftAgent, setDraftAgent] = useState<(Agent & { id?: string }) | null>(null);
   const [clusters, setClusters] = useState<any[]>([]),
     [error, setError] = useState('');
   const [adding, setAdding] = useState(false),
@@ -165,6 +177,36 @@ export function ClustersPage({ data, isAdmin }: { data: Data; isAdmin: boolean }
                 onChange={(e) => setPolicy({ ...policy, max_nodes: Number(e.target.value) })}
               />
             </Field>
+            {isAdmin && (
+              <div className="row-actions">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    setDraftAgent({
+                      ...defaultAgent(data),
+                      name: 'GPU monitor',
+                      tokenBudget: 16000,
+                      systemPrompt:
+                        'Inspect the assigned GPU node using its diagnostics tools. Report evidence and uncertainty. Follow cluster remediation controls and never stop workloads to force a reset.',
+                    })
+                  }
+                >
+                  New monitoring agent
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={!monitor.agentId}
+                  onClick={() => {
+                    const a = data.agents.find((a) => a.id === monitor.agentId);
+                    if (a) setDraftAgent(a as Agent & { id: string });
+                  }}
+                >
+                  Edit monitoring agent
+                </Button>
+              </div>
+            )}
             <Field label="Monitoring agent">
               <select
                 required={monitor.enabled}
@@ -320,6 +362,45 @@ export function ClustersPage({ data, isAdmin }: { data: Data; isAdmin: boolean }
           ) : (
             <p className="muted">No monitoring cycles yet.</p>
           )}
+        </Modal>
+      )}
+      {draftAgent && (
+        <Modal
+          title={draftAgent.id ? 'Edit monitoring agent' : 'New monitoring agent'}
+          onClose={() => setDraftAgent(null)}
+          wide
+        >
+          <ErrorNotice error={error} />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void act(async () => {
+                const saved = await send(
+                  draftAgent.id ? `/agents/${draftAgent.id}` : '/agents',
+                  draftAgent,
+                  draftAgent.id ? 'PUT' : 'POST',
+                );
+                await refreshData();
+                setMonitor((current: any) => ({ ...current, agentId: saved.id }));
+                setDraftAgent(null);
+              });
+            }}
+          >
+            <Field label="Monitoring agent name">
+              <input
+                required
+                value={draftAgent.name}
+                onChange={(e) => setDraftAgent({ ...draftAgent, name: e.target.value })}
+              />
+            </Field>
+            <AgentFields
+              value={draftAgent}
+              data={data}
+              refresh={refreshData}
+              onChange={(patch) => setDraftAgent((current) => (current ? { ...current, ...patch } : current))}
+            />
+            <Button type="submit">Save monitoring agent</Button>
+          </form>
         </Modal>
       )}
     </>

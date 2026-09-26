@@ -499,7 +499,7 @@ function App() {
             {page === 'skills' ? (
               <SkillsPage data={data} refresh={refresh} act={act} />
             ) : page === 'clusters' ? (
-              <ClustersPage data={data} isAdmin={user.role === 'admin'} />
+              <ClustersPage data={data} isAdmin={user.role === 'admin'} refreshData={refresh} />
             ) : page === 'machines' ? (
               <MachinesPage
                 {...props}
