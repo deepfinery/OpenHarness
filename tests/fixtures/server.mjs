@@ -962,7 +962,14 @@ app.post('/v1/chat/completions', async (req, res) => {
   }
   if (req.body.model === 'test-guardrail') {
     const input = req.body.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
-    if (input.includes('guarded private output'))
+    if (input.startsWith('guarded notebook result ')) {
+      const observation = req.body.messages.find(m => m.role === 'tool');
+      message = observation ? { content: observation.content } : {
+        content: 'Read the requested note', tool_calls: [{ id: randomUUID(), type: 'function', function: {
+          name: 'kb_read', arguments: JSON.stringify({ note_id: input.split(' ').at(-1) }),
+        } }],
+      };
+    } else if (input.includes('guarded private output'))
       message = { content: 'Contact alice@example.com. SSN 123-45-6789.' };
     else if (input.includes('guarded command') && !req.body.messages.some((m) => m.role === 'tool')) {
       const name = req.body.tools.find((t) =>

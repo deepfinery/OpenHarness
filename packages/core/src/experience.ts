@@ -236,7 +236,11 @@ export async function reflectOnRun(runId: string, signal: AbortSignal) {
       noteId ??= doc._id;
     }
     await runs().updateOne(filter, {
-      $set: { 'reflection.status': 'done', 'reflection.noteId': noteId, 'reflection.lesson': lesson },
+      $set: {
+        'reflection.status': 'done',
+        'reflection.noteId': noteId,
+        'reflection.lesson': String((note.meta as Record<string, unknown>).lesson ?? ''),
+      },
     });
   } catch (error) {
     await runs().updateOne(filter, {

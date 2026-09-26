@@ -1023,6 +1023,13 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                 );
                 isError = true;
               }
+              try {
+                text = await checkRail(ctx, 'tool_output', text, call.name);
+              } catch (error) {
+                if (!(error instanceof GuardrailBlocked)) throw error;
+                text = '[Tool result withheld by safety policy]';
+                isError = true;
+              }
               await ctx.event({
                 type: isError ? 'tool_error' : 'tool_completed',
                 message: `Delegation / ${SPAWN_TOOL}`,
@@ -1102,6 +1109,13 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                 );
                 isError = true;
               }
+              try {
+                text = await checkRail(ctx, 'tool_output', text, call.name);
+              } catch (error) {
+                if (!(error instanceof GuardrailBlocked)) throw error;
+                text = '[Tool result withheld by safety policy]';
+                isError = true;
+              }
               await ctx.event({
                 type: isError ? 'tool_error' : 'tool_completed',
                 message: `Workspace / ${call.name}`,
@@ -1161,6 +1175,13 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                   0,
                   1000,
                 );
+                isError = true;
+              }
+              try {
+                text = await checkRail(ctx, 'tool_output', text, call.name);
+              } catch (error) {
+                if (!(error instanceof GuardrailBlocked)) throw error;
+                text = '[Tool result withheld by safety policy]';
                 isError = true;
               }
               await ctx.event({
