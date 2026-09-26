@@ -437,13 +437,13 @@ export function Playground({
                 <span className="orbit-point one" />
                 <span className="orbit-point two" />
               </div>
-              <h2>{current ? current.name : 'No workflow selected'}</h2>
+              <h2>{current ? current.name : 'No harness selected'}</h2>
               <p>
                 {current
                   ? machines.length
                     ? `Operating ${machines.map((m) => `${m.name} (${m.platform}${m.online ? '' : ', offline'})`).join(', ')}. Every command shows up in the trace.`
                     : 'Send a message. Every step shows up in the trace.'
-                  : 'Create a workflow first.'}
+                  : 'Create a harness first.'}
               </p>
               {current && (
                 <div className="suggestions">
@@ -517,7 +517,7 @@ export function Playground({
           >
             <textarea
               aria-label="Message your agent"
-              placeholder={current ? `Message ${current.name}…` : 'Choose a workflow…'}
+              placeholder={current ? `Message ${current.name}…` : 'Choose a harness…'}
               value={input}
               disabled={!current || busy || restoring}
               rows={2}

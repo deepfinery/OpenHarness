@@ -79,23 +79,30 @@ test('the adapter rejects anonymous calls with the spec error envelope', async (
   assertError(unknown, 404, 'NOT_FOUND');
 });
 
-test('the registry lists this installation as one hosted harness with limit/offset pagination', async () => {
+test('the registry lists saved harnesses with limit/offset pagination', async () => {
   const list = await call(`${oh}/harnesses`, { headers: session() });
   assert.equal(list.status, 200);
-  assert.equal(list.data.total, 1);
+  const created = await call(`${oh}/harnesses`, {
+    method: 'POST',
+    headers: session(),
+    body: { name: `Registry ${suffix}`, description: 'Pagination test' },
+  });
+  assert.equal(created.status, 201);
+  const refreshed = await call(`${oh}/harnesses?limit=100`, { headers: session() });
+  assert.ok(refreshed.data.data.some((r: any) => r.id === created.data.harness.id));
   assert.equal(list.data.limit, 20);
   assert.equal(list.data.offset, 0);
-  assert.equal(list.data.has_more, false);
-  const [h] = list.data.data;
-  assert.equal(h.id, 'openharness');
+  assert.equal(typeof list.data.has_more, 'boolean');
+  const h = created.data.harness;
+  assert.equal(typeof h.id, 'string');
   assert.equal(h.execution_type, 'hosted');
   assert.equal(h.status, 'active');
   assert.ok(Date.parse(h.created_at) && Date.parse(h.updated_at));
   assert.equal(Object.keys(h.capabilities).length, 11);
 
-  const skipped = await call(`${oh}/harnesses?offset=1`, { headers: session() });
+  const skipped = await call(`${oh}/harnesses?offset=${refreshed.data.total}`, { headers: session() });
   assert.deepEqual(skipped.data.data, []);
-  assert.equal(skipped.data.total, 1);
+  assert.equal(skipped.data.total, refreshed.data.total);
   const filtered = await call(`${oh}/harnesses?execution_type=ide`, { headers: session() });
   assert.equal(filtered.data.total, 0);
   const invalid = await call(`${oh}/harnesses?limit=0`, { headers: session() });
@@ -159,7 +166,7 @@ test('health answers anonymously without internal details, and in detail when si
   assert.ok(detailed.data.checks.every((c: any) => typeof c.latency_ms === 'number'));
 });
 
-test('the single-harness registry is read-only', async () => {
+test('the legacy workspace alias is read-only and remote executable harnesses are rejected', async () => {
   const register = await call(`${oh}/harnesses`, {
     method: 'POST',
     headers: session(),
@@ -172,7 +179,7 @@ test('the single-harness registry is read-only', async () => {
       config: {},
     },
   });
-  assertError(register, 501, 'CAPABILITY_NOT_SUPPORTED');
+  assertError(register, 400, 'VALIDATION_ERROR');
   assertError(
     await call(harness, { method: 'PATCH', headers: session(), body: { name: 'Renamed' } }),
     501,

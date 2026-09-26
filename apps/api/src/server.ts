@@ -1,3 +1,4 @@
+import { attachSessionSockets } from './openharness/sessionSocket.js';
 import { dispatchClusterMonitors } from '../../../packages/core/src/clusterMonitor.js';
 import { dispatchGuardrailEvaluations } from './guardrails.js';
 import { dispatchHumanRequests, deliverHumanNotifications } from '../../../packages/core/src/human.js';
@@ -14,6 +15,7 @@ await connectDatabase();
 const server = app.listen(config.PORT, '0.0.0.0', () =>
   console.log(`OpenHarness studio listening on port ${config.PORT}`),
 );
+attachSessionSockets(server);
 let dispatching = false;
 async function tick() {
   if (dispatching) return;

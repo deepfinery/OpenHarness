@@ -295,8 +295,8 @@ test('per-execution overrides and request validation follow the spec', async () 
   const tooLong = await call(`${harness}/execute`, 'POST', { message: 'x'.repeat(32001) });
   assert.equal(tooLong.data.error.code, 'context_length_exceeded');
   const withSession = await call(`${harness}/execute`, 'POST', { message: 'x', session_id: 'abc' });
-  assert.equal(withSession.status, 501);
-  assert.equal(withSession.data.error.domain, 'sessions');
+  assert.equal(withSession.status, 404);
+  assert.equal(withSession.data.error.domain, 'execution');
   const unknownAgent = await call(`${harness}/execute`, 'POST', { message: 'x', agent_id: randomUUID() });
   assert.equal(unknownAgent.status, 404);
   const missing = await call(`${harness}/executions/${randomUUID()}`);

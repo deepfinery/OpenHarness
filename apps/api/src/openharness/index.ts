@@ -1,4 +1,11 @@
-import { Router, type NextFunction, type Request, type Response } from 'express';
+import { diagnosticOperations } from './diagnostics.js';
+import { openApiDocument } from './openapi.js';
+import { subagentOperations } from './subagents.js';
+import { planningOperations } from './planning.js';
+import { memoryOperations } from './memory.js';
+import { sessionOperations } from './sessions.js';
+import { scopedAgentOperation } from './harnessAgents.js';
+import { raw, Router, type NextFunction, type Request, type Response } from 'express';
 import { config } from '../../../../packages/core/src/config.js';
 import { optionalAuth, requireAuth } from './access.js';
 import { errorHandler, notFound, OhError } from './errors.js';
@@ -7,6 +14,9 @@ import { executionOperations } from './execution.js';
 import { harnessOperations } from './harness.js';
 import { hookOperations } from './hooks.js';
 import { OperationRegistry } from './operations.js';
+import { fileOperations } from './files.js';
+import { skillOperations } from './skills.js';
+import { mcpOperations } from './mcp.js';
 import { toolOperations } from './tools.js';
 
 /**
@@ -18,10 +28,18 @@ export function openHarnessRegistry() {
   const registry = new OperationRegistry();
   registry.register(
     ...harnessOperations(registry),
-    ...agentOperations(registry),
+    ...agentOperations(registry).map(scopedAgentOperation),
     ...toolOperations(registry),
     ...executionOperations(registry),
     ...hookOperations(registry),
+    ...skillOperations(registry),
+    ...fileOperations(registry),
+    ...sessionOperations(registry),
+    ...memoryOperations(registry),
+    ...planningOperations(registry),
+    ...subagentOperations(registry),
+    ...diagnosticOperations(registry),
+    ...mcpOperations(registry),
   );
   return registry;
 }
@@ -55,7 +73,8 @@ function transport(req: Request, res: Response, next: NextFunction) {
     ['POST', 'PUT', 'PATCH'].includes(req.method) &&
     Number(req.headers['content-length'] ?? 0) > 0 &&
     !req.is('application/json') &&
-    !req.is('multipart/form-data')
+    !req.is('multipart/form-data') &&
+    !(req.method === 'PUT' && /\/files\//.test(req.path))
   )
     return next(new OhError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Use application/json'));
   next();
@@ -63,6 +82,10 @@ function transport(req: Request, res: Response, next: NextFunction) {
 export function openHarnessApi() {
   const router = Router();
   router.use(transport);
+  router.get('/openapi.json', requireAuth, (_req, res) => res.json(openApiDocument(registry)));
+  router.use('/harnesses/:harnessId/files', (req, res, next) =>
+    req.method === 'PUT' ? raw({ type: () => true, limit: '10mb' })(req, res, next) : next(),
+  );
   router.use(registry.router({ required: requireAuth, optional: optionalAuth }));
   router.use((_req, _res, next) => next(notFound('Endpoint')));
   return router;

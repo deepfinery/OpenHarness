@@ -182,7 +182,8 @@ export function executionView(run: Run, translator = EventTranslator.replay(run)
   const status = executionStatus(run.status);
   return {
     id: run._id,
-    harness_id: config.OPENHARNESS_HARNESS_ID,
+    harness_id:
+      run.apiHarnessId ?? (run.agentNodeId ? run.workflowId : undefined) ?? config.OPENHARNESS_HARNESS_ID,
     status,
     ...(status === 'running' || status === 'pending'
       ? {
@@ -198,7 +199,8 @@ export function executionView(run: Run, translator = EventTranslator.replay(run)
     ...(run.finishedAt ? { completed_at: run.finishedAt.toISOString() } : {}),
     artifacts_count: run.artifactIds?.length ?? 0,
     'x-openharness': {
-      agent_id: run.workflowId ?? run.agentId,
+      agent_id: run.agentNodeId ?? run.workflowId ?? run.agentId,
+      ...(run.apiSubagentId ? { subagent_id: run.apiSubagentId, parent_agent_id: run.apiParentAgentId } : {}),
       label: run.label,
       run_status: run.status,
       trigger: run.trigger,

@@ -155,6 +155,17 @@ let tokenVersion = 1;
 let currentAccess = 'test-oauth-access-1';
 function mcpServer() {
   const server = new McpServer({ name: 'openharness-test-tools', version: '1.0.0' });
+  server.registerResource('test-report', 'fixture://report', { mimeType: 'text/plain' }, async (uri) => ({
+    contents: [{ uri: uri.toString(), text: 'Fixture report' }],
+  }));
+  server.registerPrompt(
+    'test-summary',
+    { description: 'Summarize a fixture', argsSchema: { topic: z.string() } },
+    async ({ topic }) => ({
+      messages: [{ role: 'user', content: { type: 'text', text: `Summarize ${topic}` } }],
+    }),
+  );
+
   server.registerTool(
     'lookup',
     {
@@ -619,6 +630,33 @@ function answer(messages, tools) {
     ],
   });
   const prompt = String(input);
+  if (/What is my name\?/i.test(prompt) && messages.some((m) => /my name is Alice/i.test(String(m.content))))
+    return { content: 'Your name is Alice.' };
+  if (prompt.includes('API core memory recall'))
+    return {
+      content: messages.some((m) => String(m.content).includes('Remembered from an earlier execution'))
+        ? 'Persistent memory recalled'
+        : 'No memory recalled',
+    };
+  if (
+    prompt.includes('API core memory write') &&
+    tools?.some((t) => t.function.name === 'core_memory_write') &&
+    last?.role !== 'tool'
+  )
+    return callTool(
+      tools.find((t) => t.function.name === 'core_memory_write'),
+      { label: 'runtime-note', value: 'Remembered from an earlier execution' },
+    );
+  if (
+    prompt.includes('API workspace write') &&
+    tools?.some((t) => t.function.name === 'workspace_write') &&
+    last?.role !== 'tool'
+  )
+    return callTool(
+      tools.find((t) => t.function.name === 'workspace_write'),
+      { path: 'agent/report.txt', content: 'Written by the agent' },
+    );
+
   if (/Use a tool to tell me what (\d+) \+ (\d+)/.test(prompt) && toolNamed('calculate')) {
     const [, a, b] = /what (\d+) \+ (\d+)/.exec(prompt);
     return callTool(toolNamed('calculate'), { a: Number(a), b: Number(b) });
@@ -906,6 +944,11 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
     }
   }
+  if (
+    req.body.model === 'test-api-plan' &&
+    req.body.messages.some((m) => String(m.content).includes('Now carry out step 1:'))
+  )
+    await new Promise((r) => setTimeout(r, 2000));
   // Behave like a 32k-class model that rejects oversized prompts, so context compaction can be tested.
   const promptChars = req.body.messages.reduce((n, m) => n + String(m.content ?? '').length, 0);
   // test-dense counts about 2.5 characters per token and includes the tool definitions, as vLLM does with URL- and
@@ -966,23 +1009,45 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
   }
   if (req.body.model === 'test-cluster') {
-    const observation = req.body.messages.find(m => m.role === 'tool');
-    const target = req.body.tools?.find(t => t.function.description?.includes('NVLink, DCGM'));
-    message = observation ? { content: `Node diagnostic evidence: ${observation.content}` } : target ? {
-      content: 'Inspect the assigned GPU node', tool_calls: [{ id: randomUUID(), type: 'function', function: {
-        name: target.function.name, arguments: JSON.stringify({ section: 'nvlink' }),
-      } }],
-    } : { content: 'No host diagnostics tool is available.' };
+    const observation = req.body.messages.find((m) => m.role === 'tool');
+    const target = req.body.tools?.find((t) => t.function.description?.includes('NVLink, DCGM'));
+    message = observation
+      ? { content: `Node diagnostic evidence: ${observation.content}` }
+      : target
+        ? {
+            content: 'Inspect the assigned GPU node',
+            tool_calls: [
+              {
+                id: randomUUID(),
+                type: 'function',
+                function: {
+                  name: target.function.name,
+                  arguments: JSON.stringify({ section: 'nvlink' }),
+                },
+              },
+            ],
+          }
+        : { content: 'No host diagnostics tool is available.' };
   }
   if (req.body.model === 'test-guardrail') {
     const input = req.body.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
     if (input.startsWith('guarded notebook result ')) {
-      const observation = req.body.messages.find(m => m.role === 'tool');
-      message = observation ? { content: observation.content } : {
-        content: 'Read the requested note', tool_calls: [{ id: randomUUID(), type: 'function', function: {
-          name: 'kb_read', arguments: JSON.stringify({ note_id: input.split(' ').at(-1) }),
-        } }],
-      };
+      const observation = req.body.messages.find((m) => m.role === 'tool');
+      message = observation
+        ? { content: observation.content }
+        : {
+            content: 'Read the requested note',
+            tool_calls: [
+              {
+                id: randomUUID(),
+                type: 'function',
+                function: {
+                  name: 'kb_read',
+                  arguments: JSON.stringify({ note_id: input.split(' ').at(-1) }),
+                },
+              },
+            ],
+          };
     } else if (input.includes('guarded private output'))
       message = { content: 'Contact alice@example.com. SSN 123-45-6789.' };
     else if (input.includes('guarded command') && !req.body.messages.some((m) => m.role === 'tool')) {

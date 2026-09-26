@@ -1,3 +1,11 @@
+/** Export connection locations without embedded credentials, including query tokens. */
+function publicConnectionUrl(value: string) {
+  const url = new URL(value);
+  url.username = '';
+  url.password = '';
+  for (const key of [...url.searchParams.keys()]) url.searchParams.set(key, 'REDACTED');
+  return url.toString();
+}
 import { HttpError } from '../../../../packages/core/src/security.js';
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
@@ -387,7 +395,7 @@ async function referencesOf(tenantId: string, w: Workflow): Promise<References> 
     connections: Object.fromEntries(
       connections.map((c) => [
         c._id,
-        { name: c.name, url: c.url, ...(c.transport ? { transport: c.transport } : {}) },
+        { name: c.name, url: publicConnectionUrl(c.url), ...(c.transport ? { transport: c.transport } : {}) },
       ]),
     ),
     knowledge: Object.fromEntries(knowledge.map((k) => [k._id, { name: k.name }])),
@@ -475,7 +483,7 @@ async function workflowFromPortable(ctx: ImportContext, fm: Frontmatter, portabl
   const mapped = remap(pruned, ids) as Frontmatter;
   return { ...mapped, identity: identityFrom(fm, String(mapped.name ?? fm.name ?? 'Agent')) };
 }
-async function workflowFromBundle(
+export async function workflowFromBundle(
   ctx: ImportContext,
   meta: { name?: string; description?: string } = {},
   rekey = false,
@@ -498,7 +506,7 @@ async function workflowFromBundle(
   if (meta.description !== undefined) definition.description = meta.description;
   return definition;
 }
-async function exportBundle(req: Request, w: StoredWorkflow) {
+export async function exportBundle(req: Request, w: StoredWorkflow) {
   const { vendor, providers } = await lookups(req.principal!.tenantId);
   const view = agentView(w, vendor, providers);
   const refs = await referencesOf(req.principal!.tenantId, w);
@@ -598,8 +606,8 @@ const matches = (patterns: string[], tool: string) =>
 export function agentOperations(registry: OperationRegistry): Operation[] {
   registry.declare('agents', {
     limitations: [
-      'An agent is a workflow; config changes apply to its entry agent',
-      'Clone and export ignore include_memory until the memory domain is supported',
+      'Agents are cards in a harness; the legacy workspace alias maps agent IDs to whole harnesses',
+      'Transfer memory separately with the memory export/import endpoints; agent bundle include_memory is not applied',
       'temperature and max_tokens are accepted but not applied',
     ],
   });
@@ -740,7 +748,7 @@ export function agentOperations(registry: OperationRegistry): Operation[] {
           await collection('runs').findOne({
             ownerId: w.ownerId,
             workflowId: w._id,
-            status: { $in: ['queued', 'running'] },
+            status: { $in: ['queued', 'running', 'waiting_for_human'] },
           })
         )
           throw new OhError(409, 'CONFLICT', 'This agent has running executions; cancel them first');

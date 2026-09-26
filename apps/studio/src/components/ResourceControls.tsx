@@ -16,7 +16,7 @@ export function ProviderControl({
   return (
     <>
       <Field label="Model provider">
-        <select aria-label="Workflow model provider" value={value} onChange={(e) => onChange(e.target.value)}>
+        <select aria-label="Harness model provider" value={value} onChange={(e) => onChange(e.target.value)}>
           <option value="">Choose a model</option>
           {data.providers.map((p) => (
             <option key={p.id} value={p.id}>
@@ -284,7 +284,7 @@ export function KnowledgeControl({
           <label className="upload-inline">
             <Upload size={15} /> {busy ? 'Uploading…' : 'Upload reference files'}
             <input
-              aria-label="Upload workflow knowledge"
+              aria-label="Upload harness knowledge"
               type="file"
               multiple
               disabled={busy}

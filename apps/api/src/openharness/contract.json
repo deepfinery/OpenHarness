@@ -1,0 +1,4139 @@
+{
+  "schemas": {
+    "UUID": { "type": "string" },
+    "ISO8601": { "type": "string", "format": "date-time" },
+    "HarnessId": { "type": "string" },
+    "AgentId": { "type": "string" },
+    "SkillId": { "type": "string" },
+    "SessionId": { "type": "string" },
+    "ExecutionId": { "type": "string" },
+    "PaginationParams": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" }
+      }
+    },
+    "PaginatedResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      },
+      "required": ["data", "total", "limit", "offset", "has_more"]
+    },
+    "ExecutionType": {
+      "oneOf": [
+        { "type": "string", "enum": ["hosted"] },
+        { "type": "string", "enum": ["sdk"] },
+        { "type": "string", "enum": ["ide"] }
+      ]
+    },
+    "HarnessStatus": {
+      "oneOf": [
+        { "type": "string", "enum": ["active"] },
+        { "type": "string", "enum": ["beta"] },
+        { "type": "string", "enum": ["coming_soon"] },
+        { "type": "string", "enum": ["maintenance"] },
+        { "type": "string", "enum": ["deprecated"] }
+      ]
+    },
+    "Harness": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/components/schemas/HarnessId" },
+        "name": { "type": "string" },
+        "vendor": { "type": "string" },
+        "description": { "type": "string" },
+        "execution_type": { "$ref": "#/components/schemas/ExecutionType" },
+        "status": { "$ref": "#/components/schemas/HarnessStatus" },
+        "capabilities": { "$ref": "#/components/schemas/CapabilityManifest" },
+        "created_at": { "$ref": "#/components/schemas/ISO8601" },
+        "updated_at": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": [
+        "id",
+        "name",
+        "vendor",
+        "description",
+        "execution_type",
+        "status",
+        "capabilities",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "CapabilityManifest": {
+      "type": "object",
+      "properties": {
+        "agents": { "$ref": "#/components/schemas/DomainCapability" },
+        "skills": { "$ref": "#/components/schemas/DomainCapability" },
+        "mcp": { "$ref": "#/components/schemas/DomainCapability" },
+        "execution": { "$ref": "#/components/schemas/DomainCapability" },
+        "sessions": { "$ref": "#/components/schemas/DomainCapability" },
+        "memory": { "$ref": "#/components/schemas/DomainCapability" },
+        "subagents": { "$ref": "#/components/schemas/DomainCapability" },
+        "files": { "$ref": "#/components/schemas/DomainCapability" },
+        "hooks": { "$ref": "#/components/schemas/DomainCapability" },
+        "planning": { "$ref": "#/components/schemas/DomainCapability" },
+        "models": { "$ref": "#/components/schemas/DomainCapability" }
+      },
+      "required": [
+        "agents",
+        "skills",
+        "mcp",
+        "execution",
+        "sessions",
+        "memory",
+        "subagents",
+        "files",
+        "hooks",
+        "planning",
+        "models"
+      ]
+    },
+    "DomainCapability": {
+      "type": "object",
+      "properties": {
+        "supported": { "type": "boolean" },
+        "operations": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["supported", "operations"]
+    },
+    "Agent": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/components/schemas/AgentId" },
+        "name": { "type": "string" },
+        "vendorKey": { "type": "string" },
+        "agentKey": { "type": "string" },
+        "version": { "type": "string" },
+        "slug": { "type": "string" },
+        "description": { "type": "string" },
+        "author": { "type": "string" },
+        "license": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "skills": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/SkillReference" }
+        },
+        "mcp_servers": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/McpServerReference" }
+        },
+        "config": { "$ref": "#/components/schemas/AgentConfig" },
+        "created_at": { "$ref": "#/components/schemas/ISO8601" },
+        "updated_at": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": [
+        "id",
+        "name",
+        "vendorKey",
+        "agentKey",
+        "version",
+        "slug",
+        "description",
+        "tags",
+        "skills",
+        "mcp_servers",
+        "config",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "AgentConfig": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "oneOf": [
+            { "type": "string" },
+            { "$ref": "#/components/schemas/ModelConfig" }
+          ]
+        },
+        "temperature": { "type": "number" },
+        "max_tokens": { "type": "number" },
+        "system_prompt": { "type": "string" },
+        "tools_access": { "$ref": "#/components/schemas/ToolsAccessControl" }
+      }
+    },
+    "ModelConfig": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string" },
+        "name": { "type": "string" },
+        "embedding": { "type": "string" }
+      },
+      "required": ["provider", "name"]
+    },
+    "ToolsAccessControl": {
+      "type": "object",
+      "properties": {
+        "allow": { "type": "array", "items": { "type": "string" } },
+        "deny": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "SkillReference": {
+      "type": "object",
+      "properties": {
+        "skill_id": { "$ref": "#/components/schemas/SkillId" },
+        "version": { "type": "string" },
+        "required": { "type": "boolean" }
+      },
+      "required": ["skill_id", "required"]
+    },
+    "McpServerReference": {
+      "type": "object",
+      "properties": {
+        "server_id": { "type": "string" },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "required": { "type": "boolean" }
+      },
+      "required": ["server_id", "required"]
+    },
+    "Skill": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/components/schemas/SkillId" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "version": { "type": "string" },
+        "vendor": { "type": "string" },
+        "category": { "$ref": "#/components/schemas/SkillCategory" },
+        "created_at": { "$ref": "#/components/schemas/ISO8601" },
+        "updated_at": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "version",
+        "vendor",
+        "category",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "SkillCategory": {
+      "oneOf": [
+        { "type": "string", "enum": ["user"] },
+        { "type": "string", "enum": ["plugin"] },
+        { "type": "string", "enum": ["builtin"] },
+        { "type": "string", "enum": ["organization"] }
+      ]
+    },
+    "SkillVersion": {
+      "type": "object",
+      "properties": {
+        "version": { "type": "string" },
+        "created_at": { "$ref": "#/components/schemas/ISO8601" },
+        "changelog": { "type": "string" }
+      },
+      "required": ["version", "created_at"]
+    },
+    "McpServer": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "transport": { "$ref": "#/components/schemas/McpTransport" },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["connected"] },
+            { "type": "string", "enum": ["disconnected"] },
+            { "type": "string", "enum": ["error"] }
+          ]
+        },
+        "tools": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/McpTool" }
+        },
+        "resources": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/McpResource" }
+        },
+        "prompts": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/McpPrompt" }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "transport",
+        "status",
+        "tools",
+        "resources",
+        "prompts"
+      ]
+    },
+    "McpTransport": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["stdio"] },
+            "command": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["type", "command"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["http"] },
+            "url": { "type": "string" }
+          },
+          "required": ["type", "url"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["sse"] },
+            "url": { "type": "string" }
+          },
+          "required": ["type", "url"]
+        }
+      ]
+    },
+    "McpTool": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "input_schema": { "type": "object", "additionalProperties": true }
+      },
+      "required": ["name", "description", "input_schema"]
+    },
+    "McpResource": {
+      "type": "object",
+      "properties": {
+        "uri": { "type": "string" },
+        "name": { "type": "string" },
+        "mime_type": { "type": "string" }
+      },
+      "required": ["uri", "name"]
+    },
+    "McpPrompt": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "arguments": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/PromptArgument" }
+        }
+      },
+      "required": ["name", "description"]
+    },
+    "PromptArgument": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "required": { "type": "boolean" }
+      },
+      "required": ["name", "description", "required"]
+    },
+    "ExecutionStatus": {
+      "oneOf": [
+        { "type": "string", "enum": ["pending"] },
+        { "type": "string", "enum": ["running"] },
+        { "type": "string", "enum": ["completed"] },
+        { "type": "string", "enum": ["failed"] },
+        { "type": "string", "enum": ["cancelled"] }
+      ]
+    },
+    "Execution": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/components/schemas/ExecutionId" },
+        "harness_id": { "$ref": "#/components/schemas/HarnessId" },
+        "status": { "$ref": "#/components/schemas/ExecutionStatus" },
+        "progress": { "$ref": "#/components/schemas/ExecutionProgress" },
+        "started_at": { "$ref": "#/components/schemas/ISO8601" },
+        "completed_at": { "$ref": "#/components/schemas/ISO8601" },
+        "artifacts_count": { "type": "number" }
+      },
+      "required": [
+        "id",
+        "harness_id",
+        "status",
+        "started_at",
+        "artifacts_count"
+      ]
+    },
+    "ExecutionProgress": {
+      "type": "object",
+      "properties": {
+        "percentage": { "type": "number" },
+        "current_step": { "type": "string" },
+        "steps_completed": { "type": "number" },
+        "steps_total": { "type": "number" }
+      },
+      "required": [
+        "percentage",
+        "current_step",
+        "steps_completed",
+        "steps_total"
+      ]
+    },
+    "ExecutionResult": {
+      "type": "object",
+      "properties": {
+        "execution_id": { "$ref": "#/components/schemas/ExecutionId" },
+        "status": { "$ref": "#/components/schemas/ExecutionStatus" },
+        "output": { "type": "string" },
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/ArtifactSummary" }
+        },
+        "tool_calls": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/ToolCallSummary" }
+        },
+        "usage": { "$ref": "#/components/schemas/UsageStats" }
+      },
+      "required": [
+        "execution_id",
+        "status",
+        "output",
+        "artifacts",
+        "tool_calls",
+        "usage"
+      ]
+    },
+    "ArtifactSummary": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "mime_type": { "type": "string" },
+        "size_bytes": { "type": "number" }
+      },
+      "required": ["id", "name", "mime_type", "size_bytes"]
+    },
+    "ToolCallSummary": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "success": { "type": "boolean" },
+        "duration_ms": { "type": "number" }
+      },
+      "required": ["id", "name", "success", "duration_ms"]
+    },
+    "UsageStats": {
+      "type": "object",
+      "properties": {
+        "input_tokens": { "type": "number" },
+        "output_tokens": { "type": "number" },
+        "total_tokens": { "type": "number" }
+      },
+      "required": ["input_tokens", "output_tokens", "total_tokens"]
+    },
+    "Session": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/components/schemas/SessionId" },
+        "harness_id": { "$ref": "#/components/schemas/HarnessId" },
+        "name": { "type": "string" },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["active"] },
+            { "type": "string", "enum": ["paused"] },
+            { "type": "string", "enum": ["ended"] }
+          ]
+        },
+        "message_count": { "type": "number" },
+        "created_at": { "$ref": "#/components/schemas/ISO8601" },
+        "updated_at": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": [
+        "id",
+        "harness_id",
+        "status",
+        "message_count",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "role": {
+          "oneOf": [
+            { "type": "string", "enum": ["user"] },
+            { "type": "string", "enum": ["assistant"] },
+            { "type": "string", "enum": ["system"] }
+          ]
+        },
+        "content": { "type": "string" },
+        "tool_calls": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/ToolCall" }
+        },
+        "created_at": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": ["id", "role", "content", "created_at"]
+    },
+    "ToolCall": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "input": { "type": "object", "additionalProperties": true },
+        "output": { "type": "object", "additionalProperties": true },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["pending"] },
+            { "type": "string", "enum": ["running"] },
+            { "type": "string", "enum": ["completed"] },
+            { "type": "string", "enum": ["failed"] }
+          ]
+        }
+      },
+      "required": ["id", "name", "input", "status"]
+    },
+    "MemoryState": {
+      "type": "object",
+      "properties": {
+        "agent_id": { "$ref": "#/components/schemas/AgentId" },
+        "blocks": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/MemoryBlock" }
+        },
+        "archive_size": { "type": "number" }
+      },
+      "required": ["agent_id", "blocks", "archive_size"]
+    },
+    "MemoryBlock": {
+      "type": "object",
+      "properties": {
+        "label": { "type": "string" },
+        "value": { "type": "string" },
+        "read_only": { "type": "boolean" },
+        "updated_at": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": ["label", "value", "read_only", "updated_at"]
+    },
+    "FileInfo": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "name": { "type": "string" },
+        "type": {
+          "oneOf": [
+            { "type": "string", "enum": ["file"] },
+            { "type": "string", "enum": ["directory"] }
+          ]
+        },
+        "size_bytes": { "type": "number" },
+        "mime_type": { "type": "string" },
+        "modified_at": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": ["path", "name", "type", "modified_at"]
+    },
+    "HookEvent": {
+      "oneOf": [
+        { "type": "string", "enum": ["pre_tool"] },
+        { "type": "string", "enum": ["post_tool"] },
+        { "type": "string", "enum": ["stop"] },
+        { "type": "string", "enum": ["error"] },
+        { "type": "string", "enum": ["custom"] }
+      ]
+    },
+    "Hook": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "event": { "$ref": "#/components/schemas/HookEvent" },
+        "handler": { "$ref": "#/components/schemas/HookHandler" },
+        "enabled": { "type": "boolean" }
+      },
+      "required": ["id", "event", "handler", "enabled"]
+    },
+    "HookHandler": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["webhook"] },
+            "url": { "type": "string" }
+          },
+          "required": ["type", "url"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["command"] },
+            "command": { "type": "string" }
+          },
+          "required": ["type", "command"]
+        }
+      ]
+    },
+    "Plan": {
+      "type": "object",
+      "properties": {
+        "execution_id": { "$ref": "#/components/schemas/ExecutionId" },
+        "tasks": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/PlanTask" }
+        },
+        "updated_at": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": ["execution_id", "tasks", "updated_at"]
+    },
+    "PlanTask": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "content": { "type": "string" },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["pending"] },
+            { "type": "string", "enum": ["in_progress"] },
+            { "type": "string", "enum": ["completed"] }
+          ]
+        },
+        "order": { "type": "number" }
+      },
+      "required": ["id", "content", "status", "order"]
+    },
+    "Webhook": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "url": { "type": "string" },
+        "events": { "type": "array", "items": { "type": "string" } },
+        "secret": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "created_at": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": ["id", "url", "events", "secret", "enabled", "created_at"]
+    },
+    "ExecutionEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["text"] },
+            "content": { "type": "string" }
+          },
+          "required": ["type", "content"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["thinking"] },
+            "content": { "type": "string" }
+          },
+          "required": ["type", "content"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["tool_call_start"] },
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "input": { "type": "object", "additionalProperties": true }
+          },
+          "required": ["type", "id", "name", "input"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["tool_call_delta"] },
+            "id": { "type": "string" },
+            "input_delta": { "type": "object", "additionalProperties": true }
+          },
+          "required": ["type", "id", "input_delta"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["tool_call_end"] },
+            "id": { "type": "string" }
+          },
+          "required": ["type", "id"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["tool_result"] },
+            "id": { "type": "string" },
+            "success": { "type": "boolean" },
+            "output": { "type": "object", "additionalProperties": true }
+          },
+          "required": ["type", "id", "success"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["artifact"] },
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "mime_type": { "type": "string" },
+            "size_bytes": { "type": "number" }
+          },
+          "required": ["type", "id", "name", "mime_type", "size_bytes"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["progress"] },
+            "percentage": { "type": "number" },
+            "step": { "type": "string" },
+            "step_number": { "type": "number" },
+            "total_steps": { "type": "number" }
+          },
+          "required": [
+            "type",
+            "percentage",
+            "step",
+            "step_number",
+            "total_steps"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["error"] },
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "recoverable": { "type": "boolean" }
+          },
+          "required": ["type", "code", "message", "recoverable"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["done"] },
+            "usage": { "$ref": "#/components/schemas/UsageStats" }
+          },
+          "required": ["type", "usage"]
+        }
+      ]
+    },
+    "ClientMessage": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["message"] },
+            "id": { "type": "string" },
+            "content": { "type": "string" }
+          },
+          "required": ["type", "id", "content"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["stdin"] },
+            "id": { "type": "string" },
+            "data": { "type": "string" }
+          },
+          "required": ["type", "id", "data"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["cancel"] },
+            "execution_id": { "type": "string" }
+          },
+          "required": ["type", "execution_id"]
+        }
+      ]
+    },
+    "ServerMessage": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["text"] },
+            "id": { "type": "string" },
+            "content": { "type": "string" }
+          },
+          "required": ["type", "id", "content"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["thinking"] },
+            "id": { "type": "string" },
+            "content": { "type": "string" }
+          },
+          "required": ["type", "id", "content"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["tool_call"] },
+            "id": { "type": "string" },
+            "tool": { "type": "string" },
+            "input": { "type": "object", "additionalProperties": true }
+          },
+          "required": ["type", "id", "tool", "input"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["stdout"] },
+            "id": { "type": "string" },
+            "data": { "type": "string" }
+          },
+          "required": ["type", "id", "data"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["stderr"] },
+            "id": { "type": "string" },
+            "data": { "type": "string" }
+          },
+          "required": ["type", "id", "data"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["prompt"] },
+            "id": { "type": "string" },
+            "prompt": { "type": "string" }
+          },
+          "required": ["type", "id", "prompt"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["artifact"] },
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "mime_type": { "type": "string" }
+          },
+          "required": ["type", "id", "name", "mime_type"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["error"] },
+            "id": { "type": "string" },
+            "code": { "type": "string" },
+            "message": { "type": "string" }
+          },
+          "required": ["type", "id", "code", "message"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["done"] },
+            "id": { "type": "string" },
+            "usage": { "$ref": "#/components/schemas/UsageStats" }
+          },
+          "required": ["type", "id", "usage"]
+        }
+      ]
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "domain": { "type": "string" },
+            "operation": { "type": "string" },
+            "details": { "type": "object", "additionalProperties": true }
+          },
+          "required": ["code", "message"]
+        }
+      },
+      "required": ["error"]
+    },
+    "ListHarnessesRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "status": { "$ref": "#/components/schemas/HarnessStatus" },
+        "execution_type": { "$ref": "#/components/schemas/ExecutionType" }
+      }
+    },
+    "ListHarnessesResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "GetHarnessRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" }
+      },
+      "required": ["harnessId"]
+    },
+    "GetHarnessResponse": {
+      "type": "object",
+      "properties": { "harness": { "$ref": "#/components/schemas/Harness" } },
+      "required": ["harness"]
+    },
+    "RegisterHarnessRequest": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/components/schemas/HarnessId" },
+        "name": { "type": "string" },
+        "vendor": { "type": "string" },
+        "description": { "type": "string" },
+        "execution_type": { "$ref": "#/components/schemas/ExecutionType" },
+        "config": { "$ref": "#/components/schemas/HarnessConfig" }
+      },
+      "required": [
+        "id",
+        "name",
+        "vendor",
+        "description",
+        "execution_type",
+        "config"
+      ]
+    },
+    "HarnessConfig": {
+      "type": "object",
+      "properties": {
+        "base_url": { "type": "string" },
+        "binary_path": { "type": "string" },
+        "skills_path": { "type": "string" }
+      }
+    },
+    "RegisterHarnessResponse": {
+      "type": "object",
+      "properties": { "harness": { "$ref": "#/components/schemas/Harness" } },
+      "required": ["harness"]
+    },
+    "UpdateHarnessRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "config": { "$ref": "#/components/schemas/HarnessConfig" },
+        "status": { "$ref": "#/components/schemas/HarnessStatus" }
+      },
+      "required": ["harnessId"]
+    },
+    "UpdateHarnessResponse": {
+      "type": "object",
+      "properties": { "harness": { "$ref": "#/components/schemas/Harness" } },
+      "required": ["harness"]
+    },
+    "UnregisterHarnessRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" }
+      },
+      "required": ["harnessId"]
+    },
+    "GetCapabilitiesRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" }
+      },
+      "required": ["harnessId"]
+    },
+    "GetCapabilitiesResponse": {
+      "type": "object",
+      "properties": {
+        "harness_id": { "$ref": "#/components/schemas/HarnessId" },
+        "harness_name": { "type": "string" },
+        "version": { "type": "string" },
+        "capabilities": { "$ref": "#/components/schemas/CapabilityManifest" }
+      },
+      "required": ["harness_id", "harness_name", "version", "capabilities"]
+    },
+    "HealthCheckRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" }
+      },
+      "required": ["harnessId"]
+    },
+    "HealthCheckResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["healthy"] },
+            { "type": "string", "enum": ["degraded"] },
+            { "type": "string", "enum": ["unhealthy"] }
+          ]
+        },
+        "latency_ms": { "type": "number" },
+        "version": { "type": "string" },
+        "checks": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/HealthCheck" }
+        }
+      },
+      "required": ["status", "latency_ms", "checks"]
+    },
+    "HealthCheck": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["pass"] },
+            { "type": "string", "enum": ["fail"] }
+          ]
+        },
+        "message": { "type": "string" }
+      },
+      "required": ["name", "status"]
+    },
+    "ValidateCredentialsRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "api_key": { "type": "string" },
+        "base_url": { "type": "string" },
+        "store": { "type": "boolean" }
+      },
+      "required": ["harnessId", "api_key"]
+    },
+    "ValidateCredentialsResponse": {
+      "type": "object",
+      "properties": {
+        "valid": { "type": "boolean" },
+        "stored": { "type": "boolean" },
+        "error": { "type": "string" }
+      },
+      "required": ["valid", "stored"]
+    },
+    "ListAgentsRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" }
+      },
+      "required": ["harnessId"]
+    },
+    "ListAgentsResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "CreateAgentRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "description": { "type": "string" }
+          },
+          "required": ["name", "description"]
+        },
+        "files": {
+          "type": "array",
+          "items": { "type": "string", "format": "binary" }
+        }
+      },
+      "required": ["harnessId", "metadata", "files"]
+    },
+    "CreateAgentResponse": {
+      "type": "object",
+      "properties": { "agent": { "$ref": "#/components/schemas/Agent" } },
+      "required": ["agent"]
+    },
+    "GetAgentRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" }
+      },
+      "required": ["harnessId", "agentId"]
+    },
+    "GetAgentResponse": {
+      "type": "object",
+      "properties": { "agent": { "$ref": "#/components/schemas/Agent" } },
+      "required": ["agent"]
+    },
+    "UpdateAgentRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "config": { "$ref": "#/components/schemas/AgentConfig" }
+      },
+      "required": ["harnessId", "agentId"]
+    },
+    "UpdateAgentResponse": {
+      "type": "object",
+      "properties": { "agent": { "$ref": "#/components/schemas/Agent" } },
+      "required": ["agent"]
+    },
+    "DeleteAgentRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" }
+      },
+      "required": ["harnessId", "agentId"]
+    },
+    "CloneAgentRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "new_name": { "type": "string" },
+        "include_memory": { "type": "boolean" }
+      },
+      "required": ["harnessId", "agentId", "new_name"]
+    },
+    "CloneAgentResponse": {
+      "type": "object",
+      "properties": { "agent": { "$ref": "#/components/schemas/Agent" } },
+      "required": ["agent"]
+    },
+    "ExportAgentRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "include_memory": { "type": "boolean" },
+        "include_versions": { "type": "boolean" },
+        "contents_mode": {
+          "oneOf": [
+            { "type": "string", "enum": ["bundled"] },
+            { "type": "string", "enum": ["referenced"] }
+          ]
+        }
+      },
+      "required": ["harnessId", "agentId"]
+    },
+    "ImportAgentRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "bundle": { "type": "string", "format": "binary" },
+        "rename_to": { "type": "string" },
+        "merge_strategy": {
+          "oneOf": [
+            { "type": "string", "enum": ["fail"] },
+            { "type": "string", "enum": ["overwrite"] },
+            { "type": "string", "enum": ["skip"] }
+          ]
+        }
+      },
+      "required": ["harnessId", "bundle"]
+    },
+    "ImportAgentResponse": {
+      "type": "object",
+      "properties": {
+        "agent": { "$ref": "#/components/schemas/Agent" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["agent", "warnings"]
+    },
+    "ListSkillsRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "category": { "$ref": "#/components/schemas/SkillCategory" }
+      },
+      "required": ["harnessId"]
+    },
+    "ListSkillsResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "RegisterSkillRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "display_title": { "type": "string" },
+            "category": { "$ref": "#/components/schemas/SkillCategory" }
+          },
+          "required": ["display_title"]
+        },
+        "files": {
+          "type": "array",
+          "items": { "type": "string", "format": "binary" }
+        }
+      },
+      "required": ["harnessId", "metadata", "files"]
+    },
+    "RegisterSkillResponse": {
+      "type": "object",
+      "properties": { "skill": { "$ref": "#/components/schemas/Skill" } },
+      "required": ["skill"]
+    },
+    "GetSkillRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "skillId": { "$ref": "#/components/schemas/SkillId" }
+      },
+      "required": ["harnessId", "skillId"]
+    },
+    "GetSkillResponse": {
+      "type": "object",
+      "properties": { "skill": { "$ref": "#/components/schemas/Skill" } },
+      "required": ["skill"]
+    },
+    "UpdateSkillRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "skillId": { "$ref": "#/components/schemas/SkillId" },
+        "display_title": { "type": "string" },
+        "category": { "$ref": "#/components/schemas/SkillCategory" }
+      },
+      "required": ["harnessId", "skillId"]
+    },
+    "UpdateSkillResponse": {
+      "type": "object",
+      "properties": { "skill": { "$ref": "#/components/schemas/Skill" } },
+      "required": ["skill"]
+    },
+    "UninstallSkillRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "skillId": { "$ref": "#/components/schemas/SkillId" }
+      },
+      "required": ["harnessId", "skillId"]
+    },
+    "ListSkillVersionsRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "skillId": { "$ref": "#/components/schemas/SkillId" }
+      },
+      "required": ["harnessId", "skillId"]
+    },
+    "ListSkillVersionsResponse": {
+      "type": "object",
+      "properties": {
+        "skill_id": { "$ref": "#/components/schemas/SkillId" },
+        "current_version": { "type": "string" },
+        "versions": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/SkillVersion" }
+        }
+      },
+      "required": ["skill_id", "current_version", "versions"]
+    },
+    "RollbackSkillRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "skillId": { "$ref": "#/components/schemas/SkillId" },
+        "version": { "type": "string" }
+      },
+      "required": ["harnessId", "skillId", "version"]
+    },
+    "RollbackSkillResponse": {
+      "type": "object",
+      "properties": {
+        "skill": { "$ref": "#/components/schemas/Skill" },
+        "previous_version": { "type": "string" }
+      },
+      "required": ["skill", "previous_version"]
+    },
+    "DiscoverSkillsRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "search_paths": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["harnessId"]
+    },
+    "DiscoverSkillsResponse": {
+      "type": "object",
+      "properties": {
+        "discovered": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/DiscoveredSkill" }
+        }
+      },
+      "required": ["discovered"]
+    },
+    "DiscoveredSkill": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "category": { "$ref": "#/components/schemas/SkillCategory" },
+        "already_registered": { "type": "boolean" }
+      },
+      "required": ["name", "path", "category", "already_registered"]
+    },
+    "ValidateSkillRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "files": {
+          "type": "array",
+          "items": { "type": "string", "format": "binary" }
+        }
+      },
+      "required": ["harnessId", "files"]
+    },
+    "ValidateSkillResponse": {
+      "type": "object",
+      "properties": {
+        "valid": { "type": "boolean" },
+        "errors": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/ValidationIssue" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/ValidationIssue" }
+        }
+      },
+      "required": ["valid", "errors", "warnings"]
+    },
+    "ValidationIssue": {
+      "type": "object",
+      "properties": {
+        "file": { "type": "string" },
+        "line": { "type": "number" },
+        "message": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "required": ["file", "message", "code"]
+    },
+    "DownloadSkillRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "skillId": { "$ref": "#/components/schemas/SkillId" },
+        "version": { "type": "string" }
+      },
+      "required": ["harnessId", "skillId"]
+    },
+    "UpgradeSkillRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "skillId": { "$ref": "#/components/schemas/SkillId" },
+        "files": {
+          "type": "array",
+          "items": { "type": "string", "format": "binary" }
+        },
+        "changelog": { "type": "string" }
+      },
+      "required": ["harnessId", "skillId", "files"]
+    },
+    "UpgradeSkillResponse": {
+      "type": "object",
+      "properties": {
+        "skill": { "$ref": "#/components/schemas/Skill" },
+        "previous_version": { "type": "string" }
+      },
+      "required": ["skill", "previous_version"]
+    },
+    "ListMcpServersRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["connected"] },
+            { "type": "string", "enum": ["disconnected"] },
+            { "type": "string", "enum": ["error"] }
+          ]
+        }
+      },
+      "required": ["harnessId"]
+    },
+    "ListMcpServersResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "ConnectMcpServerRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "name": { "type": "string" },
+        "transport": { "$ref": "#/components/schemas/McpTransport" },
+        "auto_reconnect": { "type": "boolean" }
+      },
+      "required": ["harnessId", "name", "transport"]
+    },
+    "ConnectMcpServerResponse": {
+      "type": "object",
+      "properties": { "server": { "$ref": "#/components/schemas/McpServer" } },
+      "required": ["server"]
+    },
+    "GetMcpServerRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "serverId": { "type": "string" }
+      },
+      "required": ["harnessId", "serverId"]
+    },
+    "GetMcpServerResponse": {
+      "type": "object",
+      "properties": { "server": { "$ref": "#/components/schemas/McpServer" } },
+      "required": ["server"]
+    },
+    "UpdateMcpServerRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "serverId": { "type": "string" },
+        "name": { "type": "string" },
+        "transport": { "$ref": "#/components/schemas/McpTransport" },
+        "auto_reconnect": { "type": "boolean" }
+      },
+      "required": ["harnessId", "serverId"]
+    },
+    "UpdateMcpServerResponse": {
+      "type": "object",
+      "properties": { "server": { "$ref": "#/components/schemas/McpServer" } },
+      "required": ["server"]
+    },
+    "DisconnectMcpServerRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "serverId": { "type": "string" }
+      },
+      "required": ["harnessId", "serverId"]
+    },
+    "ListMcpToolsRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "serverId": { "type": "string" }
+      },
+      "required": ["harnessId", "serverId"]
+    },
+    "ListMcpToolsResponse": {
+      "type": "object",
+      "properties": {
+        "tools": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/McpTool" }
+        }
+      },
+      "required": ["tools"]
+    },
+    "ListMcpResourcesRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "serverId": { "type": "string" }
+      },
+      "required": ["harnessId", "serverId"]
+    },
+    "ListMcpResourcesResponse": {
+      "type": "object",
+      "properties": {
+        "resources": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/McpResource" }
+        }
+      },
+      "required": ["resources"]
+    },
+    "ListMcpPromptsRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "serverId": { "type": "string" }
+      },
+      "required": ["harnessId", "serverId"]
+    },
+    "ListMcpPromptsResponse": {
+      "type": "object",
+      "properties": {
+        "prompts": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/McpPrompt" }
+        }
+      },
+      "required": ["prompts"]
+    },
+    "McpHealthRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "serverId": { "type": "string" }
+      },
+      "required": ["harnessId", "serverId"]
+    },
+    "McpHealthResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["healthy"] },
+            { "type": "string", "enum": ["degraded"] },
+            { "type": "string", "enum": ["unhealthy"] }
+          ]
+        },
+        "latency_ms": { "type": "number" },
+        "last_error": { "type": "string" }
+      },
+      "required": ["status", "latency_ms"]
+    },
+    "ListToolsRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "source": {
+          "oneOf": [
+            { "type": "string", "enum": ["builtin"] },
+            { "type": "string", "enum": ["mcp"] },
+            { "type": "string", "enum": ["skill"] },
+            { "type": "string", "enum": ["custom"] }
+          ]
+        }
+      },
+      "required": ["harnessId"]
+    },
+    "ListToolsResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "Tool": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "source": {
+          "oneOf": [
+            { "type": "string", "enum": ["builtin"] },
+            { "type": "string", "enum": ["mcp"] },
+            { "type": "string", "enum": ["skill"] },
+            { "type": "string", "enum": ["custom"] }
+          ]
+        },
+        "source_id": { "type": "string" },
+        "input_schema": { "type": "object", "additionalProperties": true }
+      },
+      "required": ["id", "name", "description", "source", "input_schema"]
+    },
+    "GetToolRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "toolId": { "type": "string" }
+      },
+      "required": ["harnessId", "toolId"]
+    },
+    "GetToolResponse": {
+      "type": "object",
+      "properties": { "tool": { "$ref": "#/components/schemas/Tool" } },
+      "required": ["tool"]
+    },
+    "RegisterToolRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "input_schema": { "type": "object", "additionalProperties": true },
+        "handler": { "$ref": "#/components/schemas/ToolHandler" }
+      },
+      "required": [
+        "harnessId",
+        "name",
+        "description",
+        "input_schema",
+        "handler"
+      ]
+    },
+    "ToolHandler": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["webhook"] },
+            "url": { "type": "string" }
+          },
+          "required": ["type", "url"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["command"] },
+            "command": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["type", "command"]
+        }
+      ]
+    },
+    "RegisterToolResponse": {
+      "type": "object",
+      "properties": { "tool": { "$ref": "#/components/schemas/Tool" } },
+      "required": ["tool"]
+    },
+    "UnregisterToolRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "toolId": { "type": "string" }
+      },
+      "required": ["harnessId", "toolId"]
+    },
+    "InvokeToolRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "toolId": { "type": "string" },
+        "input": { "type": "object", "additionalProperties": true }
+      },
+      "required": ["harnessId", "toolId", "input"]
+    },
+    "InvokeToolResponse": {
+      "type": "object",
+      "properties": {
+        "success": { "type": "boolean" },
+        "output": { "type": "object", "additionalProperties": true },
+        "duration_ms": { "type": "number" },
+        "error": { "type": "string" }
+      },
+      "required": ["success", "output", "duration_ms"]
+    },
+    "InvokeToolStreamRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "toolId": { "type": "string" },
+        "input": { "type": "object", "additionalProperties": true }
+      },
+      "required": ["harnessId", "toolId", "input"]
+    },
+    "ToolStreamEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["output"] },
+            "data": { "type": "object", "additionalProperties": true }
+          },
+          "required": ["type", "data"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["progress"] },
+            "percentage": { "type": "number" },
+            "message": { "type": "string" }
+          },
+          "required": ["type", "percentage", "message"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["error"] },
+            "code": { "type": "string" },
+            "message": { "type": "string" }
+          },
+          "required": ["type", "code", "message"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["done"] },
+            "success": { "type": "boolean" },
+            "duration_ms": { "type": "number" }
+          },
+          "required": ["type", "success", "duration_ms"]
+        }
+      ]
+    },
+    "ExecuteRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "message": { "type": "string" },
+        "agent_id": { "$ref": "#/components/schemas/AgentId" },
+        "skills": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/SkillId" }
+        },
+        "model": { "type": "string" },
+        "max_tokens": { "type": "number" },
+        "temperature": { "type": "number" },
+        "system_prompt": { "type": "string" },
+        "session_id": { "$ref": "#/components/schemas/SessionId" }
+      },
+      "required": ["harnessId", "message"]
+    },
+    "ExecuteResponse": {
+      "type": "object",
+      "properties": {
+        "execution_id": { "$ref": "#/components/schemas/ExecutionId" },
+        "status": { "$ref": "#/components/schemas/ExecutionStatus" },
+        "stream_url": { "type": "string" }
+      },
+      "required": ["execution_id", "status", "stream_url"]
+    },
+    "ExecuteStreamRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "message": { "type": "string" },
+        "agent_id": { "$ref": "#/components/schemas/AgentId" },
+        "skills": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/SkillId" }
+        },
+        "model": { "type": "string" },
+        "max_tokens": { "type": "number" },
+        "temperature": { "type": "number" },
+        "system_prompt": { "type": "string" },
+        "session_id": { "$ref": "#/components/schemas/SessionId" }
+      },
+      "required": ["harnessId", "message"]
+    },
+    "ListExecutionsRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "status": { "$ref": "#/components/schemas/ExecutionStatus" },
+        "agent_id": { "$ref": "#/components/schemas/AgentId" },
+        "since": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": ["harnessId"]
+    },
+    "ListExecutionsResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "GetExecutionRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" }
+      },
+      "required": ["harnessId", "executionId"]
+    },
+    "GetExecutionResponse": {
+      "type": "object",
+      "properties": {
+        "execution": { "$ref": "#/components/schemas/Execution" }
+      },
+      "required": ["execution"]
+    },
+    "AttachStreamRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" }
+      },
+      "required": ["harnessId", "executionId"]
+    },
+    "CancelExecutionRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" }
+      },
+      "required": ["harnessId", "executionId"]
+    },
+    "CancelExecutionResponse": {
+      "type": "object",
+      "properties": {
+        "execution": { "$ref": "#/components/schemas/Execution" },
+        "cancelled": { "type": "boolean" }
+      },
+      "required": ["execution", "cancelled"]
+    },
+    "GetExecutionResultRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" }
+      },
+      "required": ["harnessId", "executionId"]
+    },
+    "GetExecutionResultResponse": {
+      "type": "object",
+      "properties": {
+        "result": { "$ref": "#/components/schemas/ExecutionResult" }
+      },
+      "required": ["result"]
+    },
+    "ListArtifactsRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" }
+      },
+      "required": ["harnessId", "executionId"]
+    },
+    "ListArtifactsResponse": {
+      "type": "object",
+      "properties": {
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/ArtifactSummary" }
+        }
+      },
+      "required": ["artifacts"]
+    },
+    "DownloadArtifactRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" },
+        "artifactId": { "type": "string" }
+      },
+      "required": ["harnessId", "executionId", "artifactId"]
+    },
+    "ListToolCallsRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" }
+      },
+      "required": ["harnessId", "executionId"]
+    },
+    "ListToolCallsResponse": {
+      "type": "object",
+      "properties": {
+        "tool_calls": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/DetailedToolCall" }
+        }
+      },
+      "required": ["tool_calls"]
+    },
+    "DetailedToolCall": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "input": { "type": "object", "additionalProperties": true },
+        "output": { "type": "object", "additionalProperties": true },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["pending"] },
+            { "type": "string", "enum": ["running"] },
+            { "type": "string", "enum": ["completed"] },
+            { "type": "string", "enum": ["failed"] }
+          ]
+        },
+        "error": { "type": "string" },
+        "started_at": { "$ref": "#/components/schemas/ISO8601" },
+        "completed_at": { "$ref": "#/components/schemas/ISO8601" },
+        "duration_ms": { "type": "number" }
+      },
+      "required": ["id", "name", "input", "status", "started_at"]
+    },
+    "SendInputRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" },
+        "data": { "type": "string" }
+      },
+      "required": ["harnessId", "executionId", "data"]
+    },
+    "SendInputResponse": {
+      "type": "object",
+      "properties": { "accepted": { "type": "boolean" } },
+      "required": ["accepted"]
+    },
+    "ListSessionsRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["active"] },
+            { "type": "string", "enum": ["paused"] },
+            { "type": "string", "enum": ["ended"] }
+          ]
+        },
+        "agent_id": { "$ref": "#/components/schemas/AgentId" }
+      },
+      "required": ["harnessId"]
+    },
+    "ListSessionsResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "CreateSessionRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "name": { "type": "string" },
+        "agent_id": { "$ref": "#/components/schemas/AgentId" },
+        "skills": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/SkillId" }
+        },
+        "system_prompt": { "type": "string" }
+      },
+      "required": ["harnessId"]
+    },
+    "CreateSessionResponse": {
+      "type": "object",
+      "properties": {
+        "session": { "$ref": "#/components/schemas/Session" },
+        "connect_url": { "type": "string" }
+      },
+      "required": ["session", "connect_url"]
+    },
+    "GetSessionRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "sessionId": { "$ref": "#/components/schemas/SessionId" }
+      },
+      "required": ["harnessId", "sessionId"]
+    },
+    "GetSessionResponse": {
+      "type": "object",
+      "properties": { "session": { "$ref": "#/components/schemas/Session" } },
+      "required": ["session"]
+    },
+    "UpdateSessionRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "sessionId": { "$ref": "#/components/schemas/SessionId" },
+        "name": { "type": "string" },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["active"] },
+            { "type": "string", "enum": ["paused"] }
+          ]
+        }
+      },
+      "required": ["harnessId", "sessionId"]
+    },
+    "UpdateSessionResponse": {
+      "type": "object",
+      "properties": { "session": { "$ref": "#/components/schemas/Session" } },
+      "required": ["session"]
+    },
+    "EndSessionRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "sessionId": { "$ref": "#/components/schemas/SessionId" },
+        "delete_history": { "type": "boolean" }
+      },
+      "required": ["harnessId", "sessionId"]
+    },
+    "ResumeSessionRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "sessionId": { "$ref": "#/components/schemas/SessionId" }
+      },
+      "required": ["harnessId", "sessionId"]
+    },
+    "ResumeSessionResponse": {
+      "type": "object",
+      "properties": {
+        "session": { "$ref": "#/components/schemas/Session" },
+        "connect_url": { "type": "string" }
+      },
+      "required": ["session", "connect_url"]
+    },
+    "GetSessionHistoryRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "sessionId": { "$ref": "#/components/schemas/SessionId" },
+        "since": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": ["harnessId", "sessionId"]
+    },
+    "GetSessionHistoryResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "ForkSessionRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "sessionId": { "$ref": "#/components/schemas/SessionId" },
+        "new_name": { "type": "string" },
+        "from_message_id": { "type": "string" }
+      },
+      "required": ["harnessId", "sessionId"]
+    },
+    "ForkSessionResponse": {
+      "type": "object",
+      "properties": {
+        "session": { "$ref": "#/components/schemas/Session" },
+        "forked_from": { "$ref": "#/components/schemas/SessionId" },
+        "message_count": { "type": "number" }
+      },
+      "required": ["session", "forked_from", "message_count"]
+    },
+    "SendMessageRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "sessionId": { "$ref": "#/components/schemas/SessionId" },
+        "content": { "type": "string" }
+      },
+      "required": ["harnessId", "sessionId", "content"]
+    },
+    "SendMessageResponse": {
+      "type": "object",
+      "properties": {
+        "message": { "$ref": "#/components/schemas/Message" },
+        "response": { "$ref": "#/components/schemas/Message" }
+      },
+      "required": ["message", "response"]
+    },
+    "SendMessageStreamRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "sessionId": { "$ref": "#/components/schemas/SessionId" },
+        "content": { "type": "string" }
+      },
+      "required": ["harnessId", "sessionId", "content"]
+    },
+    "GetMemoryRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" }
+      },
+      "required": ["harnessId", "agentId"]
+    },
+    "GetMemoryResponse": {
+      "type": "object",
+      "properties": {
+        "memory": { "$ref": "#/components/schemas/MemoryState" }
+      },
+      "required": ["memory"]
+    },
+    "ListMemoryBlocksRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" }
+      },
+      "required": ["harnessId", "agentId"]
+    },
+    "ListMemoryBlocksResponse": {
+      "type": "object",
+      "properties": {
+        "blocks": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/MemoryBlock" }
+        }
+      },
+      "required": ["blocks"]
+    },
+    "GetMemoryBlockRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "label": { "type": "string" }
+      },
+      "required": ["harnessId", "agentId", "label"]
+    },
+    "GetMemoryBlockResponse": {
+      "type": "object",
+      "properties": { "block": { "$ref": "#/components/schemas/MemoryBlock" } },
+      "required": ["block"]
+    },
+    "UpdateMemoryBlockRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "label": { "type": "string" },
+        "value": { "type": "string" }
+      },
+      "required": ["harnessId", "agentId", "label", "value"]
+    },
+    "UpdateMemoryBlockResponse": {
+      "type": "object",
+      "properties": { "block": { "$ref": "#/components/schemas/MemoryBlock" } },
+      "required": ["block"]
+    },
+    "CreateMemoryBlockRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "label": { "type": "string" },
+        "value": { "type": "string" },
+        "read_only": { "type": "boolean" }
+      },
+      "required": ["harnessId", "agentId", "label", "value"]
+    },
+    "CreateMemoryBlockResponse": {
+      "type": "object",
+      "properties": { "block": { "$ref": "#/components/schemas/MemoryBlock" } },
+      "required": ["block"]
+    },
+    "DeleteMemoryBlockRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "label": { "type": "string" }
+      },
+      "required": ["harnessId", "agentId", "label"]
+    },
+    "SearchMemoryRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "query": { "type": "string" },
+        "include_archive": { "type": "boolean" },
+        "limit": { "type": "number" }
+      },
+      "required": ["harnessId", "agentId", "query"]
+    },
+    "SearchMemoryResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/MemorySearchResult" }
+        }
+      },
+      "required": ["results"]
+    },
+    "MemorySearchResult": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "oneOf": [
+            { "type": "string", "enum": ["block"] },
+            { "type": "string", "enum": ["archive"] }
+          ]
+        },
+        "label": { "type": "string" },
+        "content": { "type": "string" },
+        "relevance_score": { "type": "number" }
+      },
+      "required": ["source", "content", "relevance_score"]
+    },
+    "GetArchiveRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" }
+      },
+      "required": ["harnessId", "agentId"]
+    },
+    "GetArchiveResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "ArchiveEntry": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "content": { "type": "string" },
+        "created_at": { "$ref": "#/components/schemas/ISO8601" },
+        "metadata": { "type": "object", "additionalProperties": true }
+      },
+      "required": ["id", "content", "created_at"]
+    },
+    "AddToArchiveRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "content": { "type": "string" },
+        "metadata": { "type": "object", "additionalProperties": true }
+      },
+      "required": ["harnessId", "agentId", "content"]
+    },
+    "AddToArchiveResponse": {
+      "type": "object",
+      "properties": {
+        "entry": { "$ref": "#/components/schemas/ArchiveEntry" }
+      },
+      "required": ["entry"]
+    },
+    "ExportMemoryRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "include_archive": { "type": "boolean" }
+      },
+      "required": ["harnessId", "agentId"]
+    },
+    "ImportMemoryRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "snapshot": { "type": "string", "format": "binary" },
+        "merge_strategy": {
+          "oneOf": [
+            { "type": "string", "enum": ["overwrite"] },
+            { "type": "string", "enum": ["skip"] },
+            { "type": "string", "enum": ["merge"] }
+          ]
+        }
+      },
+      "required": ["harnessId", "agentId", "snapshot"]
+    },
+    "ImportMemoryResponse": {
+      "type": "object",
+      "properties": {
+        "blocks_imported": { "type": "number" },
+        "archive_entries_imported": { "type": "number" },
+        "conflicts": { "type": "number" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": [
+        "blocks_imported",
+        "archive_entries_imported",
+        "conflicts",
+        "warnings"
+      ]
+    },
+    "ListSubagentsRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" }
+      },
+      "required": ["harnessId", "agentId"]
+    },
+    "ListSubagentsResponse": {
+      "type": "object",
+      "properties": {
+        "subagents": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/Subagent" }
+        }
+      },
+      "required": ["subagents"]
+    },
+    "Subagent": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["idle"] },
+            { "type": "string", "enum": ["running"] },
+            { "type": "string", "enum": ["completed"] },
+            { "type": "string", "enum": ["failed"] }
+          ]
+        },
+        "parent_agent_id": { "$ref": "#/components/schemas/AgentId" },
+        "created_at": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "status",
+        "parent_agent_id",
+        "created_at"
+      ]
+    },
+    "SpawnSubagentRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "system_prompt": { "type": "string" },
+        "skills": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/SkillId" }
+        },
+        "model": { "type": "string" }
+      },
+      "required": ["harnessId", "agentId", "name", "description"]
+    },
+    "SpawnSubagentResponse": {
+      "type": "object",
+      "properties": { "subagent": { "$ref": "#/components/schemas/Subagent" } },
+      "required": ["subagent"]
+    },
+    "GetSubagentRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "subagentId": { "type": "string" }
+      },
+      "required": ["harnessId", "agentId", "subagentId"]
+    },
+    "GetSubagentResponse": {
+      "type": "object",
+      "properties": { "subagent": { "$ref": "#/components/schemas/Subagent" } },
+      "required": ["subagent"]
+    },
+    "TerminateSubagentRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "subagentId": { "type": "string" }
+      },
+      "required": ["harnessId", "agentId", "subagentId"]
+    },
+    "DelegateTaskRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "subagentId": { "type": "string" },
+        "task": { "type": "string" },
+        "context": { "type": "object", "additionalProperties": true }
+      },
+      "required": ["harnessId", "agentId", "subagentId", "task"]
+    },
+    "DelegateTaskResponse": {
+      "type": "object",
+      "properties": {
+        "execution_id": { "$ref": "#/components/schemas/ExecutionId" },
+        "status": { "$ref": "#/components/schemas/ExecutionStatus" }
+      },
+      "required": ["execution_id", "status"]
+    },
+    "DelegateTaskStreamRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "subagentId": { "type": "string" },
+        "task": { "type": "string" },
+        "context": { "type": "object", "additionalProperties": true }
+      },
+      "required": ["harnessId", "agentId", "subagentId", "task"]
+    },
+    "GetSubagentResultRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "subagentId": { "type": "string" }
+      },
+      "required": ["harnessId", "agentId", "subagentId"]
+    },
+    "GetSubagentResultResponse": {
+      "type": "object",
+      "properties": {
+        "result": { "$ref": "#/components/schemas/ExecutionResult" }
+      },
+      "required": ["result"]
+    },
+    "AttachSubagentStreamRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "agentId": { "$ref": "#/components/schemas/AgentId" },
+        "subagentId": { "type": "string" }
+      },
+      "required": ["harnessId", "agentId", "subagentId"]
+    },
+    "ListFilesRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "path": { "type": "string" },
+        "recursive": { "type": "boolean" }
+      },
+      "required": ["harnessId"]
+    },
+    "ListFilesResponse": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/FileInfo" }
+        },
+        "path": { "type": "string" }
+      },
+      "required": ["files", "path"]
+    },
+    "ReadFileRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "path": { "type": "string" }
+      },
+      "required": ["harnessId", "path"]
+    },
+    "WriteFileRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "path": { "type": "string" }
+      },
+      "required": ["harnessId", "path"]
+    },
+    "WriteFileResponse": {
+      "type": "object",
+      "properties": {
+        "file": { "$ref": "#/components/schemas/FileInfo" },
+        "created": { "type": "boolean" }
+      },
+      "required": ["file", "created"]
+    },
+    "DeleteFileRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "path": { "type": "string" },
+        "recursive": { "type": "boolean" }
+      },
+      "required": ["harnessId", "path"]
+    },
+    "SearchFilesRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "glob": { "type": "string" },
+        "grep": { "type": "string" },
+        "path": { "type": "string" },
+        "max_results": { "type": "number" }
+      },
+      "required": ["harnessId"]
+    },
+    "SearchFilesResponse": {
+      "type": "object",
+      "properties": {
+        "matches": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/FileMatch" }
+        }
+      },
+      "required": ["matches"]
+    },
+    "FileMatch": {
+      "type": "object",
+      "properties": {
+        "file": { "$ref": "#/components/schemas/FileInfo" },
+        "line_matches": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/LineMatch" }
+        }
+      },
+      "required": ["file"]
+    },
+    "LineMatch": {
+      "type": "object",
+      "properties": {
+        "line_number": { "type": "number" },
+        "content": { "type": "string" }
+      },
+      "required": ["line_number", "content"]
+    },
+    "UploadFileRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "path": { "type": "string" },
+        "file": { "type": "string", "format": "binary" },
+        "overwrite": { "type": "boolean" }
+      },
+      "required": ["harnessId", "path", "file"]
+    },
+    "UploadFileResponse": {
+      "type": "object",
+      "properties": {
+        "file": { "$ref": "#/components/schemas/FileInfo" },
+        "created": { "type": "boolean" }
+      },
+      "required": ["file", "created"]
+    },
+    "UploadFilesBatchRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "base_path": { "type": "string" },
+        "files": {
+          "type": "array",
+          "items": { "type": "string", "format": "binary" }
+        },
+        "overwrite": { "type": "boolean" }
+      },
+      "required": ["harnessId", "files"]
+    },
+    "UploadFilesBatchResponse": {
+      "type": "object",
+      "properties": {
+        "uploaded": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/FileInfo" }
+        },
+        "skipped": { "type": "array", "items": { "type": "string" } },
+        "errors": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/FileError" }
+        }
+      },
+      "required": ["uploaded", "skipped", "errors"]
+    },
+    "FileError": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "error": { "type": "string" }
+      },
+      "required": ["path", "error"]
+    },
+    "DownloadFileRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "path": { "type": "string" }
+      },
+      "required": ["harnessId", "path"]
+    },
+    "DownloadFilesBatchRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "paths": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["harnessId", "paths"]
+    },
+    "CreateDirectoryRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "path": { "type": "string" }
+      },
+      "required": ["harnessId", "path"]
+    },
+    "CreateDirectoryResponse": {
+      "type": "object",
+      "properties": {
+        "file": { "$ref": "#/components/schemas/FileInfo" },
+        "created": { "type": "boolean" }
+      },
+      "required": ["file", "created"]
+    },
+    "ListHooksRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "event": { "$ref": "#/components/schemas/HookEvent" }
+      },
+      "required": ["harnessId"]
+    },
+    "ListHooksResponse": {
+      "type": "object",
+      "properties": {
+        "hooks": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/Hook" }
+        }
+      },
+      "required": ["hooks"]
+    },
+    "RegisterHookRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "event": { "$ref": "#/components/schemas/HookEvent" },
+        "handler": { "$ref": "#/components/schemas/HookHandler" },
+        "enabled": { "type": "boolean" }
+      },
+      "required": ["harnessId", "event", "handler"]
+    },
+    "RegisterHookResponse": {
+      "type": "object",
+      "properties": { "hook": { "$ref": "#/components/schemas/Hook" } },
+      "required": ["hook"]
+    },
+    "GetHookRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "hookId": { "type": "string" }
+      },
+      "required": ["harnessId", "hookId"]
+    },
+    "GetHookResponse": {
+      "type": "object",
+      "properties": { "hook": { "$ref": "#/components/schemas/Hook" } },
+      "required": ["hook"]
+    },
+    "UpdateHookRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "hookId": { "type": "string" },
+        "handler": { "$ref": "#/components/schemas/HookHandler" },
+        "enabled": { "type": "boolean" }
+      },
+      "required": ["harnessId", "hookId"]
+    },
+    "UpdateHookResponse": {
+      "type": "object",
+      "properties": { "hook": { "$ref": "#/components/schemas/Hook" } },
+      "required": ["hook"]
+    },
+    "UnregisterHookRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "hookId": { "type": "string" }
+      },
+      "required": ["harnessId", "hookId"]
+    },
+    "StreamEventsRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "events": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["harnessId"]
+    },
+    "HarnessEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["hook.triggered"] },
+            "hook_id": { "type": "string" },
+            "event": { "$ref": "#/components/schemas/HookEvent" },
+            "data": { "type": "object", "additionalProperties": true }
+          },
+          "required": ["type", "hook_id", "event", "data"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["execution.started"] },
+            "execution_id": { "$ref": "#/components/schemas/ExecutionId" }
+          },
+          "required": ["type", "execution_id"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["execution.completed"] },
+            "execution_id": { "$ref": "#/components/schemas/ExecutionId" },
+            "status": { "$ref": "#/components/schemas/ExecutionStatus" }
+          },
+          "required": ["type", "execution_id", "status"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["session.created"] },
+            "session_id": { "$ref": "#/components/schemas/SessionId" }
+          },
+          "required": ["type", "session_id"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["session.ended"] },
+            "session_id": { "$ref": "#/components/schemas/SessionId" }
+          },
+          "required": ["type", "session_id"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["skill.installed"] },
+            "skill_id": { "$ref": "#/components/schemas/SkillId" }
+          },
+          "required": ["type", "skill_id"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["skill.uninstalled"] },
+            "skill_id": { "$ref": "#/components/schemas/SkillId" }
+          },
+          "required": ["type", "skill_id"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["error"] },
+            "code": { "type": "string" },
+            "message": { "type": "string" }
+          },
+          "required": ["type", "code", "message"]
+        }
+      ]
+    },
+    "ListEventsRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "type": { "type": "string" },
+        "since": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": ["harnessId"]
+    },
+    "ListEventsResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "StoredEvent": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "data": { "type": "object", "additionalProperties": true },
+        "timestamp": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": ["id", "type", "data", "timestamp"]
+    },
+    "RegisterWebhookRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "url": { "type": "string" },
+        "events": { "type": "array", "items": { "type": "string" } },
+        "secret": { "type": "string" }
+      },
+      "required": ["harnessId", "url", "events"]
+    },
+    "RegisterWebhookResponse": {
+      "type": "object",
+      "properties": { "webhook": { "$ref": "#/components/schemas/Webhook" } },
+      "required": ["webhook"]
+    },
+    "ListWebhooksRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" }
+      },
+      "required": ["harnessId"]
+    },
+    "ListWebhooksResponse": {
+      "type": "object",
+      "properties": {
+        "webhooks": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/Webhook" }
+        }
+      },
+      "required": ["webhooks"]
+    },
+    "DeleteWebhookRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "webhookId": { "type": "string" }
+      },
+      "required": ["harnessId", "webhookId"]
+    },
+    "ExecutionCompletedWebhook": {
+      "type": "object",
+      "properties": {
+        "event": { "type": "string", "enum": ["execution.completed"] },
+        "execution_id": { "$ref": "#/components/schemas/ExecutionId" },
+        "harness_id": { "$ref": "#/components/schemas/HarnessId" },
+        "status": { "$ref": "#/components/schemas/ExecutionStatus" },
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/ArtifactSummary" }
+        },
+        "usage": { "$ref": "#/components/schemas/UsageStats" },
+        "completed_at": { "$ref": "#/components/schemas/ISO8601" },
+        "signature": { "type": "string" }
+      },
+      "required": [
+        "event",
+        "execution_id",
+        "harness_id",
+        "status",
+        "artifacts",
+        "usage",
+        "completed_at",
+        "signature"
+      ]
+    },
+    "GetPlanRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" }
+      },
+      "required": ["harnessId", "executionId"]
+    },
+    "GetPlanResponse": {
+      "type": "object",
+      "properties": { "plan": { "$ref": "#/components/schemas/Plan" } },
+      "required": ["plan"]
+    },
+    "UpdatePlanRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" },
+        "tasks": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/PlanTask" }
+        }
+      },
+      "required": ["harnessId", "executionId"]
+    },
+    "UpdatePlanResponse": {
+      "type": "object",
+      "properties": { "plan": { "$ref": "#/components/schemas/Plan" } },
+      "required": ["plan"]
+    },
+    "ListTasksRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["pending"] },
+            { "type": "string", "enum": ["in_progress"] },
+            { "type": "string", "enum": ["completed"] }
+          ]
+        }
+      },
+      "required": ["harnessId", "executionId"]
+    },
+    "ListTasksResponse": {
+      "type": "object",
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "items": { "$ref": "#/components/schemas/PlanTask" }
+        }
+      },
+      "required": ["tasks"]
+    },
+    "UpdateTaskRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" },
+        "taskId": { "type": "string" },
+        "content": { "type": "string" },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["pending"] },
+            { "type": "string", "enum": ["in_progress"] },
+            { "type": "string", "enum": ["completed"] }
+          ]
+        }
+      },
+      "required": ["harnessId", "executionId", "taskId"]
+    },
+    "UpdateTaskResponse": {
+      "type": "object",
+      "properties": { "task": { "$ref": "#/components/schemas/PlanTask" } },
+      "required": ["task"]
+    },
+    "StreamPlanRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "executionId": { "$ref": "#/components/schemas/ExecutionId" }
+      },
+      "required": ["harnessId", "executionId"]
+    },
+    "PlanEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["task.added"] },
+            "task": { "$ref": "#/components/schemas/PlanTask" }
+          },
+          "required": ["type", "task"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["task.updated"] },
+            "task": { "$ref": "#/components/schemas/PlanTask" }
+          },
+          "required": ["type", "task"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["task.removed"] },
+            "task_id": { "type": "string" }
+          },
+          "required": ["type", "task_id"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["plan.reordered"] },
+            "task_ids": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["type", "task_ids"]
+        }
+      ]
+    },
+    "RunConformanceRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "quick": { "type": "boolean" }
+      },
+      "required": ["harnessId"]
+    },
+    "RunConformanceResponse": {
+      "type": "object",
+      "properties": {
+        "run_id": { "type": "string" },
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["running"] },
+            { "type": "string", "enum": ["completed"] }
+          ]
+        },
+        "stream_url": { "type": "string" }
+      },
+      "required": ["run_id", "status", "stream_url"]
+    },
+    "StreamConformanceRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "run_id": { "type": "string" }
+      },
+      "required": ["harnessId"]
+    },
+    "ConformanceEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["test.started"] },
+            "test_id": { "type": "string" },
+            "test_name": { "type": "string" }
+          },
+          "required": ["type", "test_id", "test_name"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["test.passed"] },
+            "test_id": { "type": "string" }
+          },
+          "required": ["type", "test_id"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["test.failed"] },
+            "test_id": { "type": "string" },
+            "error": { "type": "string" }
+          },
+          "required": ["type", "test_id", "error"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["test.skipped"] },
+            "test_id": { "type": "string" },
+            "reason": { "type": "string" }
+          },
+          "required": ["type", "test_id", "reason"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["progress"] },
+            "completed": { "type": "number" },
+            "total": { "type": "number" }
+          },
+          "required": ["type", "completed", "total"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["done"] },
+            "result": { "$ref": "#/components/schemas/ConformanceResult" }
+          },
+          "required": ["type", "result"]
+        }
+      ]
+    },
+    "ConformanceResult": {
+      "type": "object",
+      "properties": {
+        "passed": { "type": "number" },
+        "failed": { "type": "number" },
+        "skipped": { "type": "number" },
+        "duration_ms": { "type": "number" }
+      },
+      "required": ["passed", "failed", "skipped", "duration_ms"]
+    },
+    "GetConformanceResultsRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" }
+      },
+      "required": ["harnessId"]
+    },
+    "GetConformanceResultsResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "ConformanceRun": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "harness_version": { "type": "string" },
+        "result": {
+          "oneOf": [
+            { "type": "string", "enum": ["pass"] },
+            { "type": "string", "enum": ["fail"] },
+            { "type": "string", "enum": ["partial"] }
+          ]
+        },
+        "passed": { "type": "number" },
+        "failed": { "type": "number" },
+        "skipped": { "type": "number" },
+        "golden_rule_violations": { "type": "number" },
+        "run_at": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": [
+        "id",
+        "harness_version",
+        "result",
+        "passed",
+        "failed",
+        "skipped",
+        "golden_rule_violations",
+        "run_at"
+      ]
+    },
+    "GetConformanceStatusRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" }
+      },
+      "required": ["harnessId"]
+    },
+    "GetConformanceStatusResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "oneOf": [
+            { "type": "string", "enum": ["certified"] },
+            { "type": "string", "enum": ["partial"] },
+            { "type": "string", "enum": ["failing"] },
+            { "type": "string", "enum": ["not_tested"] }
+          ]
+        },
+        "certified_version": { "type": "string" },
+        "pass_rate": { "type": "number" },
+        "last_run_at": { "$ref": "#/components/schemas/ISO8601" },
+        "skill_loading_method": {
+          "oneOf": [
+            { "type": "string", "enum": ["api"] },
+            { "type": "string", "enum": ["file-based"] }
+          ]
+        },
+        "supports_file_gen": { "type": "boolean" },
+        "golden_rule_compliant": { "type": "boolean" }
+      },
+      "required": [
+        "status",
+        "pass_rate",
+        "supports_file_gen",
+        "golden_rule_compliant"
+      ]
+    },
+    "GetDiagnosticsRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" }
+      },
+      "required": ["harnessId"]
+    },
+    "GetDiagnosticsResponse": {
+      "type": "object",
+      "properties": {
+        "harness_id": { "$ref": "#/components/schemas/HarnessId" },
+        "version": { "type": "string" },
+        "uptime_seconds": { "type": "number" },
+        "memory_usage_mb": { "type": "number" },
+        "active_sessions": { "type": "number" },
+        "active_executions": { "type": "number" },
+        "connected_mcp_servers": { "type": "number" },
+        "installed_skills": { "type": "number" },
+        "config": { "type": "object", "additionalProperties": true }
+      },
+      "required": [
+        "harness_id",
+        "version",
+        "uptime_seconds",
+        "memory_usage_mb",
+        "active_sessions",
+        "active_executions",
+        "connected_mcp_servers",
+        "installed_skills",
+        "config"
+      ]
+    },
+    "GetLogsRequest": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "level": {
+          "oneOf": [
+            { "type": "string", "enum": ["debug"] },
+            { "type": "string", "enum": ["info"] },
+            { "type": "string", "enum": ["warn"] },
+            { "type": "string", "enum": ["error"] }
+          ]
+        },
+        "since": { "$ref": "#/components/schemas/ISO8601" }
+      },
+      "required": ["harnessId"]
+    },
+    "GetLogsResponse": {
+      "type": "object",
+      "properties": {
+        "data": { "type": "array", "items": {} },
+        "total": { "type": "number" },
+        "limit": { "type": "number" },
+        "offset": { "type": "number" },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "LogEntry": {
+      "type": "object",
+      "properties": {
+        "timestamp": { "$ref": "#/components/schemas/ISO8601" },
+        "level": {
+          "oneOf": [
+            { "type": "string", "enum": ["debug"] },
+            { "type": "string", "enum": ["info"] },
+            { "type": "string", "enum": ["warn"] },
+            { "type": "string", "enum": ["error"] }
+          ]
+        },
+        "message": { "type": "string" },
+        "context": { "type": "object", "additionalProperties": true }
+      },
+      "required": ["timestamp", "level", "message"]
+    },
+    "StreamLogsRequest": {
+      "type": "object",
+      "properties": {
+        "harnessId": { "$ref": "#/components/schemas/HarnessId" },
+        "level": {
+          "oneOf": [
+            { "type": "string", "enum": ["debug"] },
+            { "type": "string", "enum": ["info"] },
+            { "type": "string", "enum": ["warn"] },
+            { "type": "string", "enum": ["error"] }
+          ]
+        }
+      },
+      "required": ["harnessId"]
+    }
+  },
+  "operations": {
+    "harnesses.list": {
+      "summary": "List Harnesses",
+      "description": "Retrieves all registered harnesses with their current status and capabilities. Use this to discover available harnesses and their supported features before executing operations.",
+      "input": "ListHarnessesRequest",
+      "output": "ListHarnessesResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "harnesses.get": {
+      "summary": "Get Harness",
+      "description": "Retrieves detailed information about a specific harness including its full capability manifest.",
+      "input": "GetHarnessRequest",
+      "output": "GetHarnessResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "harnesses.register": {
+      "summary": "Register Harness",
+      "description": "Registers a new harness with the Open Harness system. Typically used by harness vendors or administrators to add support for a new agent harness.",
+      "input": "RegisterHarnessRequest",
+      "output": "RegisterHarnessResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "harnesses.update": {
+      "summary": "Update Harness",
+      "description": "Updates configuration for an existing harness.",
+      "input": "UpdateHarnessRequest",
+      "output": "UpdateHarnessResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "harnesses.unregister": {
+      "summary": "Unregister Harness",
+      "description": "Removes a harness from the registry. This does not uninstall the harness itself, only removes it from Open Harness management.",
+      "input": "UnregisterHarnessRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "harnesses.capabilities": {
+      "summary": "Get Capabilities",
+      "description": "Retrieves the full capability manifest for a harness. Use this to determine which operations are supported before attempting them.",
+      "input": "GetCapabilitiesRequest",
+      "output": "GetCapabilitiesResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "harnesses.health": {
+      "summary": "Health Check",
+      "description": "Checks connectivity and health of a harness. Returns status information useful for monitoring and debugging.",
+      "input": "HealthCheckRequest",
+      "output": "HealthCheckResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "harnesses.validateCredentials": {
+      "summary": "Validate Credentials",
+      "description": "Validates API credentials for a harness and optionally stores them for future use.",
+      "input": "ValidateCredentialsRequest",
+      "output": "ValidateCredentialsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "agents.list": {
+      "summary": "List Agents",
+      "description": "Lists all agents deployed on a specific harness.",
+      "input": "ListAgentsRequest",
+      "output": "ListAgentsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "agents.create": {
+      "summary": "Create Agent",
+      "description": "Creates and deploys a new agent on the harness. The agent bundle includes the AGENTS.md manifest and any supporting files.",
+      "input": "CreateAgentRequest",
+      "output": "CreateAgentResponse",
+      "multipart": true,
+      "binary": false
+    },
+    "agents.get": {
+      "summary": "Get Agent",
+      "description": "Retrieves the current state and configuration of an agent.",
+      "input": "GetAgentRequest",
+      "output": "GetAgentResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "agents.update": {
+      "summary": "Update Agent",
+      "description": "Updates agent configuration without redeploying the full bundle.",
+      "input": "UpdateAgentRequest",
+      "output": "UpdateAgentResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "agents.delete": {
+      "summary": "Delete Agent",
+      "description": "Removes an agent from the harness.",
+      "input": "DeleteAgentRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "agents.clone": {
+      "summary": "Clone Agent",
+      "description": "Creates a copy of an existing agent with a new name.",
+      "input": "CloneAgentRequest",
+      "output": "CloneAgentResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "agents.export": {
+      "summary": "Export Agent",
+      "description": "Downloads the complete agent as an OAF package (.zip file), following the Open Agent Format specification.",
+      "input": "ExportAgentRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "agents.import": {
+      "summary": "Import Agent",
+      "description": "Imports an agent from an OAF package (.zip file) following the Open Agent Format specification.",
+      "input": "ImportAgentRequest",
+      "output": "ImportAgentResponse",
+      "multipart": true,
+      "binary": false
+    },
+    "skills.list": {
+      "summary": "List Skills",
+      "description": "Lists all skills installed or registered on the harness.",
+      "input": "ListSkillsRequest",
+      "output": "ListSkillsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "skills.register": {
+      "summary": "Register Skill",
+      "description": "Registers or installs a skill on the harness. Skills consist of a SKILL.md manifest plus optional supporting files.",
+      "input": "RegisterSkillRequest",
+      "output": "RegisterSkillResponse",
+      "multipart": true,
+      "binary": false
+    },
+    "skills.get": {
+      "summary": "Get Skill",
+      "description": "Retrieves details about a specific skill.",
+      "input": "GetSkillRequest",
+      "output": "GetSkillResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "skills.update": {
+      "summary": "Update Skill",
+      "description": "Updates skill metadata without uploading a new version.",
+      "input": "UpdateSkillRequest",
+      "output": "UpdateSkillResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "skills.uninstall": {
+      "summary": "Uninstall Skill",
+      "description": "Uninstalls or unregisters a skill from the harness.",
+      "input": "UninstallSkillRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "skills.listVersions": {
+      "summary": "List Skill Versions",
+      "description": "Lists all available versions of a skill.",
+      "input": "ListSkillVersionsRequest",
+      "output": "ListSkillVersionsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "skills.rollback": {
+      "summary": "Rollback Skill",
+      "description": "Reverts a skill to a previous version.",
+      "input": "RollbackSkillRequest",
+      "output": "RollbackSkillResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "skills.discover": {
+      "summary": "Discover Skills",
+      "description": "Discovers skills available on the harness that are not yet registered. Useful for finding built-in or auto-detected skills.",
+      "input": "DiscoverSkillsRequest",
+      "output": "DiscoverSkillsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "skills.validate": {
+      "summary": "Validate Skill",
+      "description": "Validates a skill bundle without installing it. Returns any errors or warnings.",
+      "input": "ValidateSkillRequest",
+      "output": "ValidateSkillResponse",
+      "multipart": true,
+      "binary": false
+    },
+    "skills.download": {
+      "summary": "Download Skill",
+      "description": "Downloads the complete skill bundle as a ZIP file.",
+      "input": "DownloadSkillRequest",
+      "multipart": false,
+      "binary": true
+    },
+    "skills.upgrade": {
+      "summary": "Upgrade Skill",
+      "description": "Upgrades an existing skill to a new version.",
+      "input": "UpgradeSkillRequest",
+      "output": "UpgradeSkillResponse",
+      "multipart": true,
+      "binary": false
+    },
+    "mcp.list": {
+      "summary": "List MCP Servers",
+      "description": "Lists all MCP servers connected to the harness.",
+      "input": "ListMcpServersRequest",
+      "output": "ListMcpServersResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "mcp.connect": {
+      "summary": "Connect MCP Server",
+      "description": "Connects a new MCP server to the harness.",
+      "input": "ConnectMcpServerRequest",
+      "output": "ConnectMcpServerResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "mcp.get": {
+      "summary": "Get MCP Server",
+      "description": "Retrieves details about a connected MCP server.",
+      "input": "GetMcpServerRequest",
+      "output": "GetMcpServerResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "mcp.update": {
+      "summary": "Update MCP Server",
+      "description": "Updates MCP server configuration.",
+      "input": "UpdateMcpServerRequest",
+      "output": "UpdateMcpServerResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "mcp.disconnect": {
+      "summary": "Disconnect MCP Server",
+      "description": "Disconnects an MCP server from the harness.",
+      "input": "DisconnectMcpServerRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "mcp.listTools": {
+      "summary": "List MCP Tools",
+      "description": "Lists all tools provided by an MCP server.",
+      "input": "ListMcpToolsRequest",
+      "output": "ListMcpToolsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "mcp.listResources": {
+      "summary": "List MCP Resources",
+      "description": "Lists all resources provided by an MCP server.",
+      "input": "ListMcpResourcesRequest",
+      "output": "ListMcpResourcesResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "mcp.listPrompts": {
+      "summary": "List MCP Prompts",
+      "description": "Lists all prompts provided by an MCP server.",
+      "input": "ListMcpPromptsRequest",
+      "output": "ListMcpPromptsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "mcp.health": {
+      "summary": "MCP Server Health",
+      "description": "Checks the health and connectivity of an MCP server.",
+      "input": "McpHealthRequest",
+      "output": "McpHealthResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "tools.list": {
+      "summary": "List Tools",
+      "description": "Lists all available tools on the harness, including built-in tools, MCP tools, and skill-provided tools.",
+      "input": "ListToolsRequest",
+      "output": "ListToolsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "tools.get": {
+      "summary": "Get Tool",
+      "description": "Retrieves the schema and details for a specific tool.",
+      "input": "GetToolRequest",
+      "output": "GetToolResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "tools.register": {
+      "summary": "Register Custom Tool",
+      "description": "Registers a custom tool with the harness.",
+      "input": "RegisterToolRequest",
+      "output": "RegisterToolResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "tools.unregister": {
+      "summary": "Unregister Tool",
+      "description": "Unregisters a custom tool from the harness.",
+      "input": "UnregisterToolRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "tools.invoke": {
+      "summary": "Invoke Tool",
+      "description": "Directly invokes a tool outside of an execution context.",
+      "input": "InvokeToolRequest",
+      "output": "InvokeToolResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "tools.invokeStream": {
+      "summary": "Invoke Tool (Streaming)",
+      "description": "Invokes a tool with streaming output. Useful for tools that produce incremental results.",
+      "input": "InvokeToolStreamRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "execution.run": {
+      "summary": "Execute Task",
+      "description": "Executes a task on the harness. Returns immediately with an execution ID; use the stream endpoint to follow progress.",
+      "input": "ExecuteRequest",
+      "output": "ExecuteResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "execution.stream": {
+      "summary": "Execute Task (Streaming)",
+      "description": "Executes a task with streaming response. Use this for real-time feedback during execution.",
+      "input": "ExecuteStreamRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "execution.list": {
+      "summary": "List Executions",
+      "description": "Lists recent executions on the harness.",
+      "input": "ListExecutionsRequest",
+      "output": "ListExecutionsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "execution.get": {
+      "summary": "Get Execution",
+      "description": "Retrieves the current status and progress of an execution.",
+      "input": "GetExecutionRequest",
+      "output": "GetExecutionResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "execution.attachStream": {
+      "summary": "Attach to Execution Stream",
+      "description": "Attaches to an existing execution's event stream. Use `Last-Event-ID` header to resume from a specific point.",
+      "input": "AttachStreamRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "execution.cancel": {
+      "summary": "Cancel Execution",
+      "description": "Cancels a running execution.",
+      "input": "CancelExecutionRequest",
+      "output": "CancelExecutionResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "execution.result": {
+      "summary": "Get Execution Result",
+      "description": "Retrieves the final result of a completed execution.",
+      "input": "GetExecutionResultRequest",
+      "output": "GetExecutionResultResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "execution.listArtifacts": {
+      "summary": "List Artifacts",
+      "description": "Lists all artifacts generated by an execution.",
+      "input": "ListArtifactsRequest",
+      "output": "ListArtifactsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "execution.downloadArtifact": {
+      "summary": "Download Artifact",
+      "description": "Downloads a specific artifact generated by an execution.",
+      "input": "DownloadArtifactRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "execution.listToolCalls": {
+      "summary": "List Tool Calls",
+      "description": "Lists all tool calls made during an execution with their inputs and outputs.",
+      "input": "ListToolCallsRequest",
+      "output": "ListToolCallsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "execution.sendInput": {
+      "summary": "Send Input",
+      "description": "Sends input (stdin) to a running execution that is waiting for user input.",
+      "input": "SendInputRequest",
+      "output": "SendInputResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "sessions.list": {
+      "summary": "List Sessions",
+      "description": "Lists all sessions on the harness.",
+      "input": "ListSessionsRequest",
+      "output": "ListSessionsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "sessions.create": {
+      "summary": "Create Session",
+      "description": "Creates a new interactive session.",
+      "input": "CreateSessionRequest",
+      "output": "CreateSessionResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "sessions.get": {
+      "summary": "Get Session",
+      "description": "Retrieves session state and metadata.",
+      "input": "GetSessionRequest",
+      "output": "GetSessionResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "sessions.update": {
+      "summary": "Update Session",
+      "description": "Updates session metadata.",
+      "input": "UpdateSessionRequest",
+      "output": "UpdateSessionResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "sessions.end": {
+      "summary": "End Session",
+      "description": "Ends and optionally deletes a session.",
+      "input": "EndSessionRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "sessions.resume": {
+      "summary": "Resume Session",
+      "description": "Resumes a paused session.",
+      "input": "ResumeSessionRequest",
+      "output": "ResumeSessionResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "sessions.history": {
+      "summary": "Get Session History",
+      "description": "Retrieves the message history for a session.",
+      "input": "GetSessionHistoryRequest",
+      "output": "GetSessionHistoryResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "sessions.fork": {
+      "summary": "Fork Session",
+      "description": "Creates a copy of a session with its history, allowing experimentation from a specific point.",
+      "input": "ForkSessionRequest",
+      "output": "ForkSessionResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "sessions.connect": {
+      "summary": "Interactive Session",
+      "description": "Establishes a WebSocket connection for real-time interactive communication with a session.",
+      "multipart": false,
+      "binary": false
+    },
+    "sessions.sendMessage": {
+      "summary": "Send Message",
+      "description": "Sends a message to a session and waits for the complete response. Use this for non-streaming interactions.",
+      "input": "SendMessageRequest",
+      "output": "SendMessageResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "sessions.sendMessageStream": {
+      "summary": "Send Message (Streaming)",
+      "description": "Sends a message to a session with streaming response.",
+      "input": "SendMessageStreamRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "memory.get": {
+      "summary": "Get Memory State",
+      "description": "Retrieves the complete memory state for an agent.",
+      "input": "GetMemoryRequest",
+      "output": "GetMemoryResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "memory.listBlocks": {
+      "summary": "List Memory Blocks",
+      "description": "Lists all memory blocks for an agent.",
+      "input": "ListMemoryBlocksRequest",
+      "output": "ListMemoryBlocksResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "memory.getBlock": {
+      "summary": "Get Memory Block",
+      "description": "Retrieves a specific memory block by label.",
+      "input": "GetMemoryBlockRequest",
+      "output": "GetMemoryBlockResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "memory.updateBlock": {
+      "summary": "Update Memory Block",
+      "description": "Updates the value of a memory block.",
+      "input": "UpdateMemoryBlockRequest",
+      "output": "UpdateMemoryBlockResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "memory.createBlock": {
+      "summary": "Create Memory Block",
+      "description": "Creates a new memory block for an agent.",
+      "input": "CreateMemoryBlockRequest",
+      "output": "CreateMemoryBlockResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "memory.deleteBlock": {
+      "summary": "Delete Memory Block",
+      "description": "Deletes a memory block.",
+      "input": "DeleteMemoryBlockRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "memory.search": {
+      "summary": "Search Memory",
+      "description": "Searches across memory blocks and archive for relevant content.",
+      "input": "SearchMemoryRequest",
+      "output": "SearchMemoryResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "memory.getArchive": {
+      "summary": "Get Archive",
+      "description": "Retrieves the archival/long-term memory for an agent.",
+      "input": "GetArchiveRequest",
+      "output": "GetArchiveResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "memory.addToArchive": {
+      "summary": "Add to Archive",
+      "description": "Adds an entry to the agent's archival memory.",
+      "input": "AddToArchiveRequest",
+      "output": "AddToArchiveResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "memory.export": {
+      "summary": "Export Memory",
+      "description": "Exports the agent's complete memory state as a downloadable snapshot. This snapshot can be included in an OAF package when exporting an agent with `include_memory=true`.",
+      "input": "ExportMemoryRequest",
+      "multipart": false,
+      "binary": true
+    },
+    "memory.import": {
+      "summary": "Import Memory",
+      "description": "Imports a previously exported memory snapshot into an agent. Used for restoring memory state or transferring memory between agents.",
+      "input": "ImportMemoryRequest",
+      "output": "ImportMemoryResponse",
+      "multipart": true,
+      "binary": false
+    },
+    "subagents.list": {
+      "summary": "List Subagents",
+      "description": "Lists all subagents spawned by a parent agent.",
+      "input": "ListSubagentsRequest",
+      "output": "ListSubagentsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "subagents.spawn": {
+      "summary": "Spawn Subagent",
+      "description": "Spawns a new subagent to handle a specific task in isolation.",
+      "input": "SpawnSubagentRequest",
+      "output": "SpawnSubagentResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "subagents.get": {
+      "summary": "Get Subagent",
+      "description": "Retrieves the current state of a subagent.",
+      "input": "GetSubagentRequest",
+      "output": "GetSubagentResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "subagents.terminate": {
+      "summary": "Terminate Subagent",
+      "description": "Terminates a running subagent.",
+      "input": "TerminateSubagentRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "subagents.delegate": {
+      "summary": "Delegate Task",
+      "description": "Delegates a task to a subagent and waits for completion.",
+      "input": "DelegateTaskRequest",
+      "output": "DelegateTaskResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "subagents.delegateStream": {
+      "summary": "Delegate Task (Streaming)",
+      "description": "Delegates a task to a subagent with streaming progress.",
+      "input": "DelegateTaskStreamRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "subagents.result": {
+      "summary": "Get Subagent Result",
+      "description": "Retrieves the result of a completed subagent task.",
+      "input": "GetSubagentResultRequest",
+      "output": "GetSubagentResultResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "subagents.attachStream": {
+      "summary": "Attach to Subagent Stream",
+      "description": "Attaches to a running subagent's execution stream.",
+      "input": "AttachSubagentStreamRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "files.list": {
+      "summary": "List Files",
+      "description": "Lists files in the harness workspace.",
+      "input": "ListFilesRequest",
+      "output": "ListFilesResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "files.read": {
+      "summary": "Read File",
+      "description": "Reads the contents of a file.",
+      "input": "ReadFileRequest",
+      "multipart": false,
+      "binary": true
+    },
+    "files.write": {
+      "summary": "Write File",
+      "description": "Writes content to a file, creating it if it doesn't exist.",
+      "input": "WriteFileRequest",
+      "output": "WriteFileResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "files.delete": {
+      "summary": "Delete File",
+      "description": "Deletes a file or empty directory.",
+      "input": "DeleteFileRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "files.search": {
+      "summary": "Search Files",
+      "description": "Searches for files using glob patterns or content grep.",
+      "input": "SearchFilesRequest",
+      "output": "SearchFilesResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "files.upload": {
+      "summary": "Upload File",
+      "description": "Uploads a single file to the workspace.",
+      "input": "UploadFileRequest",
+      "output": "UploadFileResponse",
+      "multipart": true,
+      "binary": false
+    },
+    "files.uploadBatch": {
+      "summary": "Upload Files (Batch)",
+      "description": "Uploads multiple files preserving directory structure.",
+      "input": "UploadFilesBatchRequest",
+      "output": "UploadFilesBatchResponse",
+      "multipart": true,
+      "binary": false
+    },
+    "files.download": {
+      "summary": "Download File",
+      "description": "Downloads a file with Content-Disposition header for saving.",
+      "input": "DownloadFileRequest",
+      "multipart": false,
+      "binary": true
+    },
+    "files.downloadBatch": {
+      "summary": "Download Files (Batch)",
+      "description": "Downloads multiple files as a ZIP archive.",
+      "input": "DownloadFilesBatchRequest",
+      "multipart": false,
+      "binary": true
+    },
+    "files.mkdir": {
+      "summary": "Create Directory",
+      "description": "Creates a directory and any necessary parent directories.",
+      "input": "CreateDirectoryRequest",
+      "output": "CreateDirectoryResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "hooks.list": {
+      "summary": "List Hooks",
+      "description": "Lists all registered hooks for a harness.",
+      "input": "ListHooksRequest",
+      "output": "ListHooksResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "hooks.register": {
+      "summary": "Register Hook",
+      "description": "Registers a new lifecycle hook.",
+      "input": "RegisterHookRequest",
+      "output": "RegisterHookResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "hooks.get": {
+      "summary": "Get Hook",
+      "description": "Retrieves details about a specific hook.",
+      "input": "GetHookRequest",
+      "output": "GetHookResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "hooks.update": {
+      "summary": "Update Hook",
+      "description": "Updates hook configuration.",
+      "input": "UpdateHookRequest",
+      "output": "UpdateHookResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "hooks.unregister": {
+      "summary": "Unregister Hook",
+      "description": "Removes a hook registration.",
+      "input": "UnregisterHookRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "hooks.streamEvents": {
+      "summary": "Stream Events",
+      "description": "Subscribes to real-time events from the harness.",
+      "input": "StreamEventsRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "hooks.listEvents": {
+      "summary": "List Events",
+      "description": "Lists recent events from the harness.",
+      "input": "ListEventsRequest",
+      "output": "ListEventsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "webhooks.register": {
+      "summary": "Register Webhook",
+      "description": "Registers a webhook endpoint to receive async notifications.",
+      "input": "RegisterWebhookRequest",
+      "output": "RegisterWebhookResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "webhooks.list": {
+      "summary": "List Webhooks",
+      "description": "Lists all registered webhooks.",
+      "input": "ListWebhooksRequest",
+      "output": "ListWebhooksResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "webhooks.delete": {
+      "summary": "Delete Webhook",
+      "description": "Removes a webhook registration.",
+      "input": "DeleteWebhookRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "planning.get": {
+      "summary": "Get Plan",
+      "description": "Retrieves the current execution plan (todo list).",
+      "input": "GetPlanRequest",
+      "output": "GetPlanResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "planning.update": {
+      "summary": "Update Plan",
+      "description": "Updates the execution plan, typically to add or reorder tasks.",
+      "input": "UpdatePlanRequest",
+      "output": "UpdatePlanResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "planning.listTasks": {
+      "summary": "List Tasks",
+      "description": "Lists all tasks in the execution plan.",
+      "input": "ListTasksRequest",
+      "output": "ListTasksResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "planning.updateTask": {
+      "summary": "Update Task",
+      "description": "Updates a specific task's status or content.",
+      "input": "UpdateTaskRequest",
+      "output": "UpdateTaskResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "planning.stream": {
+      "summary": "Stream Plan Updates",
+      "description": "Subscribes to real-time plan updates during execution.",
+      "input": "StreamPlanRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "conformance.run": {
+      "summary": "Run Conformance Tests",
+      "description": "Initiates a conformance test run against a harness.",
+      "input": "RunConformanceRequest",
+      "output": "RunConformanceResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "conformance.stream": {
+      "summary": "Stream Conformance Progress",
+      "description": "Streams real-time progress of conformance tests.",
+      "input": "StreamConformanceRequest",
+      "multipart": false,
+      "binary": false
+    },
+    "conformance.results": {
+      "summary": "Get Conformance Results",
+      "description": "Retrieves results from conformance test runs.",
+      "input": "GetConformanceResultsRequest",
+      "output": "GetConformanceResultsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "conformance.status": {
+      "summary": "Get Conformance Status",
+      "description": "Retrieves the current conformance certification status.",
+      "input": "GetConformanceStatusRequest",
+      "output": "GetConformanceStatusResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "diagnostics.get": {
+      "summary": "Get Diagnostics",
+      "description": "Retrieves diagnostic information about the harness.",
+      "input": "GetDiagnosticsRequest",
+      "output": "GetDiagnosticsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "diagnostics.logs": {
+      "summary": "Get Logs",
+      "description": "Retrieves recent logs from the harness.",
+      "input": "GetLogsRequest",
+      "output": "GetLogsResponse",
+      "multipart": false,
+      "binary": false
+    },
+    "diagnostics.streamLogs": {
+      "summary": "Stream Logs",
+      "description": "Streams logs in real-time. Useful for debugging and monitoring.",
+      "input": "StreamLogsRequest",
+      "multipart": false,
+      "binary": false
+    }
+  }
+}
