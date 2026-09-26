@@ -355,4 +355,33 @@ test('automatic experiment notes redact private input and output before persiste
   const note = await ok(`/documents/${experiments[0].id}/content`);
   assert.ok(!JSON.stringify(note).includes('alice@example.com'));
   assert.match(note.content, /\[EMAIL\]/);
+  await ok(`/runs/${r.id}/feedback`, { rating: 'down', comment: 'Keep private contact details redacted.' });
+  let reflected: any;
+  for (let i = 0; i < 100; i++) {
+    reflected = await ok(`/runs/${r.id}`);
+    if (['done', 'failed', 'skipped'].includes(reflected.reflection?.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  assert.equal(reflected.reflection.status, 'done');
+  assert.match(reflected.reflection.lesson, /\[EMAIL\]/);
+  assert.ok(!reflected.reflection.lesson.includes('alice@example.com'));
+});
+
+test('notebook tool results are checked before the model even when only tool-output rails are enabled', async () => {
+  const kb = await ok('/knowledge', { name: 'Output-only notebook', providerId });
+  const note = await ok(`/knowledge/${kb.id}/notes`, {
+    title: 'Contact',
+    content: 'Contact alice@example.com',
+  });
+  const a = await agent((await policy({ stages: ['tool_output'] })).id, {
+    knowledgeBaseIds: [kb.id],
+    tokenBudget: 30000,
+  });
+  const r = await run(a, `guarded notebook result ${note.id}`);
+  assert.equal(r.status, 'succeeded');
+  assert.match(r.output, /\[EMAIL\]/);
+  assert.ok(!r.output.includes('alice@example.com'));
+  const results = r.events.filter((e: any) => e.type === 'tool_completed');
+  assert.ok(results.some((e: any) => e.data.tool === 'kb_read'));
+  assert.ok(!JSON.stringify(results).includes('alice@example.com'));
 });
