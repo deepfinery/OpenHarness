@@ -21,8 +21,10 @@ test('create a safety policy and connect its box above the workflow agent', asyn
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/guardrails');
   await page.getByRole('button', { name: 'New policy', exact: true }).click();
+  await page.getByRole('button', { name: 'Use Vulnerability template', exact: true }).click();
   await page.getByLabel('Policy name', { exact: true }).fill('GPU safety');
   await page.getByLabel('Guardrail provider').selectOption('builtin');
+  await page.getByText('Advanced rules & service settings', { exact: true }).click();
   await page.getByLabel('deniedTools').fill('gpu_reset');
   await page.getByRole('button', { name: 'Save policy', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -73,5 +75,86 @@ test('create a safety policy and connect its box above the workflow agent', asyn
   const saved = await api(`/workflows/${workflow.id}`);
   expect(saved.resources.find((r: any) => r.type === 'guardrail').policyId).toBe(policy.id);
   expect(saved.bindings).toContainEqual({ agentNodeId: 'agent', resourceId: saved.resources[0].id });
+  expect(errors).toEqual([]);
+});
+
+test('template gallery creates editable policies, previews PII, and fits mobile screens', async ({
+  page,
+}) => {
+  const base = process.env.TEST_BASE_URL ?? 'http://localhost:8088';
+  const api = async (path: string, data?: unknown) => {
+    const r = await page.request.fetch('/api' + path, {
+      method: data === undefined ? 'GET' : 'POST',
+      headers: { Origin: base },
+      data,
+    });
+    expect(r.ok(), await r.text()).toBeTruthy();
+    return r.json();
+  };
+  await api('/auth/login', { email: 'admin@openharness.test', password: 'Integration-test-password-42' });
+  const credentials = {
+    email: `templates-browser-${Date.now()}@openharness.test`,
+    password: 'Integration-test-password-42',
+  };
+  await api('/users', { ...credentials, name: 'Template admin', workspace: 'new', role: 'admin' });
+  await api('/auth/login', credentials);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/guardrails');
+  await expect(page.getByRole('heading', { name: 'Start with a safety template' })).toBeVisible();
+  await expect(page.locator('.guardrail-template')).toHaveCount(6);
+  await page.screenshot({ path: 'test-results/guardrail-template-gallery.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  await page.screenshot({ path: 'test-results/guardrail-template-mobile.png', fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  for (const name of ['Bias', 'Toxicity', 'Hallucinations', 'Opacity', 'PII presence', 'Vulnerability']) {
+    await page.getByRole('button', { name: 'Policy templates', exact: true }).click();
+    await page.getByRole('button', { name: `Use ${name} template`, exact: true }).click();
+    await expect(page.getByLabel('Policy name', { exact: true })).toHaveValue(`${name} policy`);
+    if (name === 'Bias') {
+      await expect(page.getByLabel('Safety instructions', { exact: true })).toHaveValue(/discriminatory/);
+      await page
+        .getByLabel('Safety instructions', { exact: true })
+        .fill('Block unfair discriminatory recommendations.');
+      await page.getByLabel('Guardrail provider').selectOption('builtin');
+      await expect(page.getByLabel('Safety instructions', { exact: true })).toHaveValue(
+        'Block unfair discriminatory recommendations.',
+      );
+      await page.getByRole('button', { name: 'Save policy', exact: true }).click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await expect(page.getByRole('alert').last()).toContainText('Safety instructions require NeMo');
+      await page.getByLabel('Guardrail provider').selectOption('nemo');
+      await page.getByRole('checkbox', { name: /Safety model checks/ }).check();
+      await page.screenshot({ path: 'test-results/guardrail-template-editor.png', fullPage: true });
+    }
+    if (name === 'PII presence') {
+      await page.getByRole('button', { name: 'Try it out', exact: true }).click();
+      await page.getByRole('button', { name: 'Check content', exact: true }).click();
+      await expect(page.locator('.guardrail-preview')).toContainText('[EMAIL]');
+      await expect(page.locator('.guardrail-preview')).not.toContainText('alice@example.com');
+    }
+    await page.getByRole('button', { name: 'Save policy', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: `${name} policy`, exact: true })).toBeVisible();
+  }
+  await page.reload();
+  const card = page
+    .locator('.guardrail-template')
+    .filter({ has: page.getByRole('heading', { name: 'Bias policy', exact: true }) });
+  await card.getByRole('button', { name: 'Edit policy' }).click();
+  await expect(page.getByLabel('Safety instructions', { exact: true })).toHaveValue(
+    'Block unfair discriminatory recommendations.',
+  );
+  await page.getByLabel('Policy name', { exact: true }).fill('Hiring fairness');
+  await page.getByRole('button', { name: 'Save policy', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByLabel('Search policies').fill('Hiring');
+  await expect(page.locator('.guardrail-template')).toHaveCount(1);
+  await page.getByLabel('Search policies').fill('');
+  await page.screenshot({ path: 'test-results/guardrail-policy-library.png', fullPage: true });
+  const saved = await api('/guardrails');
+  expect(saved).toHaveLength(6);
+  expect(saved.find((p: any) => p.name === 'Hiring fairness').templateId).toBe('bias');
   expect(errors).toEqual([]);
 });

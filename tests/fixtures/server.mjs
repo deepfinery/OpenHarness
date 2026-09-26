@@ -852,20 +852,34 @@ function selectionAnswer(model, messages, tools) {
   );
 }
 app.post('/v1/chat/completions', async (req, res) => {
-  if (req.body.model === 'test-safety-classifier')
+  if (req.body.model === 'test-safety-classifier') {
+    const system = req.body.messages.find((m) => m.role === 'system')?.content ?? '';
+    const user = req.body.messages.find((m) => m.role === 'user')?.content ?? '';
+    // Transport contract fixture, not a substitute for a real semantic classifier.
+    let matchedInstructions = false;
+    try {
+      const text = JSON.parse(user).content;
+      if (text.startsWith('template criteria fixture:')) {
+        const checks = JSON.parse(system.slice(system.indexOf('{"content_safety"')));
+        matchedInstructions = checks.policy_instructions === text.slice('template criteria fixture:'.length);
+      }
+    } catch {}
     return res.json({
       choices: [
         {
           message: {
             role: 'assistant',
             content: JSON.stringify({
-              allowed: !JSON.stringify(req.body.messages).includes('unsafe semantic fixture'),
+              allowed:
+                !matchedInstructions &&
+                !JSON.stringify(req.body.messages).includes('unsafe semantic fixture'),
             }),
           },
         },
       ],
       usage: { prompt_tokens: 20, completion_tokens: 5 },
     });
+  }
   stats.models++;
   if (JSON.stringify(req.body).includes('delay-model')) await new Promise((r) => setTimeout(r, 15000));
   if (req.body.model.startsWith('test-context-')) {
