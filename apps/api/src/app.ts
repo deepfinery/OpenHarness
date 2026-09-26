@@ -21,6 +21,7 @@ import {
   readTaskNote,
   searchTaskNotes,
 } from '../../../packages/core/src/memory.js';
+import { runNotebookIds } from '../../../packages/core/src/notebooks.js';
 import { runSchema, type Run, type KnowledgeDocument } from '../../../packages/core/src/schema.js';
 import { finishOAuth } from '../../../packages/core/src/mcp.js';
 import {
@@ -234,7 +235,16 @@ app.get('/api/runs/:id/memory', async (req, res) => {
   res.json({
     ...(await searchTaskNotes(scope, memorySearchSchema.parse(req.query))),
     taskId: scope.taskId,
-    longTermAvailable: Boolean(memorySettings(run)?.workspace),
+    longTermAvailable: runNotebookIds(run).length > 0,
+    notebookIds: runNotebookIds(run),
+    notebooks: (
+      await collection<{ _id: string; name: string }>('knowledge')
+        .find(
+          { _id: { $in: runNotebookIds(run) }, ownerId: run.ownerId },
+          { projection: { _id: 1, name: 1 } },
+        )
+        .toArray()
+    ).map((notebook) => ({ id: notebook._id, name: notebook.name })),
     experiments: (
       await collection<KnowledgeDocument>('documents')
         .find(
@@ -251,12 +261,7 @@ app.get('/api/runs/:id/memory', async (req, res) => {
     learning: learningSettings(run).length > 0,
     reflection: run.reflection,
     runStatus: run.status,
-    memoryPending:
-      !run.experimentSavedAt &&
-      Boolean(
-        memorySettings(run)?.workspace ||
-        Object.values(run.snapshot.nodeAgents ?? {}).some((agent) => agent.workspace),
-      ),
+    memoryPending: !run.experimentSavedAt && runNotebookIds(run).length > 0,
   });
 });
 app.get('/api/runs/:id/memory/:noteId', async (req, res) => {
@@ -279,8 +284,14 @@ app.get('/api/runs/:id/memory/:noteId', async (req, res) => {
 app.post('/api/runs/:id/memory/:noteId/promote', async (req, res) => {
   const run = await memoryRun(req);
   checkTokenScope(req, 'execute', run);
-  const kb = memorySettings(run)?.workspace?.knowledgeBaseId;
-  if (!kb) throw new HttpError(400, 'Choose a long-term knowledge workspace in workflow settings first');
+  const destinations = runNotebookIds(run);
+  const body = z.object({ knowledgeBaseId: z.string().uuid().optional() }).parse(req.body ?? {});
+  const kb =
+    body.knowledgeBaseId ??
+    memorySettings(run)?.workspace?.knowledgeBaseId ??
+    (destinations.length === 1 ? destinations[0] : undefined);
+  if (!kb || !destinations.includes(kb))
+    throw new HttpError(400, 'Choose an attached long-term notebook for this run');
   const scope = { ownerId: run.ownerId, taskId: run.taskId ?? run._id };
   if (!(await readTaskNote(scope, String(req.params.noteId))))
     throw new HttpError(404, 'Task note not found or expired');

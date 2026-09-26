@@ -85,3 +85,22 @@ test('historical fallback dumps render readably while intentional JSON answers r
   for (const answer of ['{"answer":42}', '```json\n{"ok":true}\n```', 'Your task is complete.'])
     assert.equal(displayAnswer(answer), answer);
 });
+
+test('final synthesis retains notebook references without promoting them to system instructions', () => {
+  const messages = finalAnswerMessages(
+    'Follow the operating restrictions.',
+    'Explain the deployment.',
+    [
+      {
+        role: 'user',
+        reference: true,
+        content: 'Notebook evidence: cedar requires three health checks (source fixture://cedar).',
+      },
+      { role: 'user', content: 'Explain the deployment.' },
+    ],
+    [],
+  );
+  assert.match(messages[1].content, /cedar requires three health checks/);
+  assert.match(messages[1].content, /verify before relying on it/);
+  assert.doesNotMatch(messages[0].content, /cedar/);
+});

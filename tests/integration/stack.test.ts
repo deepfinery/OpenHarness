@@ -516,7 +516,11 @@ test('cancellation stops a running model request and does not overwrite the term
 });
 test('document deletion removes both filesystem and retrieval visibility', async () => {
   await ok(`/documents/${doc.id}`, undefined, 'DELETE');
-  assert.deepEqual(await ok(`/knowledge/${knowledge.id}/search`, { query: 'Aurora' }), []);
+  const remaining = await ok(`/knowledge/${knowledge.id}/search`, { query: 'Aurora' });
+  assert.ok(
+    !remaining.some((hit: any) => hit.documentId === doc.id),
+    'the deleted source disappears; separate notebook experiment records can remain',
+  );
   for (let i = 0; i < 30; i++) {
     if (!(await ok(`/knowledge/${knowledge.id}/documents`)).some((d: any) => d.id === doc.id)) break;
     await new Promise((r) => setTimeout(r, 500));

@@ -1,6 +1,28 @@
 // Keeps a multi-turn dialog inside a model's context window without breaking tool-call pairing.
 import type { ChatMessage } from './llm.js';
 
+/** Signals a capacity problem, never a credentials, transport or cancellation failure. */
+export class ContextCapacityError extends Error {}
+
+/** Reserve output and tokenizer/wire-format headroom before allocating the prompt. */
+export function contextAllowance(window: number, output: number, remaining = Infinity) {
+  const margin = Math.max(256, Math.ceil(window * 0.08));
+  const available = Math.max(0, Math.min(window - margin, remaining));
+  const maxOutputTokens = Math.max(0, Math.min(output, Math.floor(available / 2)));
+  return { maxOutputTokens, promptTokens: Math.max(0, available - maxOutputTokens) };
+}
+
+/** Keep both the request and its trailing constraints when emergency shortening is necessary. */
+export function excerpt(text: string, chars: number): string {
+  chars = Math.max(0, Math.floor(chars));
+  if (text.length <= chars) return text;
+  const marker = '\n…[context omitted; consult saved task memory]…\n';
+  if (chars <= marker.length) return text.slice(0, Math.max(0, chars));
+  const head = Math.ceil((chars - marker.length) * 0.65);
+  const tail = chars - marker.length - head;
+  return text.slice(0, head) + marker + (tail ? text.slice(-tail) : '');
+}
+
 /** Conservative estimate: most tokenizers average 3.5–4 characters per token on mixed text and JSON. */
 export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 export function dialogTokens(messages: ChatMessage[]) {
@@ -64,16 +86,17 @@ function groups(messages: ChatMessage[]) {
 /**
  * Fits `messages` under `budget` tokens, escalating only as far as needed and never past `maxLevel`.
  * Level 1 shortens older tool results; level 2 also drops the oldest completed turns (keeping the system
- * prompt and the current turn); level 3 also trims the current turn's tool results and the system prompt.
+ * prompt and the current turn); level 3 also trims the current turn's tool exchanges and text. System instructions are never truncated.
+ * `fits` must be checked by callers: instructions alone can exceed the available budget.
  * Assistant tool calls always stay with their tool results.
  */
 export function compactDialog(
   messages: ChatMessage[],
   budget: number,
   maxLevel: 1 | 2 | 3 = 3,
-): { messages: ChatMessage[]; changed: boolean; tokens: number; level: 0 | 1 | 2 | 3 } {
+): { messages: ChatMessage[]; changed: boolean; tokens: number; level: 0 | 1 | 2 | 3; fits: boolean } {
   if (dialogTokens(messages) <= budget)
-    return { messages, changed: false, tokens: dialogTokens(messages), level: 0 };
+    return { messages, changed: false, tokens: dialogTokens(messages), level: 0, fits: true };
   const system = messages.filter((m) => m.role === 'system');
   let rest = messages.filter((m) => m.role !== 'system');
   let level: 1 | 2 | 3 = 1;
@@ -93,19 +116,37 @@ export function compactDialog(
   }
   if (fits() || maxLevel < 3) return finish();
 
-  // Level 3: trim what is left of the current turn, then the system prompt itself.
+  // Remove complete exchanges, including large call arguments, instead of leaving orphan results.
   level = 3;
   rest = rest.map((m) => (m.role === 'tool' ? truncate(m, 300) : m));
-  if (!fits()) {
-    const allowance = Math.max(2000, Math.floor((budget - dialogTokens(rest) - 64) * 3.5));
-    for (let i = 0; i < system.length; i++)
-      if (system[i].content.length > allowance)
-        system[i] = { ...system[i], content: system[i].content.slice(0, allowance) + '\n…[context trimmed]' };
+  while (!fits()) {
+    const start = rest.findIndex((m) => m.role === 'assistant' && m.toolCalls?.length);
+    if (start < 0) break;
+    let end = start + 1;
+    while (rest[end]?.role === 'tool') end++;
+    rest.splice(start, end - start);
+  }
+  // Older assistant prose can be just as large as tool results. Keep the latest user request longest.
+  while (!fits() && rest.length > 1) {
+    const lastUser = rest.map((m) => m.role).lastIndexOf('user');
+    const index = rest.findIndex((_, i) => i !== lastUser);
+    if (index < 0) break;
+    rest.splice(index, 1);
+  }
+  if (!fits() && rest.length) {
+    const chars = Math.max(0, Math.floor((budget - dialogTokens(system) - 7) * 3.5));
+    rest = rest.map((m) => ({ ...m, content: excerpt(m.content, chars) }));
   }
   return finish();
 
   function finish() {
     const out = [...system, ...rest];
-    return { messages: out, changed: true, tokens: dialogTokens(out), level };
+    return {
+      messages: out,
+      changed: true,
+      tokens: dialogTokens(out),
+      level,
+      fits: dialogTokens(out) <= budget,
+    };
   }
 }

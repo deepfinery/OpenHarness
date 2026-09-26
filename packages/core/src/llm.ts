@@ -4,12 +4,14 @@ import { collection } from './db.js';
 import { decrypt, HttpError, safeFetch } from './security.js';
 import type { Provider, Stored } from './schema.js';
 
-export type ProviderRecord = Stored<Provider> & { apiKeyEncrypted?: string };
+export type ProviderRecord = Stored<Provider> & { apiKeyEncrypted?: string; contextTokenScale?: number };
 export type ToolDefinition = { name: string; description: string; inputSchema: Record<string, unknown> };
 export type ToolCall = { id: string; name: string; arguments: Record<string, unknown>; signature?: string };
 export type ChatMessage = {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  /** Internal reference data, distinct from operating instructions and the current user request. */
+  reference?: boolean;
   toolCalls?: ToolCall[];
   toolCallId?: string;
   name?: string;

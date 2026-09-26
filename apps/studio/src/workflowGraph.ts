@@ -167,6 +167,7 @@ export function defaultAgent(data: Data): Agent {
     knowledgeBaseIds: [],
     skillIds: [],
     enabled: true,
+    contextCompaction: true,
     maxTurns: preset.maxTurns,
     timeoutSeconds: preset.timeoutSeconds,
     pattern: 'react',

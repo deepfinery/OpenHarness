@@ -360,8 +360,8 @@ test('effort budgets cap the tokens an agent may spend and auto effort resolves 
   assert.ok(exhausted, 'the trace records the exhausted token budget');
   assert.equal(exhausted.data.tokenBudget, 1000);
   assert.ok(
-    run.events.some((e: any) => e.type === 'tool_completed'),
-    'the first tool call still ran',
+    !run.events.some((e: any) => e.type === 'tool_completed'),
+    'a budget too small for analysis is reserved for an answer before any tools execute',
   );
   assert.ok(run.output.length > 0, 'the agent answered with what it had');
   const auto = await ok('/agents', {

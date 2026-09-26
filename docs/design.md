@@ -26,12 +26,33 @@ an execution budget of 1–500 steps. Agent reasoning/tool loops have separate
 budgets set by the agent's effort level (light, medium, high, extra high, max,
 or auto, which resolves a level per request): model turns per pass, a total
 token budget (from provider usage reports, or estimated), and a time limit; the
-worker also enforces a 30-minute run limit. A spent token budget ends with one
-tool-less call for the final answer rather than an error. Before every model
-call the dialog is compacted to the provider's context window (older tool
-results first, then completed turns), and a provider context-length error is
-parsed, remembered on the provider, and retried once compacted. Legacy graphs
-remain compatible. There is no arbitrary-code node.
+worker also enforces a 30-minute run limit. Analysis and delegation keep a token
+allowance for a tool-free final synthesis, and the last turn is reserved for it.
+Global exhaustion ends later pattern passes. Every model request checks the
+combined prompt, tool definitions, output allowance and tokenizer headroom.
+Output allowances shrink for small windows or remaining budgets.
+
+Agent `contextCompaction` defaults to true (including older snapshots). At 80%
+of the available prompt allowance, the harness aims to reduce the dialog to 65%,
+saving displaced messages and tool arguments in task-scoped, seven-day notebook
+notes and retaining a bounded checkpoint of verbatim excerpts and note ids.
+Agents and permitted sub-agents can retrieve those notes selectively. This is
+extractive compression, not an additional model call or a claim that omitted
+content has been fully analyzed. Turning it off disables proactive checkpoints;
+hard context guards still apply.
+
+Compaction removes complete tool exchanges and bounds large current requests,
+preserving their beginning and trailing constraints. If the current request must
+be shortened, synthesis runs without tools so omitted user restrictions cannot
+authorize an action. System instructions are
+never truncated: if they or tool schemas cannot fit, analysis switches to
+synthesis without tools. Provider context errors teach the window and tokenizer
+density for subsequent calls and runs. Recovery makes at most three context
+attempts per model turn, then tries bounded synthesis. If synthesis is impossible,
+the run returns an explicit incomplete assessment with memory/trace guidance.
+Unknown tokenizers can still reject an initial request; external outages,
+authentication errors, cancellation and storage failures remain real failures.
+Legacy graphs remain compatible. There is no arbitrary-code node.
 
 ## Data boundaries
 

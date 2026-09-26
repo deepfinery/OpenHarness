@@ -2,9 +2,9 @@
 
 A workflow with a knowledge workspace can **learn from experience**. Turn it on under Workflow settings →
 Knowledge workspace → Learn from experience. The learning happens in context: model weights stay fixed. What the
-workflow learns is written as lessons that later runs read. Standalone agents and agent cards can also choose a dedicated long-term memory workspace.
+workflow learns is written as lessons that later runs read. Standalone agents and agent cards can also choose a dedicated long-term notebook. A plain knowledge-base attachment supplies a notebook too; feedback learning defaults on for that fallback, while explicit settings and existing dedicated-workspace opt-in behavior are preserved.
 
-Every succeeded, failed, or interrupted top-level run with a configured memory workspace automatically saves its task, outcome, and result in `experiments/`, even if the model never calls a memory tool. Experiments start as unreviewed; a successful execution is not proof that its answer is correct. They are recalled even with lesson generation disabled. Raw tool telemetry remains in the temporary task notebook.
+Every succeeded, failed, or interrupted top-level run with a configured memory workspace automatically saves its task, recent conversation context, outcome, and result in `experiments/`, even if the model never calls a memory tool. Experiments start as unreviewed; a successful execution is not proof that its answer is correct. They are recalled even with lesson generation disabled. Raw tool telemetry remains in the temporary task notebook.
 
 The playground’s **Memory** panel shows experiment storage and reflection status. Experiment writes are idempotent and retried by the dispatcher after an interrupted save. Note search includes a bounded scan of recent notes, and experiment recall reads saved metadata directly, so indexing delays or an unavailable vector store do not erase memory.
 
@@ -35,3 +35,14 @@ Studio users can rate any run in their workspace. An API key can rate the runs i
 `GET /api/workflows/:id/experience.jsonl` exports every run that has a saved experiment, feedback or a lesson, one JSON object per
 line, with `run_id`, `created_at`, `input`, `output`, `status`, `error`, `feedback` and `lesson`. Use it to evaluate
 the workflow, or to fine-tune or post-train a model on it later.
+
+## Notebook attachments
+
+Knowledge resource edges and legacy saved-agent references use the same notebook
+resolution as standalone agents. Their experiment records and feedback lessons
+are visible in the run's Memory panel even without a workflow-level workspace.
+Sub-agents inherit the coordinating agent's resolved notebook and can leave
+source-backed findings for future runs. Notes requested by skills use `kb_write`;
+`memory_write` remains temporary and `memory_promote` explicitly retains a
+reviewed temporary note. Use kinds `environment`, `conversation`, and `lesson`
+for durable environment knowledge, conversation context, and reusable guidance.

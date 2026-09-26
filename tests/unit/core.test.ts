@@ -124,8 +124,8 @@ test('context compaction fits a dialog under budget without separating tool call
     3000,
     3,
   );
-  assert.ok(dialogTokens(level3.messages) <= 3000);
-  assert.match(level3.messages[0].content, /trimmed/);
+  assert.equal(level3.fits, false, 'oversized instructions must be rejected before dispatch');
+  assert.equal(level3.messages[0].content, 'k'.repeat(50000), 'operating instructions are protected');
   assert.equal(isContextLengthError("This model's maximum context length is 32768 tokens."), true);
   assert.equal(isContextLengthError('Invalid API key'), false);
   assert.equal(contextLimitFromError("This model's maximum context length is 32768 tokens. However"), 32768);
