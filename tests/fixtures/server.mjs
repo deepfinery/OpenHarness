@@ -579,7 +579,33 @@ app.post('/v1/chat/completions', async (req, res) => {
       },
     });
   }
-  const message = answer(req.body.messages, req.body.tools);
+  let message = answer(req.body.messages, req.body.tools);
+  // Fail only after a real MCP result, so recovery must preserve already completed tool calls.
+  if (
+    req.body.model.startsWith('test-response-') &&
+    req.body.messages.filter((m) => m.role === 'tool').length === 1
+  ) {
+    const name = req.body.tools[0].function.name;
+    const valid = {
+      id: randomUUID(),
+      type: 'function',
+      function: { name, arguments: JSON.stringify({ query: 'recovered call' }) },
+    };
+    const invalid = {
+      id: randomUUID(),
+      type: 'function',
+      function: { name, arguments: '{"query":"' + 'x'.repeat(11655) },
+    };
+    const corrupt = req.body.stream || req.body.model === 'test-response-persistent';
+    message = { content: '', tool_calls: corrupt ? [valid, invalid] : [valid] };
+    if (req.body.stream && req.body.model === 'test-response-incomplete') {
+      res.set('Content-Type', 'text/event-stream');
+      res.write(
+        `data: ${JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, ...valid }] } }] })}\n\n`,
+      );
+      return res.end(); // Syntactically valid arguments, but no finish reason: nothing may execute.
+    }
+  }
   const finish = message.tool_calls ? 'tool_calls' : 'stop';
   // Report usage the way a real provider would, so token budgets can be exercised end to end.
   const usage = {

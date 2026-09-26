@@ -123,6 +123,48 @@ test('answers stream token by token and the run stream delivers events until com
   const final = await ok(`/runs/${run.id}`);
   assert.equal(final.partial, undefined, 'streamed text is cleared once the answer is final');
 });
+for (const mode of ['arguments', 'incomplete', 'persistent']) {
+  test(`model response recovery (${mode}) preserves prior MCP results and never executes partial batches`, async () => {
+    const own = await ok('/providers', {
+      name: `Response recovery ${mode} ${suffix}`,
+      kind: 'openai-compatible',
+      baseUrl: 'http://fixtures:9090/v1',
+      model: `test-response-${mode}`,
+    });
+    const agent = await ok('/agents', {
+      name: `Recovery ${mode} ${suffix}`,
+      providerId: own.id,
+      systemPrompt: 'Inspect the machine using tools.',
+      effort: 'high',
+      connections: [{ connectionId: connection.id, tools: ['lookup'] }],
+    });
+    const run = await waitRun(
+      (await ok('/runs', { agentId: agent.id, input: 'Please use tool for recovery' })).id,
+    );
+    const retries = run.events.filter((e: any) => e.type === 'model_retry');
+    const calls = run.events.filter((e: any) => e.type === 'tool_started');
+    assert.equal(retries.length, mode === 'persistent' ? 2 : 1);
+    assert.equal(retries[0].data.reason, mode === 'incomplete' ? 'incomplete_stream' : 'tool_arguments');
+    assert.equal(
+      calls.filter((e: any) => e.data.arguments.includes('orchestration test')).length,
+      1,
+      'prior tool call is not replayed',
+    );
+    assert.ok(!JSON.stringify(retries).includes('x'.repeat(30)), 'raw malformed arguments are not logged');
+    if (mode === 'persistent') {
+      assert.equal(run.status, 'failed');
+      assert.equal(calls.length, 1, 'even the valid call preceding an invalid call must not execute');
+      assert.match(run.error, /malformed or incomplete JSON arguments/);
+      assert.equal(run.events.filter((e: any) => e.type === 'model_error').length, 1);
+    } else {
+      assert.equal(run.status, 'succeeded', run.error);
+      assert.equal(calls.length, 2);
+      assert.match(run.output, /recovered call/);
+    }
+    assert.equal(run.partial, undefined);
+  });
+}
+
 test('agentic patterns run their passes and record them in the trace', async () => {
   const planner = await ok('/agents', {
     name: `Planner ${suffix}`,

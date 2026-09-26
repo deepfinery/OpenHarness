@@ -102,6 +102,20 @@ interrupt under the default policy. Every MCP call carries
 `_meta.idempotencyKey` so servers that deduplicate can absorb a replay under
 `resumePolicy: always`.
 
+Malformed model tool arguments are rejected before any tool in that response
+executes. The agent retries only that model turn, at most twice and within its
+token budget, with shorter-argument guidance and streaming disabled. Earlier
+tool results remain in the conversation. OpenAI-compatible streams with invalid
+JSON events, missing completion markers, or output-limit truncation use the same
+recovery path. This does not restart the workflow or replay completed tools.
+
+Look for `model_retry` and `model_error` in the run trace. These record the model,
+failure reason, attempt, and, when available, tool name, argument length and
+finish reason; raw malformed arguments are not retained. Persistent failures
+may require a provider/model fix or a larger output budget. A machine tool's
+command allow-list or path denial is a separate policy error; model-response
+recovery does not grant additional machine permissions.
+
 SMTP for the Email step comes from Settings → Email in the studio or the
 `SMTP_*` variables in `.env`; the studio settings win. Only the SMTP host and
 port are validated against the private-network rules; verify the From address
