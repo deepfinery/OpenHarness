@@ -51,11 +51,11 @@ export function finalAnswerMessages(
   notes: EvidenceNote[],
 ): ChatMessage[] {
   const evidence = dialog
-    .filter((m) => m.role === 'tool' || (m.role === 'assistant' && m.content.trim()))
+    .filter((m) => m.reference || m.role === 'tool' || (m.role === 'assistant' && m.content.trim()))
     .slice(-16)
     .map(
       (m) =>
-        `${m.role === 'tool' ? `Tool ${m.name ?? 'result'}` : 'Earlier analysis (not independently verified)'}:\n${readableToolEvidence(m.content).slice(0, 2500)}`,
+        `${m.reference ? 'Saved notebook reference (verify before relying on it)' : m.role === 'tool' ? `Tool ${m.name ?? 'result'}` : 'Earlier analysis (not independently verified)'}:\n${readableToolEvidence(m.content).slice(0, 2500)}`,
     );
   const notebook = notes.map(
     (note) => `${note.title} (${note.kind}):\n${readableToolEvidence(note.snippet).slice(0, 1500)}`,

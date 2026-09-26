@@ -6,6 +6,9 @@ import { publish } from './queue.js';
 import type { KnowledgeDocument, Run, Workflow, Agent } from './schema.js';
 import { safeError } from './security.js';
 import { agentNote, createNote, folderFor } from './workspace.js';
+import { memorySettings, notebookTargets, resolveNotebook } from './notebooks.js';
+import { compactDialog, contextAllowance } from './context.js';
+export { memorySettings } from './notebooks.js';
 
 /**
  * Learning from experience, in context: the model weights stay fixed. After a run gets feedback (or fails), a
@@ -14,16 +17,16 @@ import { agentNote, createNote, folderFor } from './workspace.js';
  * Everything is text with provenance, so it can later serve as training data too.
  */
 const runs = () => collection<Run>('runs');
-export const memorySettings = (run: Run) =>
-  run.snapshot.workflow ?? (run.agentId ? run.snapshot.agents[run.agentId] : undefined);
-export const learns = (workflow?: Pick<Workflow | Agent, 'workspace' | 'experience'>) =>
-  Boolean(workflow?.experience?.enabled && workflow.workspace);
+export const learns = (settings?: Pick<Workflow | Agent, 'workspace' | 'experience'>) => {
+  const notebook = resolveNotebook(settings);
+  return Boolean(notebook.experience?.enabled && notebook.workspace);
+};
 
 export const learningSettings = (run: Run) =>
-  [memorySettings(run), ...Object.values(run.snapshot.nodeAgents ?? {})].filter(
+  notebookTargets(run).filter(
     (settings) =>
       learns(settings) &&
-      (run.reflection?.reason !== 'failure' || settings?.experience?.learnFromFailures !== false),
+      (run.reflection?.reason !== 'failure' || settings.experience?.learnFromFailures !== false),
   );
 
 /** Marks a run for reflection and queues it; the dispatcher re-publishes reflections whose message was lost. */
@@ -84,7 +87,12 @@ async function reflectionProvider(run: Run) {
       .limit(1)
       .next()
   )?._id;
-  const id = fromNodes ?? fromAgent ?? tenant?.defaultProviderId ?? fallback;
+  const id =
+    fromNodes ??
+    fromAgent ??
+    Object.values(run.snapshot.agents)[0]?.providerId ??
+    tenant?.defaultProviderId ??
+    fallback;
   if (!id) throw new Error('No model provider is available for reflection');
   return ownedProvider(run.ownerId, id);
 }
@@ -127,15 +135,26 @@ export async function reflectOnRun(runId: string, signal: AbortSignal) {
   }
   try {
     const provider = await reflectionProvider(run);
-    const response = await chat(
-      provider,
+    const allowance = contextAllowance(
+      provider.contextWindow ?? 128000,
+      Math.min(provider.maxOutputTokens, 512),
+    );
+    const prompt = compactDialog(
       [
         { role: 'system', content: REFLECTION_PROMPT },
         { role: 'user', content: reflectionInput(run) },
       ],
+      Math.floor(allowance.promptTokens / Math.max(1, provider.contextTokenScale ?? 1)),
+    );
+    if (!prompt.fits) throw new Error('Reflection instructions do not fit the provider context');
+    const response = await chat(
+      { ...provider, maxOutputTokens: allowance.maxOutputTokens },
+      prompt.messages,
       [],
       signal,
     );
+    if (!response.text.trim() || response.toolCalls.length)
+      throw new Error('The model did not produce a lesson');
     const text = response.text.trim().replace(/\s+/g, ' ').slice(0, 800);
     const lesson = /^lesson:/i.test(text) ? text : `Lesson: ${text}`;
     const rating = run.feedback?.rating;
@@ -185,7 +204,7 @@ export async function reflectOnRun(runId: string, signal: AbortSignal) {
 /** Save a reproducible record even when the model never calls a memory tool. */
 export async function saveExperiments(run: Run) {
   if (run.parentRunId || !['succeeded', 'failed', 'interrupted'].includes(run.status)) return;
-  const targets = [memorySettings(run), ...Object.values(run.snapshot.nodeAgents ?? {})];
+  const targets = notebookTargets(run);
   const bases = [
     ...new Set(targets.flatMap((target) => (target?.workspace ? [target.workspace.knowledgeBaseId] : []))),
   ];
@@ -199,9 +218,15 @@ export async function saveExperiments(run: Run) {
         run.snapshot.workflow?.name ??
         (run.agentId ? run.snapshot.agents[run.agentId]?.name : undefined) ??
         'Agent',
-      content: `## Task\n${run.input}\n\n## Outcome\n${run.status} — unreviewed; completion is not evidence of correctness.\n\n## Result\n${(run.output ?? run.error ?? '').slice(0, 32000)}`,
+      content: `## Conversation context\n${
+        run.history
+          .slice(-6)
+          .map((message) => `${message.role}: ${message.content.slice(0, 2000)}`)
+          .join('\n\n') || 'No earlier messages.'
+      }\n\n## Task\n${run.input}\n\n## Outcome\n${run.status} — unreviewed; completion is not evidence of correctness.\n\n## Result\n${(run.output ?? run.error ?? '').slice(0, 32000)}`,
       extra: {
         record_type: 'experiment',
+        ...(run.conversationId ? { conversation_id: run.conversationId } : {}),
         workflow_id: run.workflowId ?? run.agentId,
         outcome: run.status,
         input: run.input.slice(0, 3000),

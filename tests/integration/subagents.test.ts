@@ -160,10 +160,15 @@ test('delegation respects the per-run limit and the remaining budget', async () 
   const limited = await flow('Limited lead', { delegation: { enabled: true, maxAgents: 2 } });
   const crowd = await run(limited.id, 'Please delegate a crowd');
   assert.match(crowd.output, /Delegation error: This agent may start 2 sub-agents per run/);
-  const tight = await flow('Tight lead', { delegation: { enabled: true }, tokenBudget: 5000 });
+  const tight = await flow('Tight lead', { delegation: { enabled: true }, tokenBudget: 12000 });
   const broke = await run(tight.id, 'Please research with sub-agents');
   assert.match(broke.output, /Delegation error: Not enough budget left for 2 sub-agents/);
   assert.ok(!broke.events.some((e: any) => e.type === 'subagent_started'));
+  const tiny = await flow('Final-answer reserve', { delegation: { enabled: true }, tokenBudget: 5000 });
+  const final = await run(tiny.id, 'Please research with sub-agents');
+  assert.ok(final.output.length > 0);
+  assert.ok(final.events.some((e: any) => e.type === 'budget_exhausted'));
+  assert.ok(!final.events.some((e: any) => e.type === 'subagent_started'));
 });
 
 test('agents without delegation are not offered the tool', async () => {

@@ -11,6 +11,7 @@ export function TaskMemory({ runId }: { runId?: string }) {
   const [query, setQuery] = useState('');
   const [next, setNext] = useState<number>();
   const [selected, setSelected] = useState<any>();
+  const [destination, setDestination] = useState('');
   const [longTerm, setLongTerm] = useState(false);
   const [error, setError] = useState('');
   const [promoted, setPromoted] = useState('');
@@ -18,6 +19,9 @@ export function TaskMemory({ runId }: { runId?: string }) {
   useEffect(() => {
     let stopped = false;
     setSelected(undefined);
+    setDestination('');
+    setDurable(undefined);
+    setLongTerm(false);
     setNotes([]);
     setNext(undefined);
     setError('');
@@ -76,7 +80,10 @@ export function TaskMemory({ runId }: { runId?: string }) {
     setBusy(true);
     setError('');
     try {
-      const saved = await send(`/runs/${runId}/memory/${selected.note_id}/promote`);
+      const saved = await send(
+        `/runs/${runId}/memory/${selected.note_id}/promote`,
+        destination ? { knowledgeBaseId: destination } : {},
+      );
       setPromoted(`Saved to long-term memory: ${saved.path}`);
     } catch (e) {
       setError(errorMessage(e));
@@ -94,7 +101,7 @@ export function TaskMemory({ runId }: { runId?: string }) {
             ? `${durable.experiments.length} experiment record${durable.experiments.length === 1 ? '' : 's'} saved. Future runs can recall the task, result and outcome.`
             : durable?.memoryPending
               ? 'The experiment will be saved when this run finishes.'
-              : 'Choose a long-term memory workspace in the workflow or agent settings to retain experiments.'}
+              : 'Attach a knowledge base or choose a long-term notebook in agent or workflow settings to retain experiments.'}
         </p>
         {durable?.experiments?.length > 0 && <a href="/knowledge">Browse saved experiments</a>}
         {durable?.reflection?.status === 'done' ? (
@@ -161,12 +168,35 @@ export function TaskMemory({ runId }: { runId?: string }) {
             <Button onClick={() => void read(selected.note_id, selected.next_offset)}>Next page</Button>
           )}
           {longTerm ? (
-            <Button disabled={busy || Boolean(promoted)} onClick={() => void promote()}>
-              Keep in long-term memory
-            </Button>
+            <>
+              {durable?.notebooks?.length > 1 && (
+                <label>
+                  Save to notebook
+                  <select
+                    aria-label="Save to notebook"
+                    value={destination}
+                    onChange={(event) => setDestination(event.target.value)}
+                  >
+                    <option value="">Choose a notebook</option>
+                    {durable.notebooks.map((notebook: { id: string; name: string }) => (
+                      <option key={notebook.id} value={notebook.id}>
+                        {notebook.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <Button
+                disabled={busy || Boolean(promoted) || (durable?.notebooks?.length > 1 && !destination)}
+                onClick={() => void promote()}
+              >
+                Keep in long-term memory
+              </Button>
+            </>
           ) : (
             <p className="field-help">
-              Select a long-term knowledge workspace in workflow settings to retain notes across queries.
+              Attach a knowledge base to this agent or choose a long-term notebook to retain notes across
+              queries.
             </p>
           )}
           {promoted && <p role="status">{promoted}</p>}

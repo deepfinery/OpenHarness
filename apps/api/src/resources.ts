@@ -19,6 +19,8 @@ import { discoverTools, startOAuth } from '../../../packages/core/src/mcp.js';
 import { chat, embed, ownedProvider } from '../../../packages/core/src/llm.js';
 import { dropKnowledgeIndex, searchKnowledge } from '../../../packages/core/src/knowledge.js';
 import { configuredVectorStores, storeEmbeds } from '../../../packages/core/src/vectorstores/index.js';
+import { agentWithResources } from '../../../packages/core/src/workflow.js';
+import { resolveNotebook } from '../../../packages/core/src/notebooks.js';
 import { createNote, noteFilename } from '../../../packages/core/src/workspace.js';
 import {
   filePath,
@@ -60,7 +62,7 @@ export async function validateReferences(kind: string, ownerId: string, body: an
     throw new HttpError(400, 'Machines are managed on the Machines page, not as manual connections');
   if (kind === 'agents') {
     if (body.workspace) await assertOwned('knowledge', ownerId, body.workspace.knowledgeBaseId);
-    if (body.experience?.enabled && !body.workspace)
+    if (body.experience?.enabled && !resolveNotebook(body).workspace)
       throw new HttpError(400, 'Learning from experience needs a knowledge workspace');
     await assertOwned('providers', ownerId, body.providerId);
     for (const binding of body.connections) {
@@ -99,7 +101,11 @@ export async function validateReferences(kind: string, ownerId: string, body: an
     for (const n of body.nodes) {
       if (n.type === 'agent') {
         if (n.agentId) await assertOwned('agents', ownerId, n.agentId);
-        if (n.config) await validateReferences('agents', ownerId, n.config);
+        if (n.config) {
+          const resolved = agentWithResources(body, n.id, n.config);
+          await validateReferences('agents', ownerId, { ...resolved, ...resolveNotebook(resolved, body) });
+          delete n.config.skills;
+        }
       }
       if (n.type === 'parallel') for (const id of n.agentIds) await assertOwned('agents', ownerId, id);
       if (n.type === 'tool') {

@@ -21,6 +21,10 @@ test('task notebook can be searched, read and promoted from the Playground', asy
     embeddingModel: 'test-embedding',
   });
   const kb = await api('/knowledge', { name: 'Memory browser knowledge', providerId: provider.id });
+  const secondKb = await api('/knowledge', {
+    name: 'Memory browser second notebook',
+    providerId: provider.id,
+  });
   const workflow = await api('/workflows', {
     name: 'Memory browser workflow',
     startAt: 'agent',
@@ -29,10 +33,14 @@ test('task notebook can be searched, read and promoted from the Playground', asy
         id: 'agent',
         name: 'Researcher',
         type: 'agent',
-        config: { name: 'Researcher', providerId: provider.id, systemPrompt: 'Inspect and record findings.' },
+        config: {
+          name: 'Researcher',
+          providerId: provider.id,
+          systemPrompt: 'Inspect and record findings.',
+          knowledgeBaseIds: [kb.id, secondKb.id],
+        },
       },
     ],
-    workspace: { knowledgeBaseId: kb.id },
   });
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -51,10 +59,15 @@ test('task notebook can be searched, read and promoted from the Playground', asy
   await page.getByRole('button', { name: 'Search / refresh' }).click();
   await page.locator('.task-memory .history-item').filter({ hasText: 'Immediate finding' }).click();
   await expect(page.locator('.task-memory .markdown')).toContainText('verified fixture fact');
+  await expect(page.getByRole('button', { name: 'Keep in long-term memory' })).toBeDisabled();
+  await page.getByLabel('Save to notebook').selectOption(secondKb.id);
   await page.getByRole('button', { name: 'Keep in long-term memory' }).click();
   await expect(page.locator('.task-memory [role="status"]')).toContainText('Saved to long-term memory');
   const documents = await api(`/knowledge/${kb.id}/documents`);
-  expect(documents.filter((doc: any) => doc.meta?.task_note_id)).toHaveLength(1);
+  expect(
+    (await api(`/knowledge/${secondKb.id}/documents`)).filter((doc: any) => doc.meta?.task_note_id),
+  ).toHaveLength(1);
+  expect(documents.filter((doc: any) => doc.meta?.task_note_id)).toHaveLength(0);
   expect(documents.filter((doc: any) => doc.meta?.record_type === 'experiment')).toHaveLength(1);
   await expect(page.locator('.memory-summary')).toContainText('experiment record saved');
 

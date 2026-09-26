@@ -315,6 +315,56 @@ function answer(messages, tools) {
     content: '',
     tool_calls: [{ id: randomUUID(), type: 'function', function: { name, arguments: JSON.stringify(args) } }],
   });
+  const notebookTarget = /write notebook ([0-9a-f-]{36})/.exec(String(input));
+  if (notebookTarget) {
+    if (last?.role === 'tool') return { content: `Notebook write: ${last.content}` };
+    return memoryCall('kb_write', {
+      knowledge_base_id: notebookTarget[1],
+      title: 'Cedar environment',
+      kind: 'environment',
+      content: 'cedar notebook: deployment requires three health checks.',
+      sources: ['fixture://cedar'],
+    });
+  }
+  if (String(input).includes('notebook skill record')) {
+    if (lastToolName === 'kb_write') return { content: `Skill note saved: ${last.content}` };
+    if (lastToolName === 'load_skill')
+      return memoryCall('kb_write', {
+        title: 'Cedar conversation preference',
+        kind: 'conversation',
+        content: String(last.content).includes('NOTEBOOK_RULE')
+          ? 'cedar user preference: include confidence and evidence sources.'
+          : 'SKILL MISSING',
+      });
+    return memoryCall('load_skill', {
+      name: tools?.find((t) => t.function.name === 'load_skill')?.function.parameters.properties.name.enum[0],
+    });
+  }
+  if (String(input).includes('notebook environment roundtrip')) {
+    if (lastToolName === 'kb_write')
+      return memoryCall('kb_read', { note_id: JSON.parse(last.content).note_id });
+    if (lastToolName === 'kb_read')
+      return memoryCall('kb_search', { query: 'cedar notebook', folder: 'environment' });
+    if (lastToolName === 'kb_search') return { content: `Notebook verified: ${last.content}` };
+    return memoryCall('kb_write', {
+      title: 'Cedar environment',
+      kind: 'environment',
+      content: 'cedar notebook: deployment requires three health checks.',
+      sources: ['fixture://cedar'],
+    });
+  }
+  if (String(input).includes('context research checkpoint')) {
+    if (!tools?.length)
+      return {
+        content:
+          'Research synthesis: saved source-backed observations; remaining outlook checks are incomplete.',
+      };
+    return memoryCall('memory_write', {
+      title: 'Research finding',
+      kind: 'finding',
+      content: 'Verified source https://evidence.example/NVDA and risk uncertainty. '.repeat(60),
+    });
+  }
   if (String(input).includes('exhaust tool evidence')) {
     if (!tools?.length && String(input).includes('summarize')) {
       const clean =
@@ -532,7 +582,10 @@ function answer(messages, tools) {
     return spawn([{ task: 'Sub-task: research with sub-agents one level deeper' }]);
   if (spawnTool && String(input).includes('delegate a crowd'))
     return spawn([1, 2, 3].map((n) => ({ task: `Sub-task: crowd member ${n}` })));
-  const system = messages.find((m) => m.role === 'system')?.content ?? '';
+  const system = messages
+    .filter((m) => m.role === 'system' || String(m.content).startsWith('[Saved notebook references]'))
+    .map((m) => m.content)
+    .join('\n');
   // Reflection: turn a run into a deterministic lesson that names what the feedback asked for.
   if (system.startsWith('You turn one run of an AI agent into a lesson')) {
     const task = /Task: (.*)/.exec(String(input))?.[1]?.slice(0, 60) ?? 'this task';
@@ -633,6 +686,30 @@ function answer(messages, tools) {
 app.post('/v1/chat/completions', async (req, res) => {
   stats.models++;
   if (JSON.stringify(req.body).includes('delay-model')) await new Promise((r) => setTimeout(r, 15000));
+  if (req.body.model.startsWith('test-context-')) {
+    const window = req.body.model === 'test-context-32k' ? 32768 : 8192;
+    const counted = Math.ceil(
+      (JSON.stringify(req.body.messages).length + JSON.stringify(req.body.tools ?? []).length) / 2,
+    );
+    const requested = req.body.max_tokens ?? req.body.max_completion_tokens ?? 4096;
+    stats.contextRequests ??= [];
+    stats.contextRequests.push({
+      model: req.body.model,
+      counted,
+      requested,
+      tools: req.body.tools?.length ?? 0,
+    });
+    stats.contextRequests = stats.contextRequests.slice(-200);
+    if (req.body.model === 'test-context-auth')
+      return res.status(401).json({ error: { message: 'Invalid API key' } });
+    if (req.body.model === 'test-context-reject' || counted + requested > window) {
+      return res.status(400).json({
+        error: {
+          message: `This model's maximum context length is ${window} tokens. However, you requested ${requested} output tokens and your prompt contains at least ${counted} input tokens, for a total of at least ${counted + requested} tokens. Please reduce the length of the input prompt or the number of requested output tokens. (parameter=input_tokens, value=${counted}).`,
+        },
+      });
+    }
+  }
   // Behave like a 32k-class model that rejects oversized prompts, so context compaction can be tested.
   const promptChars = req.body.messages.reduce((n, m) => n + String(m.content ?? '').length, 0);
   // test-dense counts about 2.5 characters per token and includes the tool definitions, as vLLM does with URL- and
@@ -651,7 +728,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         },
       });
     }
-  } else if (promptChars > 24000) {
+  } else if (!req.body.model.startsWith('test-context-') && promptChars > 24000) {
     stats.contextRejections = (stats.contextRejections ?? 0) + 1;
     return res.status(400).json({
       error: {

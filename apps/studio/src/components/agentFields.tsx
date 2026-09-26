@@ -8,6 +8,7 @@ import {
   type EffortLevel,
 } from '../../../../packages/core/src/patterns.js';
 import { describeSchedule } from '../../../../packages/core/src/schedule.js';
+import { resolveNotebook } from '../../../../packages/core/src/notebooks.js';
 import type { Agent, Schedule } from '../../../../packages/core/src/schema.js';
 import { timestamp, type Data } from '../api';
 import { ErrorNotice, Field } from './ui';
@@ -60,13 +61,16 @@ export function AgentFields({
   data,
   refresh,
   onChange,
+  inheritedMemory,
 }: {
   value: Agent;
   data: Data;
   refresh: () => Promise<void>;
   onChange: (patch: Partial<Agent>) => void;
+  inheritedMemory?: Pick<Agent, 'workspace' | 'experience'>;
 }) {
   const effort = value.effort ?? 'medium';
+  const notebook = resolveNotebook(value, inheritedMemory);
   return (
     <>
       <ProviderControl
@@ -111,7 +115,7 @@ export function AgentFields({
       </Field>
       <Field
         label="Long-term memory"
-        hint="Save experiments automatically and let this agent write reusable findings. Inherit the workflow workspace, or choose a dedicated knowledge base."
+        hint="Use a knowledge base as a persistent Markdown notebook for environment findings, conversation notes, skill-directed notes and feedback lessons. The default is workflow memory, then the first attached knowledge base."
       >
         <select
           aria-label="Agent long-term memory"
@@ -127,7 +131,7 @@ export function AgentFields({
             })
           }
         >
-          <option value="">Use workflow memory</option>
+          <option value="">Use workflow memory or first attached knowledge base</option>
           {data.knowledge.map((kb) => (
             <option key={kb.id} value={kb.id}>
               {kb.name}
@@ -135,12 +139,12 @@ export function AgentFields({
           ))}
         </select>
       </Field>
-      {value.workspace && (
+      {notebook.workspace && (
         <label className="check-row">
           <input
             type="checkbox"
             aria-label="Agent learn from experience"
-            checked={Boolean(value.experience?.enabled)}
+            checked={notebook.experience?.enabled !== false}
             onChange={(e) =>
               onChange({
                 experience: {
@@ -207,6 +211,19 @@ export function AgentFields({
       </div>
       <details className="advanced">
         <summary>Limits</summary>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            aria-label="Automatic context compaction"
+            checked={value.contextCompaction !== false}
+            onChange={(e) => onChange({ contextCompaction: e.target.checked })}
+          />
+          Compress context early and save displaced evidence in task memory
+        </label>
+        <p className="field-help">
+          Context guards and a final-answer reserve always apply. Sub-agents can read saved evidence when
+          delegation is enabled.
+        </p>
         {effort === 'auto' ? (
           <p className="field-help">
             Auto picks the budgets for each request: light ({effortPresets.light.maxTurns} turns,{' '}

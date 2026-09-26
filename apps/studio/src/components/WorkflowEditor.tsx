@@ -1,3 +1,4 @@
+import { agentWithResources } from '../../../../packages/core/src/workflow.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -1384,7 +1385,12 @@ export function WorkflowEditor({
             {openStep?.type === 'agent' && (
               <>
                 <AgentFields
-                  value={{ ...defaultAgent(data), ...openStep.config, name: openStep.name }}
+                  value={agentWithResources(form, openStep.id, {
+                    ...defaultAgent(data),
+                    ...openStep.config,
+                    name: openStep.name,
+                  })}
+                  inheritedMemory={form}
                   data={data}
                   refresh={onSaved}
                   onChange={(p) => patchAgent(openStep.id, p)}

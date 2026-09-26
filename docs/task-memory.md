@@ -18,11 +18,29 @@ immediately; MongoDB's TTL index subsequently deletes them. New queries,
 including new messages in the same conversation, get a fresh notebook. An agent
 cannot read another query's temporary notes by guessing their ids.
 
-Long-term memory uses the existing knowledge base selected under **Workflow
-settings → Long-term memory**. It persists until explicitly removed, is indexed
-for retrieval, and can be shared by several workflows. Choose the same knowledge
-base for related long-running projects. Temporary notes are never automatically
-indexed as long-term knowledge.
+Long-term memory uses attached knowledge bases as persistent Markdown notebooks.
+An agent can write environment observations, source-backed findings, decisions,
+conversation summaries, user preferences, reusable lessons, and notes required by
+its loaded skills. The default destination is the agent's dedicated notebook,
+then the workflow's notebook, then its first attached knowledge base. With several
+attachments, `kb_write` accepts `knowledge_base_id` to choose another attached
+notebook; it cannot write to an unattached base, even within the same account.
+The Playground's promotion control also lets you choose an attached destination.
+
+Notes have folders, Markdown links/note references, sources and run provenance.
+Writes are append-only: corrections can link to an earlier note without erasing
+its history. Recent notes are searchable immediately, including while vector
+indexing is unavailable. Later runs recall relevant notes and can read more in
+pages. Attach the same notebook to another agent to share durable knowledge.
+
+Completed runs automatically save their task, recent conversation context,
+result and outcome as unreviewed experiment records. Plain knowledge attachments
+also enable feedback/failure lessons by default; an explicit learning setting
+wins, and existing dedicated workspaces retain their opt-in learning behavior.
+The agent's **Learn from feedback and failures** checkbox controls lesson generation.
+Lessons provide feedback-driven guidance in future prompts; model weights do not
+change. Raw tool results and compressed transcripts stay in temporary task memory
+unless explicitly promoted.
 
 ## Agent tools
 
@@ -32,7 +50,7 @@ indexed as long-term knowledge.
 | `memory_search`                    | Immediately find task notes by literal text, or list recent notes with an empty query. Supports folder filtering and pagination.               |
 | `memory_read`                      | Read a task note in pages of up to 8,000 characters.                                                                                           |
 | `memory_promote`                   | Copy a reusable task note into the configured long-term knowledge base with provenance. Offered only when a knowledge workspace is configured. |
-| `kb_search`, `kb_read`, `kb_write` | Search, read and write the persistent knowledge workspace. Existing workflow behavior remains available.                                       |
+| `kb_search`, `kb_read`, `kb_write` | Search/read attached notebooks and write durable Markdown notes to a selected attached destination.                                            |
 
 Every note has a UUID, Markdown content, a folder, creator, task/run provenance,
 sources and expiry. Writes create independent notes even when agents choose the
@@ -45,6 +63,14 @@ excerpt and a `memory_read` reference in the model context. At most 200,000
 characters per result are saved, and the reference states how much was retained.
 The workflow's existing result-offloading switch can disable automatic result
 storage. Agent-written notes are limited to 20,000 characters per write.
+
+With **Limits → Automatic context compaction** enabled (the default), displaced
+conversation messages and tool arguments are saved as `context` notes before
+compression. Large checkpoints span numbered notes of at most 180,000 characters;
+all part ids are recorded in the trace. A bounded excerpt and note references
+remain in the model context. These are incomplete reference excerpts, not verified
+findings. The setting is independent of MCP result offloading. Context checks and
+a reserved final-answer allowance still apply when proactive compaction is off.
 
 Sub-agents inherit the root task id and their parent's operating instructions.
 Their final reports are saved automatically before the short summaries are sent

@@ -96,6 +96,8 @@ export const agentSchema = z.object({
   skillIds: z.array(id).max(20).default([]),
   /** Snapshot of the skills at run creation; set by the server, not by clients. */
   skills: z.array(skillSchema.extend({ id })).max(20).optional(),
+  /** Save displaced context in the task notebook and keep a compact evidence checkpoint. */
+  contextCompaction: z.boolean().default(true),
   maxTurns: z.number().int().min(1).max(200).default(12),
   timeoutSeconds: z.number().int().min(10).max(7200).default(300),
   pattern: z.enum(agentPatterns).default('react'),
