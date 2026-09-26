@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { FleetCluster } from './InfrastructurePage';
 import {
   Chrome,
   Container,
@@ -11,25 +12,17 @@ import {
   Settings2,
   Trash2,
 } from 'lucide-react';
-import {
-  api,
-  errorMessage,
-  send,
-  timestamp,
-  type Data,
-  type Entity,
-  type Machine,
-  type Platform,
-} from '../api';
-import { Button, CopyButton, Empty, ErrorNotice, Field, IconButton, Modal, PageTitle } from './ui';
+import { api, errorMessage, send, timestamp, type Data, type Machine, type Platform } from '../api';
+import { Button, CopyButton, Empty, ErrorNotice, Field, IconButton, Modal } from './ui';
 
 type PageProps = {
   data: Data;
   refresh: () => Promise<void>;
-  edit: (type: string, value?: Entity) => void;
-  navigate: (page: string, target?: string) => void;
   act: (task: () => Promise<unknown>) => Promise<void>;
-  onUseMachine: (deviceId: string) => void;
+  onUseMachine: (machine: Machine) => void;
+  clusters: FleetCluster[];
+  clusterId: string;
+  onClusterChange: (id: string) => void;
 };
 type Enrollment = { machine: Machine; token: string; connectUrl: string; install: Record<string, string> };
 const platformLabel: Record<Platform, string> = { linux: 'Linux', windows: 'Windows', chrome: 'Chrome' };
@@ -48,175 +41,270 @@ const slug = (name: string) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 40);
 
-/** Machines: remote Linux hosts, containers, Windows hosts and Chrome browsers that agents can operate. */
-export function MachinesPage({ data, refresh, act, onUseMachine, navigate }: PageProps) {
+/** The unified inventory includes standalone machines and cluster-enrolled nodes. */
+export function MachinesPage({
+  data,
+  refresh,
+  act,
+  onUseMachine,
+  clusters,
+  clusterId,
+  onClusterChange,
+}: PageProps) {
   const [adding, setAdding] = useState(false);
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [editing, setEditing] = useState<Machine | null>(null);
   const [busy, setBusy] = useState('');
   const [query, setQuery] = useState('');
+  const [status, setStatus] = useState('all');
+  const [platform, setPlatform] = useState('all');
   const [page, setPage] = useState(0);
-  const filtered = data.machines.filter((m) =>
-    `${m.name} ${m.device_id} ${m.cluster_id ?? ''}`.toLowerCase().includes(query.toLowerCase()),
-  );
-  const machines = filtered.slice(page * 100, page * 100 + 100);
-  // While a new machine is expected to connect, poll until it shows up online.
+  const filtered = data.machines.filter((m) => {
+    const cluster = clusters.find((c) => c._id === m.cluster_id);
+    return (
+      `${m.name} ${m.device_id} ${m.hostname ?? ''} ${cluster?.name ?? m.cluster_id ?? ''}`
+        .toLowerCase()
+        .includes(query.toLowerCase()) &&
+      (!clusterId || (clusterId === 'standalone' ? !m.cluster_id : m.cluster_id === clusterId)) &&
+      (platform === 'all' || m.platform === platform) &&
+      (status === 'all' ||
+        (status === 'disabled' ? m.disabled : !m.disabled && (status === 'online' ? m.online : !m.online)))
+    );
+  });
+  const pageSize = 25;
+  const activePage = Math.min(page, Math.max(0, Math.ceil(filtered.length / pageSize) - 1));
+  const machines = filtered.slice(activePage * pageSize, (activePage + 1) * pageSize);
+  useEffect(() => {
+    setPage(0);
+  }, [query, status, platform, clusterId]);
   useEffect(() => {
     if (!enrollment) return;
     const timer = setInterval(() => void refresh().catch(() => {}), 3000);
     return () => clearInterval(timer);
-  }, [enrollment]);
+  }, [enrollment, refresh]);
   const enrolled = enrollment
-    ? machines.find((m) => m.device_id === enrollment.machine.device_id)
+    ? data.machines.find((m) => m.device_id === enrollment.machine.device_id)
     : undefined;
+  const filteredView = Boolean(query || clusterId || status !== 'all' || platform !== 'all');
+  const reset = () => {
+    setQuery('');
+    setStatus('all');
+    setPlatform('all');
+    onClusterChange('');
+  };
   return (
     <>
-      <PageTitle
-        title="Machines"
-        action={
-          data.gateway.configured ? (
-            <div className="row-actions">
-              <Button
-                variant="secondary"
-                disabled={busy === 'sync'}
-                onClick={() => {
-                  setBusy('sync');
-                  void act(() => send('/devices/sync').then(() => refresh())).finally(() => setBusy(''));
-                }}
-              >
-                <RefreshCw size={15} className={busy === 'sync' ? 'spin' : ''} />
-                Sync
-              </Button>
-              <Button onClick={() => setAdding(true)}>
-                <Plus size={17} />
-                Add machine
-              </Button>
-            </div>
-          ) : undefined
-        }
-      />
-      <ErrorNotice error={data.gateway.error} />
-      <div className="row-actions">
-        <Button variant="secondary" onClick={() => navigate('clusters')}>
-          Enroll cluster nodes
-        </Button>
-        <input
-          aria-label="Filter machines"
-          placeholder="Filter machines"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setPage(0);
-          }}
-        />
-        <span>{filtered.length} machines</span>
-        <Button variant="secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>
-          Previous
-        </Button>
-        <Button
-          variant="secondary"
-          disabled={(page + 1) * 100 >= filtered.length}
-          onClick={() => setPage(page + 1)}
-        >
-          Next
-        </Button>
-      </div>
-      {!data.gateway.configured ? (
-        <Empty
-          icon={<Laptop size={30} />}
-          title="No device gateway configured"
-          text="Set GATEWAY_URL, GATEWAY_API_TOKEN and GATEWAY_ADMIN_TOKEN in .env (./start.sh adds them) and restart to register Linux, Windows, container and Chrome machines."
-        />
-      ) : !machines.length ? (
-        <Empty
-          icon={<Laptop size={30} />}
-          title="No machines yet"
-          text="Add a Linux host, a container, a Windows machine or a Chrome browser. It dials out to the gateway, so it needs no public IP."
-          action={
+      <div className="fleet-section-heading">
+        <div>
+          <h2>Machine inventory</h2>
+          <p>Manage individual machines and the nodes enrolled in your clusters.</p>
+        </div>
+        {data.gateway.configured && (
+          <div className="row-actions">
+            <Button
+              variant="secondary"
+              disabled={busy === 'sync'}
+              onClick={() => {
+                setBusy('sync');
+                void act(() => send('/devices/sync').then(() => refresh())).finally(() => setBusy(''));
+              }}
+            >
+              <RefreshCw size={15} className={busy === 'sync' ? 'spin' : ''} />
+              Sync tools
+            </Button>
             <Button onClick={() => setAdding(true)}>
               <Plus size={16} />
               Add machine
             </Button>
+          </div>
+        )}
+      </div>
+      <div className="fleet-filters">
+        <input
+          aria-label="Filter machines"
+          placeholder="Search name, hostname, or ID…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <select
+          aria-label="Filter by cluster"
+          value={clusterId}
+          onChange={(e) => onClusterChange(e.target.value)}
+        >
+          <option value="">All clusters & standalone</option>
+          <option value="standalone">Standalone machines</option>
+          {clusters.map((c) => (
+            <option key={c._id} value={c._id}>
+              {c.name}
+            </option>
+          ))}
+          {clusterId && clusterId !== 'standalone' && !clusters.some((c) => c._id === clusterId) && (
+            <option value={clusterId}>Unavailable cluster</option>
+          )}
+        </select>
+        <select aria-label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="all">All statuses</option>
+          <option value="online">Online</option>
+          <option value="offline">Offline</option>
+          <option value="disabled">Disabled</option>
+        </select>
+        <select
+          aria-label="Filter by platform"
+          value={platform}
+          onChange={(e) => setPlatform(e.target.value)}
+        >
+          <option value="all">All platforms</option>
+          <option value="linux">Linux</option>
+          <option value="windows">Windows</option>
+          <option value="chrome">Chrome</option>
+        </select>
+        {filteredView && (
+          <Button variant="ghost" onClick={reset}>
+            Clear filters
+          </Button>
+        )}
+      </div>
+      {!data.gateway.configured ? (
+        <Empty
+          icon={<Laptop size={30} />}
+          title="Connect your infrastructure"
+          text="Configure the device gateway in your installation to connect machines and enroll cluster nodes."
+        />
+      ) : !machines.length ? (
+        <Empty
+          icon={<Laptop size={30} />}
+          title={filteredView ? 'No machines match these filters' : 'Connect your first machine'}
+          text={
+            filteredView
+              ? 'Try another search or clear the filters. Cluster nodes appear automatically when their connectors register.'
+              : 'Add a standalone host, container, or browser. For a fleet of nodes, create a cluster and reuse its shared enrollment configuration.'
+          }
+          action={
+            filteredView ? (
+              <Button variant="secondary" onClick={reset}>
+                Clear filters
+              </Button>
+            ) : (
+              <Button onClick={() => setAdding(true)}>
+                <Plus size={16} />
+                Add machine
+              </Button>
+            )
           }
         />
       ) : (
-        <div className="card-grid machine-grid">
-          {machines.map((m) => (
-            <article
-              className={`resource-card machine-card ${m.online ? 'online' : 'offline'}`}
-              key={m.device_id}
-            >
-              <div className="card-top">
-                <div className="resource-icon">
-                  <PlatformIcon platform={m.platform} size={22} />
-                </div>
-                <span className={`status ${m.disabled ? 'disabled' : m.online ? 'ready' : 'pending'}`}>
-                  <i />
-                  {m.disabled ? 'disabled' : m.online ? 'online' : 'offline'}
-                </span>
-                <IconButton
-                  title={`Remove ${m.name}`}
-                  onClick={() => {
-                    if (confirm(`Remove “${m.name}”? Its connector will be refused from now on.`))
-                      void act(async () => {
-                        await api(`/devices/${m.device_id}`, { method: 'DELETE' });
-                        await refresh();
-                      });
-                  }}
-                >
-                  <Trash2 size={15} />
-                </IconButton>
-              </div>
-              <button className="card-name" onClick={() => setEditing(m)}>
-                {m.name}
-              </button>
-              <p className="machine-meta">
-                {platformLabel[m.platform]}
-                {m.hostname ? ` · ${m.hostname}` : ''}
-                {m.connector_version ? ` · v${m.connector_version}` : ''}
-                <br />
-                <span className="mono">{m.device_id}</span>
-                {!m.online && m.last_seen ? ` · last seen ${timestamp(m.last_seen)}` : ''}
-              </p>
-              <div className="tool-chips">
-                {m.allowed_tools.length ? (
-                  m.allowed_tools.slice(0, 6).map((t) => (
-                    <span className="tool-chip" key={t}>
-                      {t}
-                    </span>
-                  ))
-                ) : (
-                  <span className="tools-empty">No tools allowed yet</span>
-                )}
-                {m.allowed_tools.length > 6 && (
-                  <span className="tool-chip more">+{m.allowed_tools.length - 6}</span>
-                )}
-              </div>
-              <div className="card-footer">
-                <small>
-                  {m.tools.length
-                    ? `${m.tools.length} tools ready`
-                    : m.online
-                      ? 'Syncing tools…'
-                      : 'Waiting for the connector'}
-                </small>
-                <Button variant="secondary" onClick={() => setEditing(m)}>
-                  <Settings2 size={14} />
-                  Tools
-                </Button>
-                <Button
-                  variant="ghost"
-                  disabled={!m.connectionId || !m.tools.length}
-                  title="Create a Machine operator workflow with this machine's tools, then chat with it in the Playground"
-                  onClick={() => onUseMachine(m.device_id)}
-                >
-                  <Play size={14} />
-                  New operator workflow
-                </Button>
-              </div>
-            </article>
-          ))}
-        </div>
+        <>
+          <div className="fleet-table-wrap">
+            <table className="fleet-table">
+              <thead>
+                <tr>
+                  <th>Machine</th>
+                  <th>Cluster</th>
+                  <th>Status</th>
+                  <th>Tools</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {machines.map((m) => (
+                  <tr key={m.device_id}>
+                    <td data-label="Machine">
+                      <div className="fleet-machine-name">
+                        <span className="fleet-platform-icon">
+                          <PlatformIcon platform={m.platform} />
+                        </span>
+                        <div>
+                          <button className="text-button" onClick={() => setEditing(m)}>
+                            {m.name}
+                          </button>
+                          <small title={m.hostname ?? m.device_id}>
+                            {platformLabel[m.platform]} · {m.hostname ?? m.device_id}
+                          </small>
+                        </div>
+                      </div>
+                    </td>
+                    <td data-label="Cluster">
+                      {m.cluster_id ? (
+                        <span className="fleet-cluster-tag">
+                          {clusters.find((c) => c._id === m.cluster_id)?.name ?? m.cluster_id}
+                        </span>
+                      ) : (
+                        <span className="fleet-subtle">Standalone</span>
+                      )}
+                    </td>
+                    <td data-label="Status">
+                      <span className={`status ${m.disabled ? 'disabled' : m.online ? 'ready' : 'pending'}`}>
+                        <i />
+                        {m.disabled ? 'disabled' : m.online ? 'online' : 'offline'}
+                      </span>
+                      {!m.online && m.last_seen && (
+                        <small className="fleet-last-seen">Seen {timestamp(m.last_seen)}</small>
+                      )}
+                    </td>
+                    <td data-label="Tools">
+                      <strong className="fleet-tool-count">{m.tools.length}</strong>
+                      <small className="fleet-last-seen">
+                        {m.online ? 'available' : `${m.allowed_tools.length} allowed`}
+                      </small>
+                    </td>
+                    <td data-label="Actions">
+                      <div className="fleet-row-actions">
+                        <Button
+                          variant="secondary"
+                          onClick={() => setEditing(m)}
+                          aria-label={`Configure ${m.name}`}
+                        >
+                          <Settings2 size={14} />
+                          Manage
+                        </Button>
+                        <IconButton
+                          title={`Create operator workflow for ${m.name}`}
+                          disabled={!m.connectionId || !m.tools.length || !m.online || m.disabled}
+                          onClick={() => onUseMachine(m)}
+                        >
+                          <Play size={15} />
+                        </IconButton>
+                        <IconButton
+                          title={`Remove ${m.name}`}
+                          onClick={() => {
+                            if (confirm(`Remove “${m.name}”? Its connector will be refused from now on.`))
+                              void act(async () => {
+                                await api(`/devices/${m.device_id}`, { method: 'DELETE' });
+                                await refresh();
+                              });
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </IconButton>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="fleet-pagination">
+            <span>
+              {activePage * pageSize + 1}–{Math.min((activePage + 1) * pageSize, filtered.length)} of{' '}
+              {filtered.length} machines
+            </span>
+            <div className="row-actions">
+              <Button variant="secondary" disabled={activePage === 0} onClick={() => setPage(activePage - 1)}>
+                Previous
+              </Button>
+              <span>
+                Page {activePage + 1} of {Math.ceil(filtered.length / pageSize)}
+              </span>
+              <Button
+                variant="secondary"
+                disabled={(activePage + 1) * pageSize >= filtered.length}
+                onClick={() => setPage(activePage + 1)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </>
       )}
       {adding && (
         <AddMachineModal
@@ -235,7 +323,7 @@ export function MachinesPage({ data, refresh, act, onUseMachine, navigate }: Pag
       {editing && (
         <MachineSettingsModal
           data={data}
-          machine={machines.find((m) => m.device_id === editing.device_id) ?? editing}
+          machine={data.machines.find((m) => m.device_id === editing.device_id) ?? editing}
           onClose={() => setEditing(null)}
           onSaved={refresh}
           onRotated={(result) => {
@@ -577,24 +665,30 @@ function MachineSettingsModal({
         </label>
         <ErrorNotice error={error} />
         <div className="form-actions between">
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={busy === 'rotate'}
-            onClick={() => {
-              if (!confirm('Issue a new token? The connector must be reconfigured with it.')) return;
-              setBusy('rotate');
-              void send(`/devices/${machine.device_id}/rotate-token`)
-                .then((r) =>
-                  onRotated({ machine, token: r.token, connectUrl: r.connectUrl, install: r.install }),
-                )
-                .catch((err) => setError(errorMessage(err)))
-                .finally(() => setBusy(''));
-            }}
-          >
-            <KeyRound size={14} />
-            New token
-          </Button>
+          {machine.cluster_id ? (
+            <small className="field-help">
+              This node uses its cluster’s shared token. Rotate it from Manage cluster.
+            </small>
+          ) : (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy === 'rotate'}
+              onClick={() => {
+                if (!confirm('Issue a new token? The connector must be reconfigured with it.')) return;
+                setBusy('rotate');
+                void send(`/devices/${machine.device_id}/rotate-token`)
+                  .then((r) =>
+                    onRotated({ machine, token: r.token, connectUrl: r.connectUrl, install: r.install }),
+                  )
+                  .catch((err) => setError(errorMessage(err)))
+                  .finally(() => setBusy(''));
+              }}
+            >
+              <KeyRound size={14} />
+              New token
+            </Button>
+          )}
           <div className="row-actions">
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancel

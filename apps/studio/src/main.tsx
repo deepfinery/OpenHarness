@@ -1,4 +1,4 @@
-import { ClustersPage } from './components/ClustersPage';
+import { InfrastructurePage } from './components/InfrastructurePage';
 import { GuardrailsPage } from './components/GuardrailsPage';
 import { HumanInbox } from './components/HumanInbox';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -44,7 +44,6 @@ import type { Workflow } from '../../../packages/core/src/schema.js';
 import { WorkflowEditor } from './components/WorkflowEditor';
 import { ConnectionsPage, RunsPage, WorkflowsPage } from './components/pages';
 import { KnowledgePage } from './components/KnowledgePage';
-import { MachinesPage } from './components/MachinesPage';
 import { SkillsPage } from './components/SkillsPage';
 import { EmbedChat, Playground, playgroundTargets } from './components/Playground';
 import { IntegrationsPage, SettingsPage } from './components/Settings';
@@ -54,8 +53,7 @@ import './refresh.css';
 const nav = [
   { id: 'workflows', label: 'Workflows', icon: GitBranch },
   { id: 'playground', label: 'Playground', icon: MessageSquare },
-  { id: 'clusters', label: 'Clusters', icon: Laptop },
-  { id: 'machines', label: 'Machines', icon: Laptop },
+  { id: 'machines', label: 'Machines & clusters', icon: Laptop },
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'connections', label: 'MCP connections', icon: Plug },
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
@@ -207,11 +205,15 @@ function Auth({ needsSetup, onLogin }: { needsSetup: boolean; onLogin: (u: User)
     </div>
   );
 }
+const currentPage = () =>
+  location.pathname.split('/')[1] === 'clusters'
+    ? 'machines'
+    : location.pathname.split('/')[1] || 'workflows';
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checking, setChecking] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
-  const [page, setPage] = useState(location.pathname.split('/')[1] || 'workflows');
+  const [page, setPage] = useState(currentPage);
   const [target, setTargetState] = useState('');
   function setTarget(value: string) {
     setTargetState(value);
@@ -317,11 +319,16 @@ function App() {
     return () => clearInterval(t);
   }, []);
   useEffect(() => {
-    const handler = () => setPage(location.pathname.split('/')[1] || 'workflows');
+    const handler = () => setPage(currentPage());
     addEventListener('popstate', handler);
     return () => removeEventListener('popstate', handler);
   }, []);
   const navigate = (next: string, newTarget = '') => {
+    // Keep the selected fleet view and its URL when reselecting the active menu.
+    if (next === 'machines' && page === 'machines') {
+      setSidebar(false);
+      return;
+    }
     setPage(next);
     if (newTarget) setTarget(newTarget);
     setSidebar(false);
@@ -385,9 +392,9 @@ function App() {
         </div>
         <div className="nav-label">Build</div>
         <nav>
-          {nav.map((item, i) => (
+          {nav.map((item) => (
             <React.Fragment key={item.id}>
-              {i === 7 && <div className="nav-label lower">Workspace</div>}
+              {item.id === 'guardrails' && <div className="nav-label lower">Workspace</div>}
               <button
                 aria-label={item.label}
                 className={page === item.id ? 'active' : ''}
@@ -498,14 +505,12 @@ function App() {
           <main className="page-content">
             {page === 'skills' ? (
               <SkillsPage data={data} refresh={refresh} act={act} />
-            ) : page === 'clusters' ? (
-              <ClustersPage data={data} isAdmin={user.role === 'admin'} refreshData={refresh} />
             ) : page === 'machines' ? (
-              <MachinesPage
+              <InfrastructurePage
                 {...props}
-                onUseMachine={(deviceId) => {
+                isAdmin={user.role === 'admin'}
+                onUseMachine={(m) => {
                   // Machines are workflow tools: start a Machine operator workflow bound to this one.
-                  const m = data.machines.find((x) => x.device_id === deviceId);
                   if (!m?.connectionId) return;
                   setEditor({
                     type: 'workflows',
