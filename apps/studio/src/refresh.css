@@ -1407,3 +1407,27 @@ textarea::placeholder {
     top: 68px;
   }
 }
+
+/* Chat has one history panel. Knowledge retains its separate notebook list. */
+.chat-playground {
+  grid-template-columns: minmax(0, 1fr) 310px;
+}
+.chat-playground.trace-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+.chat-playground .playground-float {
+  position: static;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+@media (max-width: 1200px) {
+  .chat-playground {
+    grid-template-columns: minmax(0, 1fr) 280px;
+  }
+}
+@media (max-width: 900px) {
+  .chat-playground {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
