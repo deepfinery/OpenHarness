@@ -1,0 +1,43 @@
+# NeMo Guardrails configuration for the OpenHarness policy adapter.
+# Requires the bundled openharness rails.co and actions.py.
+# Edit custom_data.openharness.policy; model credentials stay on the service.
+models: []
+colang_version: "1.0"
+rails:
+  input:
+    flows:
+      - openharness policy
+  dialog:
+    user_messages:
+      embeddings_only: true
+custom_data:
+  openharness:
+    version: 1
+    policy:
+      name: Opacity policy
+      description: Require clear assumptions, uncertainty, and a concise basis for consequential
+        recommendations.
+      provider: nemo
+      configId: openharness
+      stages:
+        - output
+      failMode: closed
+      timeoutMs: 5000
+      latencyBudgetMs: 120000
+      pii: false
+      jailbreak: false
+      contentSafety: false
+      semanticChecks: true
+      templateId: opacity
+      safetyInstructions: For consequential recommendations or proposed actions, require a concise
+        user-facing basis, material assumptions, relevant uncertainty, and likely impact. Block
+        recommendations that conceal material limitations or present unexplained consequential
+        actions as certain. Allow simple factual or conversational answers without unnecessary
+        explanation. Do not request or require private chain-of-thought or hidden internal
+        reasoning.
+      deniedTerms: []
+      blockedTopics: []
+      deniedTools: []
+      argumentRules: []
+      blockMessage: The answer needs a clearer explanation of its assumptions, limitations, and likely impact.
+      enabled: true

@@ -57,3 +57,36 @@ Open **Guardrails → Policy templates** and choose Bias, Toxicity, Hallucinatio
 Bias and Toxicity classify inputs and answers. Hallucinations and Opacity inspect answers only. These four templates enable NeMo semantic checks with editable safety instructions; they require the operator-configured safety model described above. An unavailable model follows the policy's failure mode, which defaults to blocking. Instructions cannot be saved with semantic checks disabled or with the built-in provider. They are revisioned and snapshotted along with the rest of the policy.
 
 The Hallucinations template checks unsupported certainty and internal contradictions in the answer text; it does not independently verify external facts or compare against hidden retrieval context. Opacity checks for a useful explanation, assumptions, and uncertainty, never private chain-of-thought. PII presence uses built-in pattern masking without a model. Vulnerability starts with NeMo injection/content patterns and editable tool restrictions; it is not a vulnerability scanner. Template descriptions and limitations remain visible in the editor. Previews and evaluations help assess behavior, but do not certify semantic accuracy.
+
+## YAML policies and templates
+
+Every template has a source file in `guardrails/templates/`. **Policy YAML** in the policy editor shows the complete configuration. Valid YAML edits update the form; form edits appear in YAML when switching views or exporting. **Try it out**, **Save policy**, and **Export YAML** use the same validated settings. Invalid YAML stays in the editor for correction and cannot be saved, previewed, or exported. Formatting and comments are normalized on save or form edits.
+
+**Import YAML** on the Guardrails page opens a new draft. **Import YAML into draft** replaces the current draft's settings; changes are persisted only with **Save policy**. **Export YAML** downloads the current draft, including unsaved valid changes. Template originals are unchanged when creating or editing a saved policy.
+
+The YAML uses NeMo's configuration shape and its [`custom_data` extension](https://github.com/NVIDIA-NeMo/Guardrails/blob/v0.24.1/nemoguardrails/rails/llm/config.py). The supported adapter layout is:
+
+```yaml
+models: []
+colang_version: '1.0'
+rails:
+  input:
+    flows: [openharness policy]
+  dialog:
+    user_messages:
+      embeddings_only: true
+custom_data:
+  openharness:
+    version: 1
+    policy:
+      name: Example privacy policy
+      provider: builtin
+      pii: true
+      stages: [input, output, retrieval, tool_input, tool_output]
+```
+
+Edit fields under `custom_data.openharness.policy`. The top-level flow binding is fixed to the installed OpenHarness adapter. OpenHarness reads the policy settings, applies stage routing and tool restrictions, and supplies each policy snapshot to NeMo in trusted request context. The file represents this integration, **not a standalone NeMo deployment bundle**: it requires the OpenHarness runtime and the bundled `rails.co`/`actions.py`. Model endpoints and credentials remain service configuration. Arbitrary model definitions, action URLs, imports, Colang, and unknown fields are rejected rather than silently ignored. Files are limited to 256 KiB; duplicate keys, extra YAML documents, anchors, aliases, and explicit tags are rejected.
+
+Authenticated clients can download `/api/guardrails/:id/yaml` or `/api/guardrail-templates/:id/yaml`. Administrators can validate an import with `POST /api/guardrail-yaml/validate` and JSON `{ "yaml": "..." }`, then save its returned `policy` through the existing policy API. Export is scoped to the current workspace and excludes record IDs, ownership, and credentials. Existing permissions and policy revision snapshots apply.
+
+To change a built-in template in source control, edit its YAML and run `npm run generate:guardrail-templates`. This generates the shared JSON catalogue used by the server and browser. Builds, type checks, development startup, and unit tests also generate it automatically, so a fresh clone needs no external template files.

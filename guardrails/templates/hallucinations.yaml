@@ -1,0 +1,44 @@
+# NeMo Guardrails configuration for the OpenHarness policy adapter.
+# Requires the bundled openharness rails.co and actions.py.
+# Edit custom_data.openharness.policy; model credentials stay on the service.
+models: []
+colang_version: "1.0"
+rails:
+  input:
+    flows:
+      - openharness policy
+  dialog:
+    user_messages:
+      embeddings_only: true
+custom_data:
+  openharness:
+    version: 1
+    policy:
+      name: Hallucinations policy
+      description: Check answers for unsupported certainty, invented citations, and contradictory claims.
+      provider: nemo
+      configId: openharness
+      stages:
+        - output
+      failMode: closed
+      timeoutMs: 5000
+      latencyBudgetMs: 120000
+      pii: false
+      jailbreak: false
+      contentSafety: false
+      semanticChecks: true
+      templateId: hallucinations
+      safetyInstructions: "Review the answer for internal contradictions, fabricated-looking citations,
+        and factual conclusions unsupported by evidence presented in the answer. Block material
+        contradictions or factual assertions presented as verified without supporting evidence or an
+        explicit uncertainty qualifier. Allow clearly labeled estimates, opinions, creative writing,
+        and ordinary conversational replies. You only see the answer: do not assume access to
+        retrieved documents or external facts, and do not claim to have independently verified
+        them."
+      deniedTerms: []
+      blockedTopics: []
+      deniedTools: []
+      argumentRules: []
+      blockMessage: The answer did not pass the evidence check. Provide supporting sources or qualify
+        uncertain claims.
+      enabled: true

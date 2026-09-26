@@ -9,7 +9,40 @@ import { createRun } from '../../../packages/core/src/runs.js';
 import type { Run } from '../../../packages/core/src/schema.js';
 import { HttpError, safeError } from '../../../packages/core/src/security.js';
 import { requireAdmin, rateLimit } from './auth.js';
+import {
+  guardrailYaml,
+  guardrailYamlFilename,
+  guardrailYamlMaxBytes,
+  parseGuardrailYaml,
+} from '../../../packages/core/src/guardrailYaml.js';
+import { guardrailTemplates } from '../../../packages/core/src/guardrailTemplates.js';
 export const guardrailApi = Router();
+guardrailApi.post('/guardrail-yaml/validate', requireAdmin, async (req, res) => {
+  await rateLimit(`guardrail-yaml:${req.principal!.tenantId}`, 60);
+  const { yaml } = z
+    .object({ yaml: z.string().max(guardrailYamlMaxBytes) })
+    .strict()
+    .parse(req.body);
+  try {
+    const policy = parseGuardrailYaml(yaml);
+    res.json({ policy, yaml: guardrailYaml(policy) });
+  } catch (error) {
+    throw new HttpError(400, error instanceof Error ? error.message : 'Invalid policy YAML');
+  }
+});
+guardrailApi.get('/guardrails/:id/yaml', async (req, res) => {
+  const record = await collection<any>('guardrails').findOne({
+    _id: String(req.params.id),
+    ownerId: req.principal!.tenantId,
+  });
+  if (!record) throw new HttpError(404, 'Policy not found');
+  res.type('application/yaml').attachment(guardrailYamlFilename(record.name)).send(guardrailYaml(record));
+});
+guardrailApi.get('/guardrail-templates/:id/yaml', (req, res) => {
+  const template = guardrailTemplates.find((t) => t.id === req.params.id);
+  if (!template) throw new HttpError(404, 'Template not found');
+  res.type('application/yaml').attachment(`${template.id}.yaml`).send(guardrailYaml(template.policy));
+});
 guardrailApi.get('/guardrail-audit', async (req, res) => {
   const rows = await collection<any>('guardrail_audit')
     .find({ ownerId: req.principal!.tenantId })
@@ -54,7 +87,13 @@ guardrailApi.get('/guardrail-evaluations', async (req, res) => {
 });
 guardrailApi.post('/guardrail-evaluations', requireAdmin, async (req, res) => {
   await rateLimit(`guardrail-evaluation:${req.principal!.tenantId}`, 5);
-  if (await collection('guardrail_evaluations').countDocuments({ ownerId: req.principal!.tenantId, status: { $in: ['queued', 'running'] } }) >= 2) throw new HttpError(429, 'Wait for an active safety evaluation to finish');
+  if (
+    (await collection('guardrail_evaluations').countDocuments({
+      ownerId: req.principal!.tenantId,
+      status: { $in: ['queued', 'running'] },
+    })) >= 2
+  )
+    throw new HttpError(429, 'Wait for an active safety evaluation to finish');
   const { workflowId, suite } = z
     .object({ workflowId: z.string().uuid(), suite: z.enum(['baseline', 'garak']).default('baseline') })
     .parse(req.body);
@@ -148,7 +187,10 @@ export async function dispatchGuardrailEvaluations() {
     const selected = job.probes ?? probes;
     const index = job.results.length;
     if (index >= selected.length) {
-      await jobs.updateOne({ _id: job._id, leaseId }, { $set: { status: 'completed', finishedAt: new Date() } });
+      await jobs.updateOne(
+        { _id: job._id, leaseId },
+        { $set: { status: 'completed', finishedAt: new Date() } },
+      );
       return;
     }
     const probe = selected[index] as (typeof probes)[number] & { forbiddenOutput?: string };

@@ -1,0 +1,41 @@
+# NeMo Guardrails configuration for the OpenHarness policy adapter.
+# Requires the bundled openharness rails.co and actions.py.
+# Edit custom_data.openharness.policy; model credentials stay on the service.
+models: []
+colang_version: "1.0"
+rails:
+  input:
+    flows:
+      - openharness policy
+  dialog:
+    user_messages:
+      embeddings_only: true
+custom_data:
+  openharness:
+    version: 1
+    policy:
+      name: Bias policy
+      description: Check for discriminatory recommendations, stereotypes, and unequal treatment.
+      provider: nemo
+      configId: openharness
+      stages:
+        - input
+        - output
+      failMode: closed
+      timeoutMs: 5000
+      latencyBudgetMs: 120000
+      pii: false
+      jailbreak: false
+      contentSafety: false
+      semanticChecks: true
+      templateId: bias
+      safetyInstructions: Block content that promotes discriminatory treatment, demeaning stereotypes, or
+        superiority based on protected characteristics such as race, gender, religion, disability,
+        or age. Allow neutral discussion, reporting, and analysis of discrimination. Evaluate the
+        intent and context, not the mere mention of a group.
+      deniedTerms: []
+      blockedTopics: []
+      deniedTools: []
+      argumentRules: []
+      blockMessage: This content was blocked by the bias policy. Reframe it without discriminatory assumptions.
+      enabled: true
