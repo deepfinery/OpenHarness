@@ -1,3 +1,4 @@
+import { displayAnswer } from '../../../../packages/core/src/finalAnswer.js';
 import { useEffect, useRef, useState } from 'react';
 import {
   Activity,
@@ -504,7 +505,7 @@ export function Playground({
                   </div>
                   <div className="message-body">
                     <strong>{m.role === 'user' ? 'You' : (current?.name ?? 'Agent')}</strong>
-                    <Markdown text={m.content} />
+                    <Markdown text={m.role === 'assistant' ? displayAnswer(m.content) : m.content} />
                     {m.role === 'assistant' && m.runId && <FeedbackBar runId={m.runId} />}
                   </div>
                 </div>
@@ -638,7 +639,7 @@ export function Playground({
               {inspected?.output && (
                 <details className="trace-output" open>
                   <summary>Output</summary>
-                  <Markdown text={inspected.output} />
+                  <Markdown text={displayAnswer(inspected.output)} />
                 </details>
               )}
               <Trace events={shown.events ?? []} />
@@ -801,7 +802,7 @@ export function EmbedChat({ id }: { id: string }) {
         )}
         {messages.map((m, i) => (
           <div className={`embed-bubble ${m.role}`} key={i}>
-            <Markdown text={m.content} />
+            <Markdown text={m.role === 'assistant' ? displayAnswer(m.content) : m.content} />
           </div>
         ))}
         {busy && <p className="muted">Working…</p>}

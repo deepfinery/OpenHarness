@@ -187,6 +187,40 @@ test('turn exhaustion performs one tool-free synthesis and retains the evidence'
   );
 });
 
+test('MCP evidence stays in memory when final synthesis is unavailable, and a clean synthesis can use it', async () => {
+  const connection = await ok('/connections', {
+    name: `Summary tools ${suffix}`,
+    url: 'http://fixtures:9090/mcp',
+  });
+  await ok(`/connections/${connection.id}/discover`, {});
+  const agent = await ok('/agents', {
+    name: `MCP limited ${suffix}`,
+    providerId: provider.id,
+    systemPrompt: 'Use the lookup tool to collect evidence.',
+    connections: [{ connectionId: connection.id, tools: ['lookup'] }],
+    maxTurns: 2,
+    tokenBudget: 100000,
+  });
+  for (const ending of ['ignore synthesis', 'malformed']) {
+    const result = await run(`exhaust tool evidence ${ending}`, { agentId: agent.id });
+    assert.match(result.output, /assessment is incomplete/);
+    assert.match(result.output, /Memory and Trace/);
+    assert.doesNotMatch(result.output, /structuredContent|\{"content"|tool_calls/);
+    const unavailable = result.events.filter((e: any) => e.type === 'summary_unavailable');
+    assert.equal(unavailable.length, 1);
+    assert.equal(unavailable[0].data.reason, ending === 'malformed' ? 'model_error' : 'tool_call');
+    assert.equal(result.events.filter((e: any) => e.type === 'model_retry').length, 0);
+    const notes = (await ok(`/runs/${result.id}/memory`)).notes;
+    assert.equal(notes.length, 2, 'the final turn does not execute another tool');
+    const saved = await ok(`/runs/${result.id}/memory/${notes[0].note_id}`);
+    assert.match(saved.content, /structuredContent/);
+    assert.match(saved.content, /MCP lookup: recorded evidence/);
+  }
+  const summarized = await run('exhaust tool evidence summarize', { agentId: agent.id });
+  assert.match(summarized.output, /lookup returned recorded evidence/);
+  assert.doesNotMatch(summarized.output, /SYNTHESIS CONTEXT INVALID|structuredContent/);
+});
+
 test('extended limits allow more than forty analysis turns', async () => {
   const agent = await ok('/agents', {
     name: `Extended ${suffix}`,

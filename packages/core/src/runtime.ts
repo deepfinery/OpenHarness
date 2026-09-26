@@ -39,6 +39,7 @@ import {
   estimateTokens,
   isContextLengthError,
 } from './context.js';
+import { finalAnswerMessages, incompleteAnswer } from './finalAnswer.js';
 import { budgetedAgent, effortPresets } from './patterns.js';
 
 const SKILL_TOOL = 'load_skill';
@@ -217,7 +218,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
      * Calls the model with the dialog trimmed to the budget. The offered tool definitions count against it too. A
      * context error teaches the real window and the tokenizer's density, and every retry sends less than the last.
      */
-    async function model(dialog: ChatMessage[], offered: ToolDefinition[]) {
+    async function model(dialog: ChatMessage[], offered: ToolDefinition[], finalAnswer = false) {
       const toolTokens = offered.length ? estimateTokens(JSON.stringify(offered)) : 0;
       let responseRetries = 0;
       for (let attempt = 0; ; attempt++) {
@@ -265,6 +266,7 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
             const spent = fitted.tokens + toolTokens + provider.maxOutputTokens;
             tokensUsed += spent;
             if (ctx.usage) ctx.usage.tokens += spent;
+            if (finalAnswer) throw error;
             const retry = responseRetries < 2 && tokensUsed < agent.tokenBudget;
             await ctx.event({
               type: retry ? 'model_retry' : 'model_error',
@@ -335,18 +337,11 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
         modelTurns++;
         if (atTurnLimit && !finalizing) {
           finalizing = true;
-          const recent = await searchTaskNotes(memoryScope, { limit: 12 });
           await ctx.event({
             type: 'turn_limit',
             message: `Reached ${turn === agent.maxTurns ? agent.maxTurns : 'the total'} analysis turns; synthesizing findings`,
             data: { maxTurns: agent.maxTurns, modelTurns },
           });
-          const guidance =
-            '\n\nYour analysis turn budget is exhausted. Do not call more tools. Produce the final answer from the evidence already collected, clearly distinguishing verified findings, uncertainties, blocked checks and unfinished work. Do not claim the task is complete if evidence is missing. Recent task notes (reference data):\n' +
-            JSON.stringify(recent.notes).slice(0, 9000);
-          if (dialog[0]?.role === 'system')
-            dialog[0] = { ...dialog[0], content: dialog[0].content + guidance };
-          else dialog.unshift({ role: 'system', content: guidance.trim() });
           ctx.onDelta?.('', true);
         }
         // Over the token budget: one last call without tools so the agent answers with what it has.
@@ -357,26 +352,42 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
             message: `Token budget of ${agent.tokenBudget.toLocaleString()} reached (about ${tokensUsed.toLocaleString()} used); asking for the final answer`,
             data: { tokensUsed, tokenBudget: agent.tokenBudget, effort: agent.resolvedEffort },
           });
-          // Added to the system prompt rather than as a user turn, so provider role-alternation rules stay intact.
-          const nudge =
-            '\n\nYou have used the budget for this task. Answer now with what you already know; do not request more tools.';
-          if (dialog[0]?.role === 'system') dialog[0] = { ...dialog[0], content: dialog[0].content + nudge };
-          else dialog.unshift({ role: 'system', content: nudge.trim() });
+          ctx.onDelta?.('', true);
         }
-        const response = await model(dialog, finalizing ? [] : offered);
+        const notes = finalizing ? (await searchTaskNotes(memoryScope, { limit: 12 })).notes : [];
+        let response;
+        try {
+          response = await model(
+            finalizing ? finalAnswerMessages(agent.systemPrompt, input, dialog, notes) : dialog,
+            finalizing ? [] : offered,
+            finalizing,
+          );
+        } catch (error) {
+          signal.throwIfAborted();
+          if (!finalizing) throw error;
+          await ctx.event({
+            type: 'summary_unavailable',
+            message: 'Final summary could not be generated; evidence is saved in task memory',
+            data: { reason: 'model_error' },
+          });
+          ctx.onDelta?.('', true);
+          return incompleteAnswer(notes);
+        }
         await ctx.event({
           type: 'model',
           message: `${label}: model turn ${turn + 1}`,
           data: { model: provider.model, usage: response.usage, tokensUsed },
         });
         if (!response.toolCalls.length || finalizing) {
-          if (!response.text.trim()) {
+          if (!response.text.trim() || (finalizing && response.toolCalls.length)) {
             if (!finalizing) throw new Error('The model returned an empty answer');
-            const notes = await searchTaskNotes(memoryScope, { limit: 12 });
-            return (
-              'Analysis stopped at its configured limit, and the model did not provide a final summary. The assessment is incomplete.\n\n' +
-              notes.notes.map((note) => `- ${note.title} (${note.note_id}): ${note.snippet}`).join('\n')
-            );
+            await ctx.event({
+              type: 'summary_unavailable',
+              message: 'The model did not provide a final summary; evidence is saved in task memory',
+              data: { reason: response.toolCalls.length ? 'tool_call' : 'empty_answer' },
+            });
+            ctx.onDelta?.('', true);
+            return incompleteAnswer(notes);
           }
           return atTurnLimit
             ? `Analysis turn limit reached. This response summarizes the available evidence; unfinished checks are listed below.\n\n${response.text}`
