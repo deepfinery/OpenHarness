@@ -17,16 +17,11 @@ test('cluster setup exposes shared installation, monitoring and remediation cont
   };
   await api('/users', { ...credentials, name: 'Cluster admin', workspace: 'new', role: 'admin' });
   await api('/auth/login', credentials);
-  const provider = await api('/providers', {
+  await api('/providers', {
     name: 'Monitor provider',
     kind: 'openai-compatible',
     baseUrl: 'http://fixtures:9090/v1',
     model: 'test-cluster',
-  });
-  await api('/agents', {
-    name: 'GPU troubleshooter',
-    providerId: provider.id,
-    systemPrompt: 'Inspect node health.',
   });
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -38,7 +33,11 @@ test('cluster setup exposes shared installation, monitoring and remediation cont
   await expect(page.getByRole('dialog')).toContainText('--host-access');
   await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
   await page.getByRole('button', { name: 'Configure Training fleet', exact: true }).click();
-  await page.getByLabel('Monitoring agent').selectOption({ label: 'GPU troubleshooter' });
+  await page.getByRole('button', { name: 'New monitoring agent', exact: true }).click();
+  await page.getByLabel('Monitoring agent name').fill('GPU troubleshooter');
+  await page.getByRole('button', { name: 'Save monitoring agent', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  await expect(page.getByLabel('Monitoring agent')).toHaveValue((await api('/agents'))[0].id);
   await expect(page.getByLabel('Interval (seconds)')).toHaveValue('300');
   await expect(page.getByLabel('Remediation mode')).toHaveValue('disabled');
   await page.getByLabel('Remediation mode').selectOption('approval');
