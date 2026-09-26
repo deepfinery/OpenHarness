@@ -83,7 +83,7 @@ again; **New token** in the machine's settings issues another.
 Requirements: Node.js 22.13 or later, outbound HTTPS (443) to the gateway, root for the install.
 
 ```sh
-git clone https://github.com/deepfinery/orchestrator.git && cd orchestrator
+git clone https://github.com/deepfinery/OpenHarness.git && cd OpenHarness
 npm --prefix connector-core ci && npm --prefix connector-core run build
 npm --prefix connector-linux ci && npm --prefix connector-linux run build
 sudo GATEWAY_URL=wss://gateway.example.com/connect DEVICE_ID=box-1 DEVICE_TOKEN=dv_… sh connector-linux/install.sh
@@ -96,6 +96,18 @@ and enables the hardened `openharness-connector` systemd unit (`ProtectSystem=st
 write is `/var/lib/openharness-connector/work`; the command allow-list starts with read-mostly programs (`ls`,
 `cat`, `grep`, `df`, `systemctl`, `journalctl`, `git`, `docker`, …) and `rm`, `dd`, `sudo`, `shutdown` are
 denied. Edit `config.json` (see `connector-linux/config.example.json`) and `systemctl restart openharness-connector`.
+
+The config is owned by `root:openharness-connector` with mode `0640`; the config directory is `0750`.
+Re-running the installer repairs ownership, updates the gateway URL and device ID, replaces the token,
+and restarts the service. Existing command allow-lists and other local policy settings are preserved.
+
+For a local development gateway without TLS, pass `GATEWAY_ALLOW_INSECURE=true` alongside a `ws://`
+`GATEWAY_URL`. The installer writes `allow_insecure: true` into the config used by systemd. This sends
+credentials and commands without transport encryption; use `wss://` for deployment. Set
+`GATEWAY_ALLOW_INSECURE=false` to remove a previous insecure override. The gateway address must be
+reachable from the machine: `localhost` points to that machine, not the orchestrator. Set
+`GATEWAY_PUBLIC_URL` to the reachable gateway address and recreate the API service before copying the
+studio's install command for a remote machine.
 
 Firewall: only outbound 443 to the gateway is needed. To pin it, uncomment `IPAddressAllow` in the unit.
 
@@ -143,11 +155,11 @@ enrollment so the tokens and allow-lists are in place. Notes that apply when the
 
 ## 7. Troubleshooting
 
-| Symptom                                 | Check                                                                                                                                                                                          |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Machine stays **offline** after install | `journalctl -u openharness-connector -f` (or `docker logs`). Close code 4001 = wrong token or not enrolled; 4003 = disabled or platform mismatch; TLS errors = `GATEWAY_URL` must be `wss://`. |
-| Online but **no tools**                 | Click **Sync** on the Machines page; the connector's `ALLOW_COMMANDS` does not affect the tool list, the machine's allowed tools in the studio do.                                             |
-| `tool not allowed`                      | Add the tool in the machine's **Tools** dialog (gateway allow-list).                                                                                                                           |
-| `command is not on the allow-list`      | Add the program to `allow_commands` in the connector config (host) or `ALLOW_COMMANDS` (container).                                                                                            |
-| `device timeout`                        | Raise `GATEWAY_TOOL_TIMEOUTS=run_command=600` or the connector's `command_timeout_seconds`.                                                                                                    |
-| Studio says the gateway is unreachable  | `docker compose ps gateway`, `GATEWAY_URL` from the api container, `GATEWAY_ADMIN_TOKEN` matches.                                                                                              |
+| Symptom                                 | Check                                                                                                                                                                                               |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Machine stays **offline** after install | `sudo journalctl -u openharness-connector -f` (or `docker logs`). Close code 4001 = wrong token or not enrolled; 4003 = disabled or platform mismatch; TLS errors = `GATEWAY_URL` must be `wss://`. |
+| Online but **no tools**                 | Click **Sync** on the Machines page; the connector's `ALLOW_COMMANDS` does not affect the tool list, the machine's allowed tools in the studio do.                                                  |
+| `tool not allowed`                      | Add the tool in the machine's **Tools** dialog (gateway allow-list).                                                                                                                                |
+| `command is not on the allow-list`      | Add the program to `allow_commands` in the connector config (host) or `ALLOW_COMMANDS` (container).                                                                                                 |
+| `device timeout`                        | Raise `GATEWAY_TOOL_TIMEOUTS=run_command=600` or the connector's `command_timeout_seconds`.                                                                                                         |
+| Studio says the gateway is unreachable  | `docker compose ps gateway`, `GATEWAY_URL` from the api container, `GATEWAY_ADMIN_TOKEN` matches.                                                                                                   |

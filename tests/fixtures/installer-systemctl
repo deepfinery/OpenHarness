@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> /run/installer-systemctl.log
+case "$1" in
+  daemon-reload|enable) exit 0 ;;
+  restart)
+    if [ -f /run/installer-connector.pid ]; then
+      kill "$(cat /run/installer-connector.pid)" 2>/dev/null || true
+      sleep 1
+    fi
+    # Enrollment variables are intentionally removed: systemd does not inherit the installer's environment.
+    env -u GATEWAY_URL -u DEVICE_ID -u DEVICE_TOKEN -u GATEWAY_ALLOW_INSECURE runuser -u openharness-connector -- /usr/local/bin/node /opt/openharness-connector/connector-linux/dist/main.js --config /etc/openharness-connector/config.json >> /run/installer-connector.log 2>&1 &
+    echo "$!" > /run/installer-connector.pid
+    ;;
+  *) echo "unsupported fixture service command" >&2; exit 1 ;;
+esac

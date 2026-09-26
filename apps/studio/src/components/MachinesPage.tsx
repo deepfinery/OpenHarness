@@ -455,6 +455,15 @@ function ConnectModal({
         <p className="field-help">
           Gateway address: <code>{enrollment.connectUrl}</code>. The machine only needs outbound access to it.
         </p>
+        {['localhost', '127.0.0.1', '[::1]'].includes(
+          new URL(enrollment.connectUrl).hostname.toLowerCase(),
+        ) && (
+          <p role="alert" className="field-help">
+            This gateway address points to localhost. Remote machines and containers cannot reach the gateway
+            at this address. Set GATEWAY_PUBLIC_URL to a reachable gateway address and recreate the API
+            service before copying a new install command.
+          </p>
+        )}
       </div>
       <div className="form-actions">
         <Button onClick={onClose}>Done</Button>

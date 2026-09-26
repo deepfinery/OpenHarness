@@ -7,6 +7,7 @@ export STUDIO_PORT="${TEST_PORT:-18088}"
 export PUBLIC_URL="http://localhost:$STUDIO_PORT"
 export TEST_BASE_URL="$PUBLIC_URL"
 export TEST_FAULT_INJECTION=true
+export TEST_LINUX_INSTALLER=true
 compose() { docker compose -p "$TEST_COMPOSE_PROJECT" -f compose.yaml -f tests/compose.test.yaml "$@"; }
 cleanup() {
   result=$?
@@ -16,6 +17,7 @@ cleanup() {
 }
 trap cleanup EXIT
 compose up --build -d --wait --wait-timeout 480
+compose build installer
 npm test
 npm run test:integration
 # The Open Harness conformance suite, pinned upstream, through the adapter in conformance/.

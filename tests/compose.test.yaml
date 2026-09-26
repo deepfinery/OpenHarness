@@ -1,4 +1,9 @@
 services:
+  installer:
+    build: { context: ., dockerfile: tests/fixtures/linux-installer.Dockerfile }
+    image: openharness-installer-test:local
+    profiles: ['installer']
+    restart: 'no'
   api:
     environment:
       &test-stores # No gateway here, like installs created before machines existed: the configured gateway is trusted on its own.
