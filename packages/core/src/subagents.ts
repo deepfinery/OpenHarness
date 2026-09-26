@@ -122,6 +122,7 @@ export function childAgent(
     workspace: parent.workspace,
     experience: parent.experience,
     contextCompaction: parent.contextCompaction,
+    timezone: parent.timezone,
     maxTurns: effortPresets[effort].maxTurns,
     timeoutSeconds: effortPresets[effort].timeoutSeconds,
     pattern: 'react',

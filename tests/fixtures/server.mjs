@@ -683,6 +683,34 @@ function answer(messages, tools) {
       : `Completed: ${input}`,
   };
 }
+// Contract tests observe the actual prompt delivered over HTTP; they do not claim to evaluate a real model.
+function clockAnswer(messages, tools) {
+  const system = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content)
+    .join('\n');
+  const clock = system.match(/\[Runtime clock\][\s\S]*?(?=\n\n|$)/)?.[0] ?? 'MISSING CLOCK';
+  const input = messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+  stats.clockRequests ??= [];
+  stats.clockRequests.push({ system, input, tools: tools?.length ?? 0 });
+  stats.clockRequests = stats.clockRequests.slice(-100);
+  const call = (name, args) => ({
+    content: '',
+    tool_calls: [{ id: randomUUID(), type: 'function', function: { name, arguments: JSON.stringify(args) } }],
+  });
+  if (
+    input.includes('delegate-clock') &&
+    tools?.some((t) => t.function.name === 'spawn_agents') &&
+    messages.at(-1)?.role !== 'tool'
+  )
+    return call('spawn_agents', { agents: [{ task: 'child-clock', effort: 'light' }] });
+  const lookup = tools?.find((t) => t.function.description?.includes('Look up deterministic test data'));
+  if (lookup && input.includes('research-clock')) {
+    const range = /inclusive\): (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/.exec(clock);
+    return call(lookup.function.name, { query: `Stock market news ${range?.[1]} through ${range?.[2]}` });
+  }
+  return { content: `${tools?.length ? 'Analysis' : 'Final synthesis'}: ${clock}` };
+}
 app.post('/v1/chat/completions', async (req, res) => {
   stats.models++;
   if (JSON.stringify(req.body).includes('delay-model')) await new Promise((r) => setTimeout(r, 15000));
@@ -738,7 +766,10 @@ app.post('/v1/chat/completions', async (req, res) => {
       },
     });
   }
-  let message = answer(req.body.messages, req.body.tools);
+  let message =
+    req.body.model === 'test-clock'
+      ? clockAnswer(req.body.messages, req.body.tools)
+      : answer(req.body.messages, req.body.tools);
   // Fail only after a real MCP result, so recovery must preserve already completed tool calls.
   if (
     req.body.model.startsWith('test-response-') &&

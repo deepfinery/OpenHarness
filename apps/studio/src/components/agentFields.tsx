@@ -104,6 +104,17 @@ export function AgentFields({
         </select>
       </Field>
       <EffortControl value={effort} onChange={(level) => onChange(applyEffort(value, level))} />
+      <Field
+        label="Timezone"
+        hint="Used for the runtime clock and relative dates. Defaults to the workflow schedule timezone, then UTC."
+      >
+        <input
+          aria-label="Agent timezone"
+          placeholder="UTC or America/New_York"
+          value={value.timezone ?? ''}
+          onChange={(e) => onChange({ timezone: e.target.value || undefined })}
+        />
+      </Field>
       <Field label="Instructions">
         <textarea
           aria-label="Agent instructions"
