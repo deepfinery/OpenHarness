@@ -1415,11 +1415,22 @@ textarea::placeholder {
 .chat-playground.trace-hidden {
   grid-template-columns: minmax(0, 1fr);
 }
-.chat-playground .playground-float {
-  position: static;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--border-soft);
-  flex-shrink: 0;
+@media (max-width: 680px) {
+  .playground-header .breadcrumbs {
+    flex: 1;
+    min-width: 0;
+  }
+  .playground-header .breadcrumbs > span,
+  .playground-header .breadcrumbs > svg {
+    display: none;
+  }
+  .playground-header .topbar-select {
+    min-width: 0;
+  }
+  .playground-header .topbar-right {
+    flex-shrink: 0;
+    gap: 10px;
+  }
 }
 @media (max-width: 1200px) {
   .chat-playground {
