@@ -54,6 +54,7 @@ import {
 import { resources } from './resources.js';
 import { embedApi, integrations, publicRun, type Embed } from './integrations.js';
 import { conversationApi, webhookApi, webhookSettings } from './triggers.js';
+import { clusters } from './clusters.js';
 import { devices } from './devices.js';
 import { tenantView, type Tenant } from './tenant.js';
 import { openHarnessApi, openHarnessErrors } from './openharness/index.js';
@@ -286,7 +287,9 @@ app.post('/api/inbox/:id/decision', requireSession, async (req, res) => {
 app.get('/api/runs', async (req, res) => {
   checkTokenScope(req, 'read');
   const page = z.coerce.number().int().min(0).max(10000).default(0).parse(req.query.page);
+  const cycle = z.string().uuid().optional().parse(req.query.cycle);
   const filter = {
+    ...(cycle ? { 'monitoring.cycleId': cycle } : {}),
     ownerId: req.principal!.tenantId,
     ...(req.principal!.token ? { tokenId: req.principal!.token._id } : {}),
   };
@@ -608,6 +611,7 @@ app.post('/api/settings/email/test', requireAdmin, async (req, res) => {
 });
 app.use('/api/integrations', requireSession, integrations);
 app.use('/api/integrations/webhooks', requireSession, webhookSettings);
+app.use('/api/clusters', requireSession, clusters);
 app.use('/api/devices', requireSession, devices);
 app.use('/api', requireSession, guardrailApi);
 app.use('/api', requireSession, resources);

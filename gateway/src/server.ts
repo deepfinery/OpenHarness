@@ -33,10 +33,13 @@ export async function startGateway(
   await applyBootstrapDevices(config.GATEWAY_BOOTSTRAP_DEVICES, registry, log);
   const hub = new DeviceHub({
     registry,
+    clusters: storage.clusters,
     log,
     heartbeatSeconds: config.GATEWAY_HEARTBEAT_SECONDS,
     sessionRetentionMs: config.GATEWAY_SESSION_RETENTION_SECONDS * 1000,
     allowInsecure: config.GATEWAY_ALLOW_INSECURE_WS,
+    trustProxy: config.TRUST_PROXY === '1' || config.TRUST_PROXY === 'true',
+    helloRateLimitPerMinute: config.GATEWAY_HELLO_RATE_LIMIT,
   });
   const audit = createGatewayAudit(storage.audit, { file: config.GATEWAY_AUDIT_FILE });
   const approval =
@@ -46,7 +49,7 @@ export async function startGateway(
       : config.GATEWAY_APPROVAL_PROVIDER === 'webhook' && config.GATEWAY_APPROVAL_URL
         ? webhookApproval(config.GATEWAY_APPROVAL_URL, config.GATEWAY_APPROVAL_TIMEOUT_SECONDS * 1000, log)
         : noopApproval);
-  const http = createHttpApp({ config, registry, hub, audit, approval, log });
+  const http = createHttpApp({ config, registry, clusters: storage.clusters, hub, audit, approval, log });
   const server = createServer(http.app);
   const wss = new WebSocketServer({
     noServer: true,

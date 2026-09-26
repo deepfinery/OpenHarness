@@ -116,6 +116,7 @@ services:
     init: true
     environment:
       PORT: 8090
+      GATEWAY_HELLO_RATE_LIMIT: ${GATEWAY_HELLO_RATE_LIMIT:-600}
       GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-ws://localhost:8090}
       GATEWAY_API_TOKENS: orchestrator:${GATEWAY_API_TOKEN:?Run ./start.sh --configure-only to add gateway credentials to .env}
       GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run ./start.sh --configure-only to add gateway credentials to .env}
@@ -127,7 +128,7 @@ services:
       GATEWAY_ALLOW_INSECURE_WS: ${GATEWAY_ALLOW_INSECURE_WS:-true}
       GATEWAY_TOOL_TIMEOUT_SECONDS: ${GATEWAY_TOOL_TIMEOUT_SECONDS:-120}
       GATEWAY_APPROVAL_TOOLS: ${GATEWAY_APPROVAL_TOOLS:-}
-      GATEWAY_APPROVAL_PROVIDER: ${GATEWAY_APPROVAL_PROVIDER:-noop}
+      GATEWAY_APPROVAL_PROVIDER: ${GATEWAY_APPROVAL_PROVIDER:-studio}
       GATEWAY_APPROVAL_URL: ${GATEWAY_APPROVAL_URL:-}
       TRUST_PROXY: ${TRUST_PROXY:-0}
     ports: ['${GATEWAY_BIND:-0.0.0.0}:${GATEWAY_PORT:-8090}:8090']

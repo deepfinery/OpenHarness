@@ -1,5 +1,6 @@
 // MongoDB implementation of the gateway storage contracts. The gateway uses its own database
 // (default `agentic_gateway`), separate from the orchestrator's, so neither reads the other's data.
+import { MongoClusters, type Cluster } from './clusters.js';
 import { MongoClient, MongoServerError, type Collection } from 'mongodb';
 import {
   DuplicateDeviceError,
@@ -36,7 +37,7 @@ class MongoRegistry implements Registry {
     const docs = await this.devices
       .find(owner === undefined ? {} : { owner })
       .sort({ created_at: 1 })
-      .limit(5000)
+      .limit(10000)
       .toArray();
     return docs.map(toRecord);
   }
@@ -119,6 +120,7 @@ export async function connectMongoStorage(
       }
     },
     registry,
+    clusters: new MongoClusters(db.collection<Cluster>('clusters')),
     audit: new MongoAuditStore(calls),
     close: () => registry.close(),
   };

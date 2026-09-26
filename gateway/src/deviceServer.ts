@@ -10,6 +10,7 @@ import {
 import type { Logger } from '@openharness/connector-core';
 import type { DeviceHub } from './hub.js';
 import { HubError } from './hub.js';
+import { clusterTools, type ClusterStore } from './clusters.js';
 import type { Registry } from './registry.js';
 import type { GatewayAudit } from './audit.js';
 import type { ApprovalProvider } from './approval.js';
@@ -24,6 +25,7 @@ export const GatewayErrorCode = {
 export type DeviceServerDeps = {
   hub: DeviceHub;
   registry: Registry;
+  clusters?: ClusterStore;
   audit: GatewayAudit;
   approval: ApprovalProvider;
   approvalTools: Set<string>;
@@ -38,16 +40,30 @@ export function createDeviceServer(deviceId: string, identity: string, deps: Dev
   const allowed = async () => {
     const record = await deps.registry.get(deviceId);
     if (!record || record.disabled) throw new McpError(GatewayErrorCode.DeviceOffline, 'device offline');
+    if (record.cluster_id) {
+      const cluster = await deps.clusters?.get(record.cluster_id);
+      if (!cluster || cluster.disabled)
+        throw new McpError(GatewayErrorCode.DeviceOffline, 'cluster disabled');
+      return new Set(
+        record.allowed_tools.filter(
+          (t) => clusterTools.includes(t) && (t !== 'gpu_remediate' || cluster.remediation !== 'disabled'),
+        ),
+      );
+    }
     return new Set(record.allowed_tools);
   };
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const allow = await allowed();
     try {
       const { tools, stale } = await deps.hub.listTools(deviceId);
+      const record = await deps.registry.get(deviceId);
+      const automatic =
+        record?.cluster_id && (await deps.clusters?.get(record.cluster_id))?.remediation === 'automatic';
       const visible = tools
         .filter((t) => allow.has(t.name))
         .map((t) =>
-          deps.approval.studio && deps.approvalTools.has(t.name)
+          deps.approval.studio &&
+          (deps.approvalTools.has(t.name) || (t.name === 'gpu_remediate' && !automatic))
             ? { ...t, _meta: { ...t._meta, 'openharness/approvalRequired': true } }
             : t,
         );
@@ -75,7 +91,28 @@ export function createDeviceServer(deviceId: string, identity: string, deps: Dev
       await finish('denied', 'tool not allowed for this device');
       throw new McpError(GatewayErrorCode.ToolNotAllowed, `tool not allowed: ${name}`);
     }
-    if (deps.approvalTools.has(name)) {
+    const record = await deps.registry.get(deviceId);
+    const cluster = record?.cluster_id ? await deps.clusters?.get(record.cluster_id) : undefined;
+    if (
+      name === 'gpu_remediate' &&
+      (!cluster ||
+        cluster.remediation === 'disabled' ||
+        !cluster.actions.includes(String(args?.action) as any))
+    ) {
+      await finish('denied', 'remediation action not enabled');
+      throw new McpError(GatewayErrorCode.ToolNotAllowed, 'remediation action not enabled');
+    }
+    if (
+      (deps.approvalTools.has(name) || name === 'gpu_remediate') &&
+      !(name === 'gpu_remediate' && cluster?.remediation === 'automatic')
+    ) {
+      if (name === 'gpu_remediate' && !deps.approval.studio) {
+        await finish('denied', 'Studio approval is required for cluster remediation');
+        throw new McpError(
+          GatewayErrorCode.ApprovalDenied,
+          'Studio approval is required for cluster remediation',
+        );
+      }
       const decision = await deps.approval.decide(
         {
           device_id: deviceId,
@@ -94,6 +131,18 @@ export function createDeviceServer(deviceId: string, identity: string, deps: Dev
         await finish('approval_denied', 'approval denied');
         throw new McpError(GatewayErrorCode.ApprovalDenied, `approval denied for ${name}`);
       }
+    }
+    if (
+      name === 'gpu_remediate' &&
+      !(await deps.clusters!.reserveAction(
+        cluster!._id,
+        Date.now(),
+        String(args?.action),
+        cluster!.remediation,
+      ))
+    ) {
+      await finish('denied', 'cluster disruption cooldown is active');
+      throw new McpError(GatewayErrorCode.ToolNotAllowed, 'cluster disruption cooldown is active');
     }
     try {
       const result = await deps.hub.callTool(deviceId, request.params, {

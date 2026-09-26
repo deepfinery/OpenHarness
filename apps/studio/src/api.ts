@@ -36,6 +36,7 @@ export type Platform = 'linux' | 'windows' | 'chrome';
 /** A registered machine as reported by the device gateway, plus its mirrored connection. */
 export type Machine = {
   device_id: string;
+  cluster_id?: string;
   name: string;
   platform: Platform;
   online: boolean;

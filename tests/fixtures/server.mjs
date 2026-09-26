@@ -951,6 +951,15 @@ app.post('/v1/chat/completions', async (req, res) => {
       return res.end(); // Syntactically valid arguments, but no finish reason: nothing may execute.
     }
   }
+  if (req.body.model === 'test-cluster') {
+    const observation = req.body.messages.find(m => m.role === 'tool');
+    const target = req.body.tools?.find(t => t.function.description?.includes('NVLink, DCGM'));
+    message = observation ? { content: `Node diagnostic evidence: ${observation.content}` } : target ? {
+      content: 'Inspect the assigned GPU node', tool_calls: [{ id: randomUUID(), type: 'function', function: {
+        name: target.function.name, arguments: JSON.stringify({ section: 'nvlink' }),
+      } }],
+    } : { content: 'No host diagnostics tool is available.' };
+  }
   if (req.body.model === 'test-guardrail') {
     const input = req.body.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
     if (input.includes('guarded private output'))

@@ -36,6 +36,7 @@ export async function createRun(
     conversationId?: string;
     runId?: string;
     evaluation?: boolean;
+    monitoring?: { clusterId: string; cycleId: string };
     /** Per-run changes applied to every agent's snapshot; the stored agents and workflow are untouched. */
     overrides?: RunOverrides;
   } = {},
@@ -50,6 +51,7 @@ export async function createRun(
       webhookId: options.webhookId,
       overrides: options.overrides,
       evaluation: options.evaluation,
+      monitoring: options.monitoring,
     }),
   );
   if (options.idempotencyKey) {
@@ -173,8 +175,16 @@ export async function createRun(
     );
     const attach = (a: Agent): Agent => ({
       ...a,
+      ...(options.monitoring
+        ? {
+            effort: 'light' as const,
+            maxTurns: Math.min(a.maxTurns, 8),
+            tokenBudget: Math.min(a.tokenBudget ?? 16000, 16000),
+            delegation: { maxAgents: a.delegation?.maxAgents ?? 4, enabled: false },
+          }
+        : {}),
       connections: [
-        ...a.connections.filter((c) => !machines.has(c.connectionId)),
+        ...a.connections.filter((c) => !options.monitoring && !machines.has(c.connectionId)),
         { connectionId: connection._id, tools },
       ],
     });

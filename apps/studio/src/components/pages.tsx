@@ -423,7 +423,9 @@ export function RunsPage() {
     let stopped = false;
     const load = async () => {
       try {
-        const r = await api(`/runs?page=${page}`);
+        const r = await api(
+          `/runs?page=${page}${new URLSearchParams(location.search).get('cycle') ? '&cycle=' + encodeURIComponent(new URLSearchParams(location.search).get('cycle')!) : ''}`,
+        );
         if (!stopped) setRuns(r);
       } catch (e) {
         if (!stopped) setError(errorMessage(e));

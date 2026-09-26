@@ -15,6 +15,8 @@ import {
   type Logger,
   type Platform,
 } from '@openharness/connector-core';
+import { clusterTools, type ClusterStore } from './clusters.js';
+import { DuplicateDeviceError } from './registry.js';
 import type { Registry } from './registry.js';
 import { verifyDeviceToken } from './tokens.js';
 
@@ -38,11 +40,13 @@ export type DeviceSession = {
 };
 export type HubOptions = {
   registry: Registry;
+  clusters?: ClusterStore;
   log: Logger;
   heartbeatSeconds?: number;
   sessionRetentionMs?: number;
   /** Require TLS at the edge unless explicitly disabled. */
   allowInsecure?: boolean;
+  trustProxy?: boolean;
   helloRateLimitPerMinute?: number;
 };
 export class HubError extends Error {
@@ -56,6 +60,7 @@ export class HubError extends Error {
 const OFFLINE_CODE = -32010;
 
 export class DeviceHub {
+  private authenticating = 0;
   private sessions = new Map<string, DeviceSession>();
   private helloAttempts = new Map<string, { count: number; resetAt: number }>();
   private listeners = new Set<(event: { type: 'online' | 'offline' | 'tools'; deviceId: string }) => void>();
@@ -94,7 +99,8 @@ export class DeviceHub {
       .split(',')[0]
       .trim();
     const encrypted =
-      Boolean((request.socket as { encrypted?: boolean }).encrypted) || forwardedProto === 'https';
+      Boolean((request.socket as { encrypted?: boolean }).encrypted) ||
+      (this.options.trustProxy === true && forwardedProto === 'https');
     if (!encrypted && !this.options.allowInsecure) {
       log.warn('rejected device socket without TLS', { address });
       socket.close(CloseCode.FORBIDDEN, 'tls required');
@@ -117,7 +123,13 @@ export class DeviceHub {
             typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf8') : String(data),
           );
           if (parsed.kind !== 'hello') throw new FrameError('expected hello', CloseCode.UNAUTHENTICATED);
-          await this.accept(socket, parsed.frame, address);
+          if (this.authenticating >= 8) throw new HubError(CloseCode.RATE_LIMITED, 'authentication busy');
+          this.authenticating++;
+          try {
+            await this.accept(socket, parsed.frame, address);
+          } finally {
+            this.authenticating--;
+          }
         } catch (error) {
           const code =
             error instanceof FrameError || error instanceof HubError ? error.code : CloseCode.PROTOCOL_ERROR;
@@ -138,6 +150,10 @@ export class DeviceHub {
   private allowHello(address: string) {
     const limit = this.options.helloRateLimitPerMinute ?? 20;
     const now = Date.now();
+    if (this.helloAttempts.size > 10000) {
+      for (const [key, value] of this.helloAttempts) if (value.resetAt < now) this.helloAttempts.delete(key);
+      if (this.helloAttempts.size > 10000) return false;
+    }
     const entry = this.helloAttempts.get(address);
     if (!entry || entry.resetAt < now) {
       this.helloAttempts.set(address, { count: 1, resetAt: now + 60_000 });
@@ -148,12 +164,51 @@ export class DeviceHub {
   }
   private async accept(socket: WebSocket, hello: HelloFrame, address: string) {
     const log = this.options.log.child({ device_id: hello.device_id });
-    const record = await this.options.registry.get(hello.device_id);
-    if (!record || !(await verifyDeviceToken(record.token_hash, hello.token)))
+    let record = await this.options.registry.get(hello.device_id);
+    const clusterId = /^cl_([a-f0-9-]{36})\./.exec(hello.token)?.[1];
+    const cluster = clusterId ? await this.options.clusters?.get(clusterId) : null;
+    let authenticated = false;
+    if (
+      cluster &&
+      !cluster.disabled &&
+      hello.platform === 'linux' &&
+      (await verifyDeviceToken(cluster.token_hash, hello.token))
+    ) {
+      if (record && (record.cluster_id !== cluster._id || record.owner !== cluster.owner))
+        throw new HubError(CloseCode.FORBIDDEN, 'device belongs to another enrollment');
+      if (!record) {
+        if (!(await this.options.clusters!.claimNode(cluster._id, hello.device_id)))
+          throw new HubError(CloseCode.FORBIDDEN, 'cluster capacity exhausted');
+        try {
+          await this.options.registry.create({
+            device_id: hello.device_id,
+            name: hello.hostname || hello.device_id,
+            platform: 'linux',
+            owner: cluster.owner,
+            cluster_id: cluster._id,
+            token_hash: '',
+            allowed_tools: clusterTools,
+            created_at: new Date().toISOString(),
+            disabled: false,
+          });
+        } catch (error) {
+          if (!(error instanceof DuplicateDeviceError)) throw error;
+        }
+        record = await this.options.registry.get(hello.device_id);
+      }
+      authenticated = record?.cluster_id === cluster._id && record?.owner === cluster.owner;
+    } else if (record && !record.cluster_id)
+      authenticated = await verifyDeviceToken(record.token_hash, hello.token);
+    if (!record || !authenticated)
       throw new HubError(CloseCode.UNAUTHENTICATED, 'unknown device or bad token');
     if (record.disabled) throw new HubError(CloseCode.FORBIDDEN, 'device disabled');
     if (record.platform !== hello.platform) throw new HubError(CloseCode.FORBIDDEN, 'platform mismatch');
 
+    if (cluster) {
+      const latest = await this.options.clusters!.get(cluster._id);
+      if (!latest || latest.disabled || latest.token_hash !== cluster.token_hash)
+        throw new HubError(CloseCode.UNAUTHENTICATED, 'cluster credential changed');
+    }
     const previous = this.sessions.get(hello.device_id);
     if (previous?.online) {
       log.info('superseding an older connection');
