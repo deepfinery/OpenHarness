@@ -32,8 +32,9 @@ Each kind of note is filed in its own folder:
 | Offloaded tool result | `scratch/` in the temporary task notebook |
 
 Every note starts with YAML provenance: `kind`, `run_id`, `agent`, `sources`, `confidence` and `created`. The studio
-shows the folder beside each file. Notes are indexed within seconds of being written, so a note written in the same
-step may not be searchable yet; read it by id instead.
+shows the folder beside each file. Search combines vector results with a bounded scan of recent notes, so recent writes can be found while indexing catches up. Read by id to retrieve a specific note immediately.
+
+A configured workspace also saves run records automatically under `experiments/`; feedback and failure lessons go under `experience/` when learning is enabled. In the designer, **Set up memory** opens the workflow settings, and a knowledge card offers **Use as workflow long-term memory**. Attaching reference knowledge alone does not grant write access.
 
 ## Result offloading
 

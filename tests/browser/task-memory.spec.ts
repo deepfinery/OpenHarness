@@ -53,6 +53,9 @@ test('task notebook can be searched, read and promoted from the Playground', asy
   await expect(page.locator('.task-memory .markdown')).toContainText('verified fixture fact');
   await page.getByRole('button', { name: 'Keep in long-term memory' }).click();
   await expect(page.locator('.task-memory [role="status"]')).toContainText('Saved to long-term memory');
-  expect((await api(`/knowledge/${kb.id}/documents`)).length).toBe(1);
+  const documents = await api(`/knowledge/${kb.id}/documents`);
+  expect(documents.filter((doc: any) => doc.meta?.task_note_id)).toHaveLength(1);
+  expect(documents.filter((doc: any) => doc.meta?.record_type === 'experiment')).toHaveLength(1);
+  await expect(page.locator('.memory-summary')).toContainText('experiment record saved');
   expect(errors).toEqual([]);
 });

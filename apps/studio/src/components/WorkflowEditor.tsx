@@ -346,6 +346,8 @@ export function WorkflowEditor({
   const [open, setOpen] = useState<
     { kind: 'node'; id: string } | { kind: 'workflow' } | { kind: 'api' } | null
   >(null);
+  const [toolSearch, setToolSearch] = useState('');
+  const matchesTool = (text: string) => text.toLowerCase().includes(toolSearch.trim().toLowerCase());
   const [adding, setAdding] = useState<'connection' | 'knowledge' | null>(null);
   const [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
@@ -1053,6 +1055,9 @@ export function WorkflowEditor({
           <Play size={15} />
           Save & test
         </Button>
+        <span className="save-state" role="status">
+          {busy ? 'Saving…' : dirty || !value ? 'Unsaved changes' : 'All changes saved'}
+        </span>
         <Button disabled={busy} onClick={() => void save()}>
           <Save size={16} />
           Save
@@ -1068,19 +1073,32 @@ export function WorkflowEditor({
       )}
       <div className="workflow-body">
         <aside className="toolbox" aria-label="Toolbox">
+          <div className="toolbox-intro">
+            <strong>Build your workflow</strong>
+            <p>Click a step to add it after the selected card. Attach tools and knowledge to an agent.</p>
+          </div>
+          <input
+            type="search"
+            aria-label="Search workflow components"
+            placeholder="Find a component…"
+            value={toolSearch}
+            onChange={(e) => setToolSearch(e.target.value)}
+          />
           <div className="toolbox-group">
             <h4>Steps</h4>
-            {stepTypes.map((type) => (
-              <ToolItem
-                key={type}
-                payload={{ type }}
-                label={labels[type]}
-                hint={stepHints[type]}
-                icon={icons[type]}
-                onAdd={() => add({ type })}
-                onDragStart={beginDrag}
-              />
-            ))}
+            {stepTypes
+              .filter((type) => matchesTool(`${labels[type]} ${stepHints[type]}`))
+              .map((type) => (
+                <ToolItem
+                  key={type}
+                  payload={{ type }}
+                  label={labels[type]}
+                  hint={stepHints[type]}
+                  icon={icons[type]}
+                  onAdd={() => add({ type })}
+                  onDragStart={beginDrag}
+                />
+              ))}
           </div>
           <div className="toolbox-group">
             <h4>
@@ -1096,18 +1114,20 @@ export function WorkflowEditor({
               </button>
             </h4>
             {enabledConnections.length ? (
-              enabledConnections.map((c) => (
-                <ToolItem
-                  key={c.id}
-                  className="mcp"
-                  payload={{ type: 'mcp', connectionId: c.id }}
-                  label={c.name}
-                  hint={c.tools?.length ? `${c.tools.length} tools` : 'No tools discovered'}
-                  icon={Plug}
-                  onAdd={() => add({ type: 'mcp', connectionId: c.id })}
-                  onDragStart={beginDrag}
-                />
-              ))
+              enabledConnections
+                .filter((c) => matchesTool(c.name))
+                .map((c) => (
+                  <ToolItem
+                    key={c.id}
+                    className="mcp"
+                    payload={{ type: 'mcp', connectionId: c.id }}
+                    label={c.name}
+                    hint={c.tools?.length ? `${c.tools.length} tools` : 'No tools discovered'}
+                    icon={Plug}
+                    onAdd={() => add({ type: 'mcp', connectionId: c.id })}
+                    onDragStart={beginDrag}
+                  />
+                ))
             ) : (
               <p className="toolbox-empty">No servers connected.</p>
             )}
@@ -1115,21 +1135,23 @@ export function WorkflowEditor({
           {machineConnections.length > 0 && (
             <div className="toolbox-group">
               <h4>Machines</h4>
-              {machineConnections.map((c) => {
-                const machine = data.machines.find((m) => m.device_id === c.deviceId);
-                return (
-                  <ToolItem
-                    key={c.id}
-                    className="machine"
-                    payload={{ type: 'mcp', connectionId: c.id }}
-                    label={c.name}
-                    hint={`${c.platform ?? 'machine'} · ${machine?.online ? 'online' : 'offline'} · ${c.tools?.length ?? 0} tools`}
-                    icon={Laptop}
-                    onAdd={() => add({ type: 'mcp', connectionId: c.id })}
-                    onDragStart={beginDrag}
-                  />
-                );
-              })}
+              {machineConnections
+                .filter((c) => matchesTool(c.name))
+                .map((c) => {
+                  const machine = data.machines.find((m) => m.device_id === c.deviceId);
+                  return (
+                    <ToolItem
+                      key={c.id}
+                      className="machine"
+                      payload={{ type: 'mcp', connectionId: c.id }}
+                      label={c.name}
+                      hint={`${c.platform ?? 'machine'} · ${machine?.online ? 'online' : 'offline'} · ${c.tools?.length ?? 0} tools`}
+                      icon={Laptop}
+                      onAdd={() => add({ type: 'mcp', connectionId: c.id })}
+                      onDragStart={beginDrag}
+                    />
+                  );
+                })}
             </div>
           )}
           <div className="toolbox-group">
@@ -1146,24 +1168,38 @@ export function WorkflowEditor({
               </button>
             </h4>
             {data.knowledge.length ? (
-              data.knowledge.map((k) => (
-                <ToolItem
-                  key={k.id}
-                  className="knowledge"
-                  payload={{ type: 'knowledge', knowledgeBaseId: k.id }}
-                  label={k.name}
-                  hint="Documents & notes"
-                  icon={BookOpen}
-                  onAdd={() => add({ type: 'knowledge', knowledgeBaseId: k.id })}
-                  onDragStart={beginDrag}
-                />
-              ))
+              data.knowledge
+                .filter((k) => matchesTool(k.name))
+                .map((k) => (
+                  <ToolItem
+                    key={k.id}
+                    className="knowledge"
+                    payload={{ type: 'knowledge', knowledgeBaseId: k.id }}
+                    label={k.name}
+                    hint="Reference documents (read only)"
+                    icon={BookOpen}
+                    onAdd={() => add({ type: 'knowledge', knowledgeBaseId: k.id })}
+                    onDragStart={beginDrag}
+                  />
+                ))
             ) : (
               <p className="toolbox-empty">No knowledge bases.</p>
             )}
           </div>
+          <div className="toolbox-memory">
+            <strong>Memory & learning</strong>
+            <p>
+              {form.workspace
+                ? `Experiments saved to ${data.knowledge.find((k) => k.id === form.workspace?.knowledgeBaseId)?.name ?? 'your workspace'}.`
+                : 'Keep experiments and findings for the next run.'}
+            </p>
+            <Button variant="secondary" onClick={() => setOpen({ kind: 'workflow' })}>
+              {form.workspace ? 'Manage memory' : 'Set up memory'}
+            </Button>
+          </div>
           <p className="toolbox-hint">
-            Drag onto the canvas or onto an agent. Double-click a card to edit it.
+            Click to add, or drag onto the canvas. Select a card to configure it. Connect the handles to set
+            the order.
           </p>
         </aside>
         {tab === 'yaml' ? (
@@ -1241,31 +1277,24 @@ export function WorkflowEditor({
               proOptions={{ hideAttribution: false }}
             >
               <Background
-                id="grid-minor"
-                variant={BackgroundVariant.Lines}
+                id="canvas-dots"
+                variant={BackgroundVariant.Dots}
                 gap={24}
-                lineWidth={1}
-                color="#e3e9f0"
-              />
-              <Background
-                id="grid-major"
-                variant={BackgroundVariant.Lines}
-                gap={120}
-                lineWidth={1}
-                color="#cfd9e4"
+                size={1}
+                color="#cdd5c9"
               />
               <Controls showInteractive={false} />
               <MiniMap
                 nodeColor={(n) =>
                   n.selected
-                    ? '#49a2dc'
+                    ? '#267561'
                     : (n.data as FlowData).item.type === 'mcp'
                       ? '#c4b5d6'
                       : (n.data as FlowData).item.type === 'knowledge'
                         ? '#a9dcd3'
-                        : '#c9d6e3'
+                        : '#d0d8cc'
                 }
-                maskColor="rgba(239,243,247,.8)"
+                maskColor="rgba(247,249,245,.8)"
                 pannable
                 zoomable
               />
@@ -1436,17 +1465,42 @@ export function WorkflowEditor({
               />
             )}
             {openResource?.type === 'knowledge' && (
-              <KnowledgeControl
-                data={data}
-                refresh={onSaved}
-                value={openResource.knowledgeBaseId}
-                onChange={(knowledgeBaseId) =>
-                  patch(openResource.id, {
-                    knowledgeBaseId,
-                    name: data.knowledge.find((k) => k.id === knowledgeBaseId)?.name ?? openResource.name,
-                  })
-                }
-              />
+              <>
+                <KnowledgeControl
+                  data={data}
+                  refresh={onSaved}
+                  value={openResource.knowledgeBaseId}
+                  onChange={(knowledgeBaseId) =>
+                    patch(openResource.id, {
+                      knowledgeBaseId,
+                      name: data.knowledge.find((k) => k.id === knowledgeBaseId)?.name ?? openResource.name,
+                    })
+                  }
+                />
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    aria-label="Use as workflow long-term memory"
+                    checked={form.workspace?.knowledgeBaseId === openResource.knowledgeBaseId}
+                    onChange={(e) =>
+                      change({
+                        ...form,
+                        workspace: e.target.checked
+                          ? { knowledgeBaseId: openResource.knowledgeBaseId, offloadToolResults: true }
+                          : undefined,
+                        experience: e.target.checked
+                          ? { enabled: true, recallLimit: 3, learnFromFailures: true }
+                          : undefined,
+                      })
+                    }
+                  />
+                  Use as workflow long-term memory
+                </label>
+                <p className="field-help">
+                  Reference knowledge is read only by default. Enable memory to save experiments
+                  automatically, write findings and learn from feedback.
+                </p>
+              </>
             )}
             {openResource && (
               <div className="form-section">
@@ -1747,7 +1801,7 @@ export function WorkflowEditor({
               </h3>
               <Field
                 label="Knowledge workspace"
-                hint="Every query has a temporary task notebook shared by its agents. Choose a persistent knowledge base for findings and lessons that future queries should reuse."
+                hint="Automatically save each experiment’s task, result and outcome. Agents can also save reusable findings. Future runs recall the saved records, even before indexing finishes."
               >
                 <select
                   aria-label="Knowledge workspace"
@@ -1761,7 +1815,9 @@ export function WorkflowEditor({
                             offloadToolResults: form.workspace?.offloadToolResults ?? true,
                           }
                         : undefined,
-                      ...(e.target.value ? {} : { experience: undefined }),
+                      experience: e.target.value
+                        ? (form.experience ?? { enabled: true, recallLimit: 3, learnFromFailures: true })
+                        : undefined,
                     })
                   }
                 >
@@ -1807,7 +1863,7 @@ export function WorkflowEditor({
                     }
                   />
                   Learn from experience: turn feedback and failures into lessons in experience/ and recall
-                  them in later runs
+                  them in later runs. This improves context, not model weights.
                 </label>
               )}
             </div>

@@ -109,6 +109,52 @@ export function AgentFields({
           onChange={(e) => onChange({ systemPrompt: e.target.value })}
         />
       </Field>
+      <Field
+        label="Long-term memory"
+        hint="Save experiments automatically and let this agent write reusable findings. Inherit the workflow workspace, or choose a dedicated knowledge base."
+      >
+        <select
+          aria-label="Agent long-term memory"
+          value={value.workspace?.knowledgeBaseId ?? ''}
+          onChange={(e) =>
+            onChange({
+              workspace: e.target.value
+                ? { knowledgeBaseId: e.target.value, offloadToolResults: true }
+                : undefined,
+              experience: e.target.value
+                ? { enabled: true, recallLimit: 3, learnFromFailures: true }
+                : undefined,
+            })
+          }
+        >
+          <option value="">Use workflow memory</option>
+          {data.knowledge.map((kb) => (
+            <option key={kb.id} value={kb.id}>
+              {kb.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {value.workspace && (
+        <label className="check-row">
+          <input
+            type="checkbox"
+            aria-label="Agent learn from experience"
+            checked={Boolean(value.experience?.enabled)}
+            onChange={(e) =>
+              onChange({
+                experience: {
+                  recallLimit: 3,
+                  learnFromFailures: true,
+                  ...value.experience,
+                  enabled: e.target.checked,
+                },
+              })
+            }
+          />
+          Learn from feedback and failures
+        </label>
+      )}
       <SkillPicker
         data={data}
         refresh={refresh}

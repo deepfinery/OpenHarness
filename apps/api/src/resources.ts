@@ -59,6 +59,9 @@ export async function validateReferences(kind: string, ownerId: string, body: an
   if (kind === 'connections' && body.kind === 'device')
     throw new HttpError(400, 'Machines are managed on the Machines page, not as manual connections');
   if (kind === 'agents') {
+    if (body.workspace) await assertOwned('knowledge', ownerId, body.workspace.knowledgeBaseId);
+    if (body.experience?.enabled && !body.workspace)
+      throw new HttpError(400, 'Learning from experience needs a knowledge workspace');
     await assertOwned('providers', ownerId, body.providerId);
     for (const binding of body.connections) {
       const c = await collection<Resource>('connections').findOne({ _id: binding.connectionId, ownerId });

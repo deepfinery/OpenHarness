@@ -12,6 +12,8 @@ export type Conversation = {
   createdAt: Date;
   updatedAt: Date;
   pending?: { runId: string; since: Date };
+  lastRunId?: string;
+  lastTurn?: { input: string; status: Run['status'] };
 };
 /** Compare-and-update makes completion safe after duplicate delivery or a runner restart. */
 export async function settleConversation(run: Run) {
@@ -20,14 +22,13 @@ export async function settleConversation(run: Run) {
     { _id: run.conversationId, ownerId: run.ownerId, 'pending.runId': run._id },
     {
       $unset: { pending: '' },
-      $set: { updatedAt: new Date() },
+      $set: { updatedAt: new Date(), lastRunId: run._id, lastTurn: { input: run.input, status: run.status } },
       ...(run.status === 'succeeded'
         ? {
             $push: {
               messages: {
                 $each: [
                   { role: 'user' as const, content: run.input },
-                  // The run id lets the studio attach feedback to this answer.
                   { role: 'assistant' as const, content: (run.output ?? '').slice(0, 32000), runId: run._id },
                 ],
                 $slice: -20,

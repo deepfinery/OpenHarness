@@ -97,9 +97,10 @@ test('task memory is immediately searchable and readable, isolated between queri
   assert.deepEqual(content.sources, ['fixture://evidence']);
   assert.ok(new Date(content.expires_at).getTime() > Date.now() + 6 * 86400000);
   assert.equal(
-    (await ok(`/knowledge/${kb.id}/documents`)).length,
+    (await ok(`/knowledge/${kb.id}/documents`)).filter((d: any) => d.meta?.record_type !== 'experiment')
+      .length,
     0,
-    'short-term findings do not silently become long-term facts',
+    'saving an unreviewed experiment does not promote temporary notes into verified findings',
   );
   assert.equal(
     (await ok(`/runs/${first.id}/memory?query=${encodeURIComponent('.*')}`)).notes.length,

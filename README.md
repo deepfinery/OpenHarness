@@ -128,7 +128,7 @@ Private endpoints are denied unless their hostname is listed in `ALLOWED_PRIVATE
 
 ### 3. Configure an agent
 
-Agents are configured where they run: double-click an agent card (or its gear icon, or **Settings** in the selection bar) to open its settings. Pick a model (the workspace default is preselected), an **effort** level, a template to start the instructions from, the pattern and its options, and the message the agent receives (`{{input}}`, `{{last}}`, `{{steps.id}}`). **Tools & knowledge** lists what is attached and adds more. Try the workflow in the **Playground**: conversations are saved per workflow, answers stream as they are written, and the right panel switches between the live **Trace** and the run **History**.
+Agents are configured where they run: double-click an agent card (or its gear icon, or **Settings** in the selection bar) to open its settings. Pick a model (the workspace default is preselected), an **effort** level, a template to start the instructions from, the pattern and its options, and the message the agent receives (`{{input}}`, `{{last}}`, `{{steps.id}}`). **Tools & knowledge** lists what is attached and adds more. Try the workflow in the **Playground**: conversations are saved per workflow, answers stream as they are written, and the right panel switches between **Trace**, **History**, and **Memory**. Leaving the page or reloading restores the selected conversation and reconnects to its running job.
 
 ### 4. Start a workflow from a template
 
@@ -182,7 +182,7 @@ Email is sent by the **Email** workflow step. Recipients, subject and body are t
 
 ### 6b. Give a workflow a knowledge workspace
 
-In **Workflow settings → Knowledge workspace**, pick a knowledge base. The workflow's agents then search it (`kb_search`), read only what they need (`kb_read`), and record findings, decisions with their reasons, and feedback (`kb_write`) as notes in folders such as `research/` and `decisions/`. Large tool results are saved there too, and the agent keeps a summary. See [docs/knowledge-workspace.md](docs/knowledge-workspace.md).
+In **Workflow settings → Knowledge workspace**, pick a knowledge base. The workflow's agents then search it (`kb_search`), read only what they need (`kb_read`), and record findings, decisions with their reasons, and feedback (`kb_write`) as notes in folders such as `research/` and `decisions/`. Completed experiments are saved automatically under `experiments/`. Large tool results remain in the temporary task notebook. A knowledge card is read only unless **Use as workflow long-term memory** is enabled; individual agents can also choose a dedicated memory workspace. See [docs/knowledge-workspace.md](docs/knowledge-workspace.md).
 
 ### 6c. Let an agent start sub-agents
 
@@ -190,7 +190,7 @@ Turn on **Can hand focused tasks to sub-agents** in an agent's settings. The age
 
 ### 6d. Learn from experience
 
-With a workspace set, turn on **Learn from experience** in the workflow settings. A thumbs up or down in the playground, or `POST /api/runs/:id/feedback`, becomes a short lesson in the workspace's `experience/` folder, and so does a failed run. Later runs recall the most relevant lessons into their agents' instructions. `GET /api/workflows/:id/experience.jsonl` exports the feedback and lessons. See [docs/experience.md](docs/experience.md).
+With a workspace set, turn on **Learn from experience** in the workflow settings. A thumbs up or down in the playground, or `POST /api/runs/:id/feedback`, becomes a short lesson in the workspace's `experience/` folder, and so does a failed run. Later runs recall the most relevant lessons into their agents' instructions. The Memory panel shows saved experiments and lesson status. Recall works before indexing completes and during a vector-store outage; repeated feedback replaces the earlier lesson. `GET /api/workflows/:id/experience.jsonl` exports experiments, feedback and lessons. This is learning through retrieved context, not automatic training of model weights. See [docs/experience.md](docs/experience.md).
 
 ### 7. Give agents skills
 

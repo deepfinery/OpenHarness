@@ -272,8 +272,14 @@ test('conversational API retains server history and serializes turns without exp
     (await request('/chat', 'POST', { conversationId: first.conversationId, message: 'racing turn' })).status,
     409,
   );
+  const pending = await ok(`/conversations/${first.conversationId}`);
+  assert.equal(pending.activeRunId, slow.id);
+  assert.equal(pending.messages.at(-1).content, 'delay-model');
   await ok(`/runs/${slow.id}/cancel`, {});
   assert.equal((await waitRun(slow.id)).status, 'cancelled');
+  const cancelled = await ok(`/conversations/${first.conversationId}`);
+  assert.equal(cancelled.lastRunId, slow.id);
+  assert.equal(cancelled.messages.at(-1).content, 'delay-model');
   const resumed = await ok('/chat', { conversationId: first.conversationId, message: 'recall conversation' });
   const result = await waitRun(resumed.id);
   assert.equal(result.status, 'succeeded');

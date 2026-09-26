@@ -206,7 +206,20 @@ function App() {
   const [checking, setChecking] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [page, setPage] = useState(location.pathname.split('/')[1] || 'workflows');
-  const [target, setTarget] = useState('');
+  const [target, setTargetState] = useState('');
+  function setTarget(value: string) {
+    setTargetState(value);
+    if (user)
+      try {
+        sessionStorage.setItem(`playground-target:${user.tenantId}:${user.id}`, value);
+      } catch {}
+  }
+  useEffect(() => {
+    if (user)
+      try {
+        setTargetState(sessionStorage.getItem(`playground-target:${user.tenantId}:${user.id}`) ?? '');
+      } catch {}
+  }, [user?.id, user?.tenantId]);
   const [data, setData] = useState<Data>(emptyData);
   const [editor, setEditor] = useState<{ type: string; value?: Entity; draft?: Workflow } | null>(null);
   const [error, setError] = useState('');
@@ -286,7 +299,7 @@ function App() {
   }, []);
   const navigate = (next: string, newTarget = '') => {
     setPage(next);
-    setTarget(newTarget);
+    if (newTarget) setTarget(newTarget);
     setSidebar(false);
     history.pushState({}, '', `/${next}`);
   };
@@ -443,7 +456,13 @@ function App() {
           </div>
         )}
         {page === 'playground' ? (
-          <Playground key={target} data={data} target={target} onTargetChange={setTarget} />
+          <Playground
+            key={`${user.id}:${target}`}
+            storageScope={`${user.tenantId}:${user.id}`}
+            data={data}
+            target={target}
+            onTargetChange={setTarget}
+          />
         ) : page === 'knowledge' ? (
           <KnowledgePage {...props} />
         ) : (

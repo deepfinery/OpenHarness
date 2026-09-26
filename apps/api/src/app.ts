@@ -10,14 +10,18 @@ import { hash, HttpError, passwordHash, safeError } from '../../../packages/core
 import { queueChannel, JOB_QUEUE } from '../../../packages/core/src/queue.js';
 import { createRun, requestCancel, terminalStatuses } from '../../../packages/core/src/runs.js';
 import { configuredVectorStores, vectorStore } from '../../../packages/core/src/vectorstores/index.js';
-import { learns, requestReflection } from '../../../packages/core/src/experience.js';
+import {
+  learningSettings,
+  memorySettings,
+  requestReflection,
+} from '../../../packages/core/src/experience.js';
 import {
   memorySearchSchema,
   promoteTaskNote,
   readTaskNote,
   searchTaskNotes,
 } from '../../../packages/core/src/memory.js';
-import { runSchema, type Run } from '../../../packages/core/src/schema.js';
+import { runSchema, type Run, type KnowledgeDocument } from '../../../packages/core/src/schema.js';
 import { finishOAuth } from '../../../packages/core/src/mcp.js';
 import {
   clearEmailSettings,
@@ -230,7 +234,29 @@ app.get('/api/runs/:id/memory', async (req, res) => {
   res.json({
     ...(await searchTaskNotes(scope, memorySearchSchema.parse(req.query))),
     taskId: scope.taskId,
-    longTermAvailable: Boolean(run.snapshot.workflow?.workspace),
+    longTermAvailable: Boolean(memorySettings(run)?.workspace),
+    experiments: (
+      await collection<KnowledgeDocument>('documents')
+        .find(
+          {
+            ownerId: run.ownerId,
+            'meta.run_id': run._id,
+            'meta.record_type': 'experiment',
+            status: { $ne: 'deleting' },
+          },
+          { projection: { filename: 1, knowledgeBaseId: 1, createdAt: 1 } },
+        )
+        .toArray()
+    ).map((doc) => ({ id: doc._id, name: doc.filename, knowledgeBaseId: doc.knowledgeBaseId })),
+    learning: learningSettings(run).length > 0,
+    reflection: run.reflection,
+    runStatus: run.status,
+    memoryPending:
+      !run.experimentSavedAt &&
+      Boolean(
+        memorySettings(run)?.workspace ||
+        Object.values(run.snapshot.nodeAgents ?? {}).some((agent) => agent.workspace),
+      ),
   });
 });
 app.get('/api/runs/:id/memory/:noteId', async (req, res) => {
@@ -253,7 +279,7 @@ app.get('/api/runs/:id/memory/:noteId', async (req, res) => {
 app.post('/api/runs/:id/memory/:noteId/promote', async (req, res) => {
   const run = await memoryRun(req);
   checkTokenScope(req, 'execute', run);
-  const kb = run.snapshot.workflow?.workspace?.knowledgeBaseId;
+  const kb = memorySettings(run)?.workspace?.knowledgeBaseId;
   if (!kb) throw new HttpError(400, 'Choose a long-term knowledge workspace in workflow settings first');
   const scope = { ownerId: run.ownerId, taskId: run.taskId ?? run._id };
   if (!(await readTaskNote(scope, String(req.params.noteId))))
@@ -336,7 +362,7 @@ app.post('/api/runs/:id/feedback', async (req, res) => {
     by: req.principal!.user._id,
   };
   await collection<Run>('runs').updateOne(filter, { $set: { feedback } });
-  const learning = learns(run.snapshot.workflow);
+  const learning = learningSettings(run).length > 0;
   if (learning) await requestReflection(run._id, 'feedback');
   res.status(202).json({ feedback, learning });
 });
@@ -347,7 +373,11 @@ app.get('/api/workflows/:id/experience.jsonl', requireSession, async (req, res) 
       {
         ownerId: req.principal!.tenantId,
         workflowId: String(req.params.id),
-        $or: [{ feedback: { $exists: true } }, { 'reflection.status': 'done' }],
+        $or: [
+          { experimentSavedAt: { $exists: true } },
+          { feedback: { $exists: true } },
+          { 'reflection.status': 'done' },
+        ],
       },
       { projection: { snapshot: 0, outputs: 0, history: 0, events: 0 } },
     )
