@@ -315,6 +315,28 @@ function answer(messages, tools) {
     content: '',
     tool_calls: [{ id: randomUUID(), type: 'function', function: { name, arguments: JSON.stringify(args) } }],
   });
+  if (String(input).includes('exhaust tool evidence')) {
+    if (!tools?.length && String(input).includes('summarize')) {
+      const clean =
+        messages.length === 2 &&
+        !messages.some((m) => m.role === 'tool' || m.tool_calls?.length) &&
+        String(input).includes('MCP lookup: recorded evidence');
+      return {
+        content: clean
+          ? 'The lookup returned recorded evidence. Further checks remain incomplete.'
+          : 'SYNTHESIS CONTEXT INVALID',
+      };
+    }
+    if (!tools?.length && String(input).includes('malformed'))
+      return {
+        content: '',
+        tool_calls: [{ id: randomUUID(), type: 'function', function: { name: 'lookup', arguments: '{' } }],
+      };
+    return memoryCall(
+      tools?.find((t) => t.function.description.includes('/ lookup:'))?.function.name ?? 'lookup',
+      { query: 'recorded evidence' },
+    );
+  }
   if (String(input).includes('exhaust analysis turns')) {
     if (!tools?.length && !String(input).includes('ignore synthesis'))
       return {
