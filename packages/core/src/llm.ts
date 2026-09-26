@@ -61,10 +61,39 @@ async function jsonRequest(
   // Each provider has its own wire format; normalized and validated below before use.
   return (await response.json()) as any;
 }
-function argumentsObject(input: unknown): Record<string, unknown> {
-  const value = typeof input === 'string' ? JSON.parse(input || '{}') : input;
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('The model returned invalid tool arguments');
+/** A response rejected before any of its tool calls can be dispatched. Never includes raw arguments. */
+export class ModelResponseError extends Error {
+  constructor(
+    message: string,
+    public details: {
+      reason: 'tool_arguments' | 'invalid_stream' | 'incomplete_stream' | 'output_limit';
+      tool?: string;
+      argumentChars?: number;
+      finishReason?: string;
+    },
+  ) {
+    super(message);
+    this.name = 'ModelResponseError';
+  }
+}
+function argumentsObject(input: unknown, tool?: string, finishReason?: string): Record<string, unknown> {
+  const invalid = () =>
+    new ModelResponseError(
+      `Model returned malformed or incomplete JSON arguments${tool ? ` for tool ${tool}` : ''}. No tools from this response were executed.`,
+      {
+        reason: 'tool_arguments',
+        tool,
+        argumentChars: typeof input === 'string' ? input.length : undefined,
+        finishReason,
+      },
+    );
+  let value: unknown;
+  try {
+    value = typeof input === 'string' ? JSON.parse(input || '{}') : input;
+  } catch {
+    throw invalid();
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid();
   return value as Record<string, unknown>;
 }
 /** Yields one complete line at a time from a streaming body. */
@@ -84,26 +113,42 @@ async function* lines(response: Response, signal?: AbortSignal) {
         buffer = buffer.slice(index + 1);
       }
     }
+    buffer += decoder.decode();
     if (buffer.trim()) yield buffer;
   } finally {
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }
 /** Yields parsed JSON `data:` payloads from a server-sent-events body, with the preceding event name. */
 async function* sse(response: Response, signal?: AbortSignal): AsyncGenerator<{ event: string; data: any }> {
   let event = '';
-  for await (const line of lines(response, signal)) {
-    if (line.startsWith('event:')) event = line.slice(6).trim();
-    else if (line.startsWith('data:')) {
-      const payload = line.slice(5).trim();
-      if (!payload || payload === '[DONE]') continue;
-      try {
-        yield { event, data: JSON.parse(payload) };
-      } catch {
-        // Keep-alive comments and partial lines are ignored.
-      }
-      event = '';
+  let data: string[] = [];
+  function parse() {
+    const payload = data.join('\n');
+    data = [];
+    const name = event;
+    event = '';
+    if (!payload || payload === '[DONE]') return;
+    try {
+      return { event: name, data: JSON.parse(payload) };
+    } catch {
+      throw new ModelResponseError(
+        'Model provider sent an invalid JSON stream event. No tools from this response were executed.',
+        { reason: 'invalid_stream' },
+      );
     }
+  }
+  for await (const line of lines(response, signal)) {
+    if (!line) {
+      const parsed = parse();
+      if (parsed) yield parsed;
+    } else if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+  }
+  if (data.length) {
+    const parsed = parse();
+    if (parsed) yield parsed;
   }
 }
 const isStream = (response: Response, ...types: string[]) =>
@@ -199,7 +244,7 @@ export async function chat(
           toolCalls: [...blocks.values()].map((b) => ({
             id: b.id,
             name: b.name,
-            arguments: argumentsObject(b.json),
+            arguments: argumentsObject(b.json, b.name),
           })),
           usage,
         };
@@ -267,7 +312,7 @@ export async function chat(
               toolCalls.push({
                 id: randomUUID(),
                 name: part.functionCall.name,
-                arguments: argumentsObject(part.functionCall.args),
+                arguments: argumentsObject(part.functionCall.args, part.functionCall.name),
                 signature: part.thoughtSignature,
               });
           }
@@ -341,7 +386,7 @@ export async function chat(
         toolCalls.push({
           id: t.id || randomUUID(),
           name: t.function.name,
-          arguments: argumentsObject(t.function.arguments),
+          arguments: argumentsObject(t.function.arguments, t.function.name),
         });
       if (data.done) {
         doneReason = data.done_reason ?? '';
@@ -363,6 +408,7 @@ export async function chat(
     let usage: ChatResult['usage'];
     let finish = '';
     for await (const { data } of sse(response, signal)) {
+      if (data.error) throw new Error('Model provider reported an error in its response stream');
       const choice = data.choices?.[0];
       if (choice?.delta?.content) {
         text += choice.delta.content;
@@ -380,14 +426,24 @@ export async function chat(
       if (data.usage)
         usage = { input: data.usage.prompt_tokens ?? 0, output: data.usage.completion_tokens ?? 0 };
     }
+    if (!finish)
+      throw new ModelResponseError(
+        'Model provider stream ended before completion. No tools from this response were executed.',
+        { reason: 'incomplete_stream' },
+      );
     if (finish === 'length')
-      throw new Error('Model output limit reached; increase the provider output budget');
+      throw new ModelResponseError(
+        'Model output limit reached; use shorter tool arguments or increase the provider output budget',
+        { reason: 'output_limit', finishReason: finish },
+      );
+    if (!['stop', 'tool_calls', 'function_call'].includes(finish))
+      throw new Error(`Model did not complete: ${finish}`);
     return {
       text,
       toolCalls: [...pending.values()].map((t) => ({
         id: t.id || randomUUID(),
         name: t.name,
-        arguments: argumentsObject(t.arguments),
+        arguments: argumentsObject(t.arguments, t.name, finish),
       })),
       usage,
     };
@@ -405,7 +461,7 @@ function anthropicResult(data: any): ChatResult {
       .join('\n'),
     toolCalls: (data.content ?? [])
       .filter((c: any) => c.type === 'tool_use')
-      .map((c: any) => ({ id: c.id, name: c.name, arguments: argumentsObject(c.input) })),
+      .map((c: any) => ({ id: c.id, name: c.name, arguments: argumentsObject(c.input, c.name) })),
     usage: { input: data.usage?.input_tokens ?? 0, output: data.usage?.output_tokens ?? 0 },
   };
 }
@@ -424,7 +480,7 @@ function geminiResult(data: any): ChatResult {
       .map((c: any) => ({
         id: randomUUID(),
         name: c.functionCall.name,
-        arguments: argumentsObject(c.functionCall.args),
+        arguments: argumentsObject(c.functionCall.args, c.functionCall.name),
         signature: c.thoughtSignature,
       })),
     usage: {
@@ -435,7 +491,10 @@ function geminiResult(data: any): ChatResult {
 }
 function openAiResult(data: any, nativeOllama: boolean): ChatResult {
   if (data.choices?.[0]?.finish_reason === 'length' || data.done_reason === 'length')
-    throw new Error('Model output limit reached; increase the provider output budget');
+    throw new ModelResponseError(
+      'Model output limit reached; use shorter tool arguments or increase the provider output budget',
+      { reason: 'output_limit', finishReason: 'length' },
+    );
   const message = nativeOllama ? data.message : data.choices?.[0]?.message;
   if (!message) throw new Error('Model provider returned no message');
   return {
@@ -443,7 +502,11 @@ function openAiResult(data: any, nativeOllama: boolean): ChatResult {
     toolCalls: (message.tool_calls ?? []).map((t: any) => ({
       id: t.id || randomUUID(),
       name: t.function.name,
-      arguments: argumentsObject(t.function.arguments),
+      arguments: argumentsObject(
+        t.function.arguments,
+        t.function.name,
+        data.choices?.[0]?.finish_reason ?? data.done_reason,
+      ),
     })),
     usage: {
       input: data.usage?.prompt_tokens ?? data.prompt_eval_count ?? 0,

@@ -2,7 +2,7 @@
 import type { Agent, Run, RunCheckpoint, RunEvent, Workflow } from './schema.js';
 import { collection } from './db.js';
 import { config } from './config.js';
-import { chat, ownedProvider, type ChatMessage, type ToolDefinition } from './llm.js';
+import { chat, ModelResponseError, ownedProvider, type ChatMessage, type ToolDefinition } from './llm.js';
 import { connectMcp, ownedConnection, toolAlias } from './mcp.js';
 import { afterTool, beforeTool, loadHooks, type HookRecord } from './hooks.js';
 import { runSubagents, SPAWN_TOOL, spawnToolDefinition, type SpawnRequest } from './subagents.js';
@@ -179,9 +179,19 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
      */
     async function model(dialog: ChatMessage[], offered: ToolDefinition[]) {
       const toolTokens = offered.length ? estimateTokens(JSON.stringify(offered)) : 0;
+      let responseRetries = 0;
       for (let attempt = 0; ; attempt++) {
+        // Retry only this model turn, preserving all earlier tool results. Invalid responses never reach dispatch.
+        const retryMessages = [...dialog];
+        if (responseRetries) {
+          const guidance =
+            '\n\nYour previous response could not be decoded and none of its tool calls ran. Return complete JSON objects for tool arguments. Keep arguments short, request one tool at a time, and do not copy large listings or reports into arguments.';
+          if (retryMessages[0]?.role === 'system')
+            retryMessages[0] = { ...retryMessages[0], content: retryMessages[0].content + guidance };
+          else retryMessages.unshift({ role: 'system', content: guidance.trim() });
+        }
         const fitted = compactDialog(
-          dialog,
+          retryMessages,
           Math.max(512, Math.floor(contextBudget / estimateScale) - toolTokens),
         );
         if (fitted.changed)
@@ -191,7 +201,13 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
             data: { level: fitted.level, budget: contextBudget, messages: fitted.messages.length },
           });
         try {
-          const response = await chat(provider, fitted.messages, offered, signal, ctx.onDelta);
+          const response = await chat(
+            responseRetries ? { ...provider, streaming: false } : provider,
+            fitted.messages,
+            offered,
+            signal,
+            ctx.onDelta,
+          );
           // Providers that report usage are exact; otherwise estimate from what was sent and received.
           const spent =
             response.usage?.input || response.usage?.output
@@ -203,6 +219,23 @@ export async function runAgent(stored: Agent, input: string, history: Run['histo
           if (ctx.usage) ctx.usage.tokens += spent;
           return response;
         } catch (error) {
+          signal.throwIfAborted();
+          if (error instanceof ModelResponseError) {
+            // Failed responses often omit usage; conservatively charge their input and output allowance.
+            const spent = fitted.tokens + toolTokens + provider.maxOutputTokens;
+            tokensUsed += spent;
+            if (ctx.usage) ctx.usage.tokens += spent;
+            const retry = responseRetries < 2 && tokensUsed < agent.tokenBudget;
+            await ctx.event({
+              type: retry ? 'model_retry' : 'model_error',
+              message: `${error.message}${retry ? ' Retrying this model turn without streaming.' : ' Model response recovery exhausted.'}`,
+              data: { model: provider.model, ...error.details, attempt: responseRetries + 1, tokensUsed },
+            });
+            ctx.onDelta?.('', true);
+            if (!retry) throw error;
+            responseRetries++;
+            continue;
+          }
           const text = error instanceof Error ? error.message : String(error);
           if (attempt >= 3 || !isContextLengthError(text)) throw error;
           const limit = contextLimitFromError(text);
