@@ -105,8 +105,9 @@ test('an agent spins up parallel sub-agents that report summaries, notes and tok
     JSON.stringify(reports),
   );
   const [sky, price] = reports;
-  assert.equal(sky.notes.length, 1);
+  assert.equal(sky.notes.length, 2, 'workspace finding and automatic task report');
   assert.match(sky.notes[0].path, /^research\//);
+  assert.match(sky.notes[1].path, /^task\//);
   assert.equal(price.summary, 'Completed: Sub-task: check the widget price list');
 
   const started = parent.events.filter((e: any) => e.type === 'subagent_started');

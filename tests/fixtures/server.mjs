@@ -307,6 +307,66 @@ app.post('/expire-token', (_req, res) => {
 function answer(messages, tools) {
   const last = messages.at(-1);
   const input = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+  const lastToolName =
+    last?.name ??
+    messages.flatMap((m) => m.tool_calls ?? []).find((call) => call.id === last?.tool_call_id)?.function
+      ?.name;
+  const memoryCall = (name, args) => ({
+    content: '',
+    tool_calls: [{ id: randomUUID(), type: 'function', function: { name, arguments: JSON.stringify(args) } }],
+  });
+  if (String(input).includes('exhaust analysis turns')) {
+    if (!tools?.length && !String(input).includes('ignore synthesis'))
+      return {
+        content:
+          'Partial assessment: verified the recorded findings. More checks remain; the audit is incomplete.',
+      };
+    return memoryCall('memory_write', {
+      title: 'Inspection finding',
+      content: 'Verified fixture finding with remaining checks.',
+      kind: 'finding',
+    });
+  }
+  if (String(input).includes('inspect past forty')) {
+    const count = messages.filter((m) => m.role === 'tool').length;
+    return count < 41 ? memoryCall('memory_search', {}) : { content: 'Completed 41 inspection turns.' };
+  }
+  if (String(input).includes('task notebook roundtrip')) {
+    if (lastToolName === 'memory_write') return memoryCall('memory_search', { query: 'immediate evidence' });
+    if (lastToolName === 'memory_search')
+      return memoryCall('memory_read', { note_id: JSON.parse(last.content).notes[0].note_id });
+    if (lastToolName === 'memory_read')
+      return { content: `Read task evidence: ${JSON.parse(last.content).content}` };
+    return memoryCall('memory_write', {
+      title: 'Immediate finding',
+      content: 'immediate evidence: verified fixture fact.',
+      kind: 'finding',
+      sources: ['fixture://evidence'],
+    });
+  }
+  if (String(input).includes('delegate task notebook')) {
+    if (lastToolName === 'spawn_agents') {
+      const report = JSON.parse(last.content)[0];
+      return memoryCall('memory_read', {
+        note_id: report.notes.find((n) => n.path.includes('/reports/')).note_id,
+        offset: 1800,
+      });
+    }
+    if (lastToolName === 'memory_read')
+      return { content: `Parent read full report: ${JSON.parse(last.content).content}` };
+    return memoryCall('spawn_agents', {
+      agents: [
+        { task: 'Sub-task: produce long notebook report', effort: 'light' },
+        { task: 'Sub-task: task notebook roundtrip', effort: 'medium' },
+      ],
+    });
+  }
+  if (String(input).includes('produce long notebook report'))
+    return { content: 'Report start. ' + 'Evidence. '.repeat(200) + 'REPORT TAIL VERIFIED' };
+  const readTask = /read task note ([0-9a-f-]{36})/.exec(String(input));
+  if (readTask && last?.role !== 'tool') return memoryCall('memory_read', { note_id: readTask[1] });
+  const promoteTask = /promote task note ([0-9a-f-]{36})/.exec(String(input));
+  if (promoteTask && last?.role !== 'tool') return memoryCall('memory_promote', { note_id: promoteTask[1] });
   if (String(input).includes('recall conversation'))
     return {
       content: `Earlier messages: ${messages

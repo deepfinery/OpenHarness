@@ -158,6 +158,9 @@ test('effort presets carry loop and token budgets, and auto resolves a level fro
   assert.ok(effortPresets.light.tokenBudget < effortPresets.medium.tokenBudget);
   assert.ok(effortPresets.high.maxTurns < effortPresets['extra-high'].maxTurns);
   assert.ok(effortPresets['extra-high'].tokenBudget < effortPresets.max.tokenBudget);
+  assert.equal(effortPresets.max.maxTurns, 120);
+  assert.equal(agentSchema.safeParse({ ...base, maxTurns: 200, timeoutSeconds: 7200 }).success, true);
+  assert.equal(agentSchema.safeParse({ ...base, maxTurns: 201 }).success, false);
   const tools = [{ connectionId: randomUUID(), tools: ['search'] }];
   assert.equal(resolveEffort({ effort: 'auto', pattern: 'react', connections: [] }, 'hi').level, 'light');
   assert.equal(resolveEffort({ effort: 'auto', pattern: 'react', connections: tools }, 'hi').level, 'medium');
@@ -446,7 +449,7 @@ test('a sub-agent gets a fresh prompt, the chosen skill and only the requested t
   assert.match(child.systemPrompt, /sub-agent working for "Lead"/);
   assert.match(child.systemPrompt, /<skill>\nUse the checklist\.\n<\/skill>/);
   assert.match(child.systemPrompt, /kb_write/);
-  assert.doesNotMatch(child.systemPrompt, /Lead the work/, 'the parent prompt is not inherited');
+  assert.match(child.systemPrompt, /Lead the work/, 'the parent operating instructions remain in force');
   assert.throws(
     () => subagents.childAgent(parent, { task: 'x', skill: 'Missing' }, 5000, false),
     /Unknown skill/,

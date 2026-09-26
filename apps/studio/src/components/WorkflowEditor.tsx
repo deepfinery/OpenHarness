@@ -1743,11 +1743,11 @@ export function WorkflowEditor({
             </label>
             <div className="form-section">
               <h3>
-                <BookOpen size={16} /> Knowledge workspace
+                <BookOpen size={16} /> Long-term memory
               </h3>
               <Field
-                label="Workspace"
-                hint="Agents search it, read only what they need, and record findings, decisions and feedback there."
+                label="Knowledge workspace"
+                hint="Every query has a temporary task notebook shared by its agents. Choose a persistent knowledge base for findings and lessons that future queries should reuse."
               >
                 <select
                   aria-label="Knowledge workspace"
@@ -1765,7 +1765,7 @@ export function WorkflowEditor({
                     })
                   }
                 >
-                  <option value="">No workspace</option>
+                  <option value="">Task memory only</option>
                   {data.knowledge.map((k) => (
                     <option key={k.id} value={k.id}>
                       {k.name}
@@ -1786,7 +1786,7 @@ export function WorkflowEditor({
                       })
                     }
                   />
-                  Save large tool results as notes and keep only a summary in the agent’s context
+                  Save tool results in temporary task memory; keep only an excerpt for large results
                 </label>
               )}
               {form.workspace && (

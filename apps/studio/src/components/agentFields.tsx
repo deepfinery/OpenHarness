@@ -175,7 +175,7 @@ export function AgentFields({
                 aria-label="Maximum turns"
                 type="number"
                 min={1}
-                max={40}
+                max={200}
                 value={value.maxTurns ?? 12}
                 onChange={(e) => onChange({ maxTurns: Number(e.target.value) })}
               />
@@ -196,7 +196,7 @@ export function AgentFields({
                 aria-label="Agent time limit"
                 type="number"
                 min={10}
-                max={900}
+                max={7200}
                 value={value.timeoutSeconds ?? 300}
                 onChange={(e) => onChange({ timeoutSeconds: Number(e.target.value) })}
               />

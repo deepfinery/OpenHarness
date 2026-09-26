@@ -28,6 +28,8 @@ export async function connectDatabase() {
         { unique: true, partialFilterExpression: { scheduleKey: { $type: 'string' } } },
       ),
     db.collection('runs').createIndex({ status: 1, publishedAt: 1 }),
+    db.collection('task_notes').createIndex({ ownerId: 1, taskId: 1, createdAt: -1, _id: -1 }),
+    db.collection('task_notes').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     db.collection('documents').createIndex({ status: 1, publishedAt: 1 }),
     ...[
       'agents',
