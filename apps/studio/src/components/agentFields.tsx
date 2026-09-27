@@ -234,13 +234,11 @@ export function AgentFields({
               }
             >
               <option value="">Same as working model</option>
-              {data.providers
-                .filter((p) => p.enabled)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} · {p.model}
-                  </option>
-                ))}
+              {data.providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} · {p.model}
+                </option>
+              ))}
             </select>
           </Field>
         )}
