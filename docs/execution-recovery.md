@@ -59,6 +59,14 @@ input tabs. Reflection defaults to the working model; select a Judge model in
 Reasoning to use another configured provider/model for critique. Both models consume
 the same job budget.
 
+During reflection, Playground shows a compact working status instead of repeatedly
+replacing streamed drafts. **View activity** opens the saved draft, critique and
+revision stages, with agent and model labels. Completed stage text is preserved in
+full outside the bounded trace buffer, survives worker recovery, and remains available
+after reloading a conversation. A stage interrupted before completion is marked
+incomplete; private model reasoning is not recorded. The final answer appears in chat
+when the run finishes. Other agent patterns retain their normal streaming behavior.
+
 Questions and approval requests create durable Inbox tasks. Enable email notifications
 in Safety & human input and configure SMTP in Settings → Email. Delivery failures stay
 visible in Inbox and retry automatically; authorized approvers can retry immediately

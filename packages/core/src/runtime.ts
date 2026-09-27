@@ -1,5 +1,6 @@
 import { durableToolCall, AmbiguousToolCall } from './executionRecovery.js';
 import { isGreeting } from './requestScope.js';
+import { startAgentActivity, completeAgentActivity } from './agentActivity.js';
 import { getHarnessFile, readHarnessFile, writeHarnessFile, harnessFiles, fileInfo } from './harnessFiles.js';
 import { initializePlan, nextPlanTask, completePlanTask, plans } from './executionPlans.js';
 import { memoryPrompt, blocks as coreBlocks, blockView, writeBlock } from './agentMemory.js';
@@ -141,7 +142,10 @@ export async function runAgent(
   const guarded = {
     ...ctx,
     guardrails,
-    onDelta: guardrails.some((p) => p.stages.includes('output')) ? undefined : ctx.onDelta,
+    onDelta:
+      stored.pattern === 'reflection' || guardrails.some((p) => p.stages.includes('output'))
+        ? undefined
+        : ctx.onDelta,
   };
   guarded.event = async (event) => {
     if (
@@ -820,11 +824,37 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
     }
     async function converse(messages: ChatMessage[], useTools: boolean, label: string): Promise<string> {
       const index = passIndex++;
-      if (index < completed.length) return completed[index];
+      const activityId =
+        agent.pattern === 'reflection'
+          ? await startAgentActivity(ctx.ownerId, ctx.runId, `${executionKey}:${index}`, {
+              agent: agent.name,
+              nodeId: ctx.nodeId,
+              label,
+              model: provider.model,
+            })
+          : undefined;
+      if (index < completed.length) {
+        if (activityId) await completeAgentActivity(ctx.ownerId, ctx.runId, activityId, completed[index]);
+        return completed[index];
+      }
+      if (activityId)
+        await ctx.event({
+          type: 'agent_activity_started',
+          message: `${agent.name}: ${label}`,
+          data: { activityId, label },
+        });
       const output = await conversePass(messages, useTools, label);
       completed.push(output);
       // Parallel workflow members may finish while another member waits.
       await persist();
+      if (activityId) {
+        await completeAgentActivity(ctx.ownerId, ctx.runId, activityId, output);
+        await ctx.event({
+          type: 'agent_activity_completed',
+          message: `${agent.name}: ${label} completed`,
+          data: { activityId, label },
+        });
+      }
       return output;
     }
     /** One bounded reason/act loop. Tool failures return to the model so it can correct itself. */

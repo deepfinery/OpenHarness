@@ -63,11 +63,20 @@ test('create a safety policy and connect its box above the harness agent', async
   const agent = page.locator('.harness-card.kind-agent');
   await expect(rail).toBeVisible();
   await expect(page.getByTestId('port-agent-guardrail')).toBeVisible();
-  const railBox = (await rail.boundingBox())!,
-    agentBox = (await agent.boundingBox())!;
-  expect(railBox.y + railBox.height).toBeLessThan(agentBox.y);
-  const port = (await page.getByTestId('port-agent-guardrail').boundingBox())!;
-  expect(Math.abs(port.y + port.height / 2 - agentBox.y)).toBeLessThan(3);
+  // Read all rectangles in one frame: the canvas can still be panning after insertion.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const rail = document.querySelector('.harness-card.kind-guardrail')!.getBoundingClientRect();
+        const agent = document.querySelector('.harness-card.kind-agent')!.getBoundingClientRect();
+        const port = document.querySelector('[data-testid="port-agent-guardrail"]')!.getBoundingClientRect();
+        return {
+          above: rail.bottom < agent.top,
+          centered: Math.abs(port.top + port.height / 2 - agent.top) < 3,
+        };
+      }),
+    )
+    .toEqual({ above: true, centered: true });
   await rail.dblclick();
   await expect(page.getByLabel('Guardrail policy', { exact: true })).toHaveValue(policy.id);
   // Close card settings while keeping the workflow editor open.

@@ -31,6 +31,7 @@ export async function connectDatabase() {
     db.collection('human_requests').createIndex({ runId: 1, status: 1 }),
     db.collection('tool_journal').createIndex({ ownerId: 1, runId: 1, status: 1 }),
     db.collection('continuations').createIndex({ ownerId: 1, runId: 1 }),
+    db.collection('agent_activity').createIndex({ ownerId: 1, runId: 1, startedAt: 1 }),
     db.collection('users').createIndex({ email: 1 }, { unique: true }),
     db.collection('users').createIndex({ tenantId: 1 }),
     db.collection('sessions').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
