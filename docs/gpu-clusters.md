@@ -1,12 +1,50 @@
 # GPU clusters
 
-Create a cluster in **Machines & clusters → Clusters**, copy its one-time enrollment configuration to a root-readable `cluster.env` file, then run from a fresh repository checkout on each Linux node:
+Create a cluster in **Machines & clusters → Clusters**. The installation panel includes **Docker**, **Linux service**, and **Kubernetes** options, complete commands from a fresh clone, and downloadable Kubernetes YAML. Set **Harness gateway address** to a hostname or IP reachable by every node, for example `ws://192.0.2.10:8090`. This is the device gateway, not the studio's port 8088. All generated commands and YAML use this address. The gateway must publish that port and allow the selected transport.
+
+Save the shared token at creation. Reopen **Manage cluster → Installation instructions** to add nodes with the saved token; it is not recoverable from the server and reopening instructions does not rotate it. The same token enrolls every new node up to the cluster's capacity, without per-node enrollment. Legacy individual machine enrollment remains available.
+
+### Docker nodes
+
+Install Git and Docker on each Linux host, then use the generated commands. They clone this repository, write a private `cluster.env`, and run:
 
 ```sh
-sudo sh connector-linux/install-cluster.sh /path/to/cluster.env --host-access
+git clone https://github.com/deepfinery/OpenHarness.git
+cd OpenHarness
+# Save the environment shown in the installation panel as cluster.env (chmod 600).
+sudo sh connector-linux/install-cluster.sh ./cluster.env --host-access
+sudo docker logs --tail 50 openharness-cluster-node
 ```
 
-Docker is the only installer dependency beyond standard Linux utilities. The installer builds the connector from this repository, uses a stable ID derived from `/etc/machine-id`, and replaces only its own labeled container. Cloned VMs must have unique machine IDs. Use a reachable gateway hostname in the env file (not `localhost` inside Docker). The same token enrolls every node in that cluster, with no per-node enrollment ceremony. Legacy individual machine enrollment remains available.
+The installer builds the connector locally, uses a stable ID derived from `/etc/machine-id`, and replaces only its own labeled container. Cloned VMs must have unique machine IDs. Use the harness server's reachable IP or DNS address, not `localhost` inside Docker.
+
+### Native Linux service
+
+Requires Git, Node.js 22.13 or later, npm, systemd, and sudo. The generated instructions build `connector-core` and `connector-linux` from a fresh clone and run:
+
+```sh
+sudo node connector-linux/install-cluster-native.mjs ./cluster.env --host-access
+sudo systemctl status openharness-connector
+sudo journalctl -u openharness-connector -n 50 --no-pager
+```
+
+The installer parses the env file as data, derives the same stable machine ID as Docker, and configures the existing Linux service. Without `--host-access` it uses a dedicated unprivileged user. With that option it creates an explicit root host-access systemd override. Reinstalling without the option removes that override. Use one connector installation per host to avoid duplicate identities.
+
+### Kubernetes nodes
+
+In the **Kubernetes** tab, choose an image name in your registry. The panel provides clone, image build/push, YAML download, apply, and rollout-status commands. Build for the CPU architecture of your nodes and configure registry authentication / `imagePullSecrets` if needed.
+
+The generated YAML creates an `openharness-system` namespace, one shared-token Secret, and a Linux DaemonSet. Each pod derives a stable ID from `spec.nodeName`, not its ephemeral pod name, so replacement pods reuse the same enrollment and newly joined nodes enroll automatically. It tolerates taints; adjust the node selector/tolerations if only part of the fleet should be monitored. No Kubernetes API permissions or service-account token are needed by the connector.
+
+Privileged diagnostics add `hostPID`, root privileges, and persistent host state at `/var/lib/openharness-cluster`. The namespace must permit privileged pods under your admission policy. Without host access, those privileges and mounts are omitted. After rotating a token, update the Secret and restart the DaemonSet so pods receive the new environment:
+
+```sh
+kubectl -n openharness-system rollout restart daemonset/openharness-cluster-node
+```
+
+The downloaded YAML contains the shared credential: keep it private. A fleet spanning multiple Kubernetes clusters should use separate OpenHarness clusters/tokens or unique node names to avoid identity collisions.
+
+### Host diagnostics
 
 `--host-access` explicitly runs the connector as root with `--privileged --pid=host`. Typed GPU tools enter the host namespaces using `nsenter` and execute the host's NVIDIA/DCGM/systemd programs. Without this option the connector is an ordinary unprivileged container. The orchestrator containers stay unprivileged. No Docker socket is mounted into remote connectors. Host drivers, `nvidia-smi`, `dcgmi`, and systemd/journal utilities must already be installed; unavailable commands return diagnostic errors, not invented telemetry.
 
@@ -24,7 +62,7 @@ For large fleets, size `WORKER_CONCURRENCY`, `MAX_ACTIVE_RUNS`, model-provider c
 
 Diagnostics are the default. To allow disruptive operations, choose **Human approval** or explicitly **Automatic within limits**, select allowed actions, and configure the cluster cooldown. Approval mode requires the gateway's Studio approval provider. Automatic mode waives the gateway's human gate for permitted actions; an agent's own approval policy can still require review.
 
-The node operator must also set an allow-list in the cluster env file and reinstall, for example:
+The node operator must also set an allow-list. For Docker, add it to the cluster env file and reinstall; for Kubernetes add a container environment entry; for the native service add a systemd `Environment=` override and restart. For example:
 
 ```dotenv
 HOST_REMEDIATION_ACTIONS=gpu_reset,restart_fabric_manager

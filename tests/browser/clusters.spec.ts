@@ -31,6 +31,18 @@ test('cluster setup exposes shared installation, monitoring and remediation cont
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('DEVICE_TOKEN=cl_');
   await expect(page.getByRole('dialog')).toContainText('--host-access');
+  await page.getByLabel('Harness gateway address').fill('ws://192.0.2.10:8090');
+  await expect(page.getByRole('dialog')).toContainText('GATEWAY_URL=ws://192.0.2.10:8090/connect');
+  await expect(page.getByRole('dialog')).toContainText('git clone');
+  await page.getByRole('tab', { name: 'Linux service' }).click();
+  await expect(page.getByRole('dialog')).toContainText('install-cluster-native.mjs');
+  await page.getByRole('tab', { name: 'Kubernetes' }).click();
+  await expect(page.getByRole('dialog')).toContainText('kind: DaemonSet');
+  await expect(page.getByRole('dialog')).toContainText('spec.nodeName');
+  await expect(page.getByRole('dialog')).toContainText('ws://192.0.2.10:8090/connect');
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download Kubernetes YAML' }).click();
+  expect((await download).suggestedFilename()).toBe('cluster-nodes.yaml');
   await page.getByRole('dialog').getByRole('button', { name: 'Close dialog', exact: true }).click();
   await page.getByRole('button', { name: 'Configure Training fleet', exact: true }).click();
   await page.getByRole('button', { name: 'New monitoring agent', exact: true }).click();
@@ -150,7 +162,10 @@ test('unified inventory groups cluster nodes, filters large fleets, and preserve
     page.locator('.sidebar nav').getByRole('button', { name: 'Clusters', exact: true }),
   ).toHaveCount(0);
   await expect(page).toHaveURL(/\/machines\?view=clusters$/);
-  await page.locator('.sidebar nav').getByRole('button', { name: 'Machines & clusters', exact: true }).click();
+  await page
+    .locator('.sidebar nav')
+    .getByRole('button', { name: 'Machines & clusters', exact: true })
+    .click();
   await expect(page).toHaveURL(/\/machines\?view=clusters$/);
   await expect(page.locator('.fleet-cluster-card')).toHaveCount(3);
   await page.screenshot({

@@ -66,6 +66,8 @@ async function assertOwned(name: string, ownerId: string, id: string) {
 export async function validateReferences(kind: string, ownerId: string, body: any) {
   if (kind === 'connections' && body.kind === 'device')
     throw new HttpError(400, 'Machines are managed on the Machines page, not as manual connections');
+  if (kind === 'guardrails' && body.safetyModelProviderId)
+    await assertOwned('providers', ownerId, body.safetyModelProviderId);
   if (kind === 'agents' || kind === 'workflows')
     for (const id of body.guardrailIds ?? []) await assertOwned('guardrails', ownerId, id);
   if (kind === 'agents') {

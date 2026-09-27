@@ -6996,3 +6996,16 @@ details.advanced summary {
     padding: 16px;
   }
 }
+
+.cluster-install-step {
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.cluster-install-step pre {
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre;
+  font-size: 12px;
+  line-height: 1.6;
+}

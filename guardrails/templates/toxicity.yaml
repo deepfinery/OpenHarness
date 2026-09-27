@@ -2,7 +2,7 @@
 # Requires the bundled openharness rails.co and actions.py.
 # Edit custom_data.openharness.policy; model credentials stay on the service.
 models: []
-colang_version: "1.0"
+colang_version: '1.0'
 rails:
   input:
     flows:
@@ -22,15 +22,15 @@ custom_data:
         - input
         - output
       failMode: closed
-      timeoutMs: 5000
+      timeoutMs: 30000
       latencyBudgetMs: 120000
       pii: false
       jailbreak: false
-      contentSafety: true
+      contentSafety: false
       semanticChecks: true
       templateId: toxicity
       safetyInstructions: Block targeted harassment, hateful or dehumanizing abuse, credible threats, and
-        requests to generate such content. Allow respectful disagreement and neutral reporting or
+        requests to generate such content. Allow harmless greetings, ordinary questions, respectful disagreement and neutral reporting or
         educational discussion of harmful language without endorsing it.
       deniedTerms: []
       blockedTopics: []

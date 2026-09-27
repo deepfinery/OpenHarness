@@ -721,10 +721,26 @@ export function GuardrailsPage({
                         <ErrorNotice error="Safety instructions require NeMo safety model checks. Re-enable those checks or explicitly clear the instructions." />
                       )}
                       <div className="guardrail-limit">
-                        Requires a NeMo safety model configured by your operator. Checks block if it is
-                        unavailable unless you explicitly change the failure mode. Test the policy before
-                        attaching it.
+                        Choose a workspace safety model below, use the workspace default, or configure a
+                        dedicated model on the NeMo service. Checks stop if it is unavailable unless you
+                        explicitly change the failure mode. Test the policy before attaching it.
                       </div>
+                      <Field
+                        label="Safety model"
+                        hint="Used only for classification. Automatic uses the workspace default, then the NeMo service model, then the first workspace provider. Select a model explicitly for predictable classification."
+                      >
+                        <select
+                          value={form.safetyModelProviderId ?? ''}
+                          onChange={(e) => patch({ safetyModelProviderId: e.target.value || undefined })}
+                        >
+                          <option value="">Automatic (workspace default / NeMo service)</option>
+                          {data.providers.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} · {p.model}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
                       <Field
                         label="Safety instructions"
                         hint="Define what the classifier should allow or block. These instructions are applied at each selected stage."
