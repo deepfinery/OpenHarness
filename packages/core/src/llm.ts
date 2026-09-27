@@ -4,7 +4,23 @@ import { collection } from './db.js';
 import { decrypt, HttpError, safeFetch } from './security.js';
 import type { Provider, Stored } from './schema.js';
 
-export type ProviderRecord = Stored<Provider> & { apiKeyEncrypted?: string; contextTokenScale?: number };
+export type ProviderRecord = Stored<Provider> & {
+  apiKeyEncrypted?: string;
+  contextTokenScale?: number;
+  revision?: number;
+};
+
+/** A response from an older configuration must not overwrite an operator's provider edit. */
+export function providerLearningFilter(provider: ProviderRecord) {
+  return {
+    _id: provider._id,
+    ownerId: provider.ownerId,
+    model: provider.model,
+    kind: provider.kind,
+    baseUrl: provider.baseUrl,
+    revision: provider.revision === undefined ? { $exists: false } : provider.revision,
+  };
+}
 export type ToolDefinition = { name: string; description: string; inputSchema: Record<string, unknown> };
 export type ToolCall = { id: string; name: string; arguments: Record<string, unknown>; signature?: string };
 export type ChatMessage = {

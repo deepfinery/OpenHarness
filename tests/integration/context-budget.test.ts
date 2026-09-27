@@ -6,9 +6,9 @@ import { readFile } from 'node:fs/promises';
 const base = process.env.TEST_BASE_URL ?? 'http://localhost:8088';
 const fixture = process.env.TEST_FIXTURE_URL ?? 'http://localhost:19090';
 let cookie = '';
-async function ok(path: string, body?: unknown) {
+async function ok(path: string, body?: unknown, method = body ? 'POST' : 'GET') {
   const response = await fetch(base + '/api' + path, {
-    method: body ? 'POST' : 'GET',
+    method,
     headers: { Origin: base, Cookie: cookie, 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
@@ -215,4 +215,80 @@ test('early compression does not shorten a current request that fits the hard al
     (await ok(`/runs/${result.id}/memory`)).notes.some((n: any) => n.kind === 'finding'),
     'analysis can still run with the complete request',
   );
+});
+
+test('a 1M provider retains harness history beyond the old 128k default', async () => {
+  const { provider } = await agent('test-context-million', {}, { contextWindow: 1000000 });
+  const workflow = await ok('/workflows', {
+    name: 'Million context harness',
+    startAt: 'start',
+    nodes: [
+      { id: 'start', type: 'start', name: 'Start', next: 'agent' },
+      {
+        id: 'agent',
+        type: 'agent',
+        name: 'Research',
+        prompt: '{{input}}',
+        next: 'finish',
+        config: {
+          name: 'Large context agent',
+          providerId: provider.id,
+          systemPrompt: 'Read the supplied history.',
+          tokenBudget: 2000000,
+        },
+      },
+      { id: 'finish', type: 'finish', name: 'Finish', template: '{{last}}' },
+    ],
+  });
+  const started = await ok('/runs', {
+    workflowId: workflow.id,
+    input: 'Summarize the retained history.',
+    history: Array.from({ length: 18 }, (_, i) => ({
+      role: i % 2 ? 'assistant' : 'user',
+      content: 'Historical evidence. '.repeat(1500),
+    })),
+  });
+  let result: any;
+  for (let i = 0; i < 120; i++) {
+    result = await ok(`/runs/${started.id}`);
+    if (!['queued', 'running'].includes(result.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  assert.equal(result.status, 'succeeded', result.error);
+  assert.ok(
+    !result.events.some((e: any) => ['context_compacted', 'context_limit', 'context_retry'].includes(e.type)),
+  );
+  const stats = await (await fetch(fixture + '/stats')).json();
+  const calls = stats.contextRequests.filter((r: any) => r.model === 'test-context-million');
+  assert.ok(calls.some((r: any) => r.counted > 128000 && r.counted + r.requested < 1000000));
+  assert.equal((await ok(`/providers/${provider.id}`)).contextWindow, 1000000);
+});
+
+test('an in-flight limit error cannot undo an operator increase to 1M', async () => {
+  const { agent: a, provider } = await agent('test-context-upgrade');
+  const marker = `upgrade-probe-${randomUUID()}`;
+  const pending = run(a.id, marker);
+  try {
+    let observed = false;
+    for (let i = 0; i < 100; i++) {
+      const stats = await (await fetch(fixture + '/stats')).json();
+      if (stats.contextUpgradeStarted?.includes(marker)) {
+        observed = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.ok(observed, 'the original provider request is in flight');
+    await ok(`/providers/${provider.id}`, { ...provider, contextWindow: 1000000 }, 'PUT');
+  } finally {
+    await fetch(fixture + '/context-upgrade/release', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ marker }),
+    });
+  }
+  const result = await pending;
+  assert.equal(result.status, 'succeeded', result.error);
+  assert.ok(result.events.some((e: any) => e.type === 'context_retry'));
+  assert.equal((await ok(`/providers/${provider.id}`)).contextWindow, 1000000);
 });

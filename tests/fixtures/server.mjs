@@ -36,7 +36,7 @@ app.delete('/receiver', (_req, res) => {
   received.length = 0;
   res.json({ ok: true });
 });
-app.use(express.json());
+app.use(express.json({ limit: '8mb' }));
 app.use(express.urlencoded({ extended: false }));
 // A minimal OpenAI-compatible Vector Stores API (stores, files, attach, status, search), kept in memory.
 const vectorStores = new Map();
@@ -913,6 +913,11 @@ function selectionAnswer(model, messages, tools) {
     call(unavailable, { secret: 'private rejected argument' }),
   );
 }
+const contextUpgradeWaiters = new Map();
+app.post('/context-upgrade/release', (req, res) => {
+  contextUpgradeWaiters.get(req.body.marker)?.();
+  res.sendStatus(204);
+});
 app.post('/v1/chat/completions', async (req, res) => {
   if (req.body.model === 'test-safety-classifier') {
     const system = req.body.messages.find((m) => m.role === 'system')?.content ?? '';
@@ -951,8 +956,31 @@ app.post('/v1/chat/completions', async (req, res) => {
   )
     await new Promise((r) => setTimeout(r, 15000));
   if (JSON.stringify(req.body).includes('delay-model')) await new Promise((r) => setTimeout(r, 15000));
+  if (req.body.model === 'test-context-upgrade') {
+    const marker = req.body.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+    stats.contextUpgradeStarted ??= [];
+    if (marker.startsWith('upgrade-probe-') && !stats.contextUpgradeStarted.includes(marker)) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 10000);
+        contextUpgradeWaiters.set(marker, () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        stats.contextUpgradeStarted.push(marker);
+      });
+      contextUpgradeWaiters.delete(marker);
+      return res
+        .status(400)
+        .json({ error: { message: "This model's maximum context length is 32768 tokens." } });
+    }
+  }
   if (req.body.model.startsWith('test-context-')) {
-    const window = req.body.model === 'test-context-32k' ? 32768 : 8192;
+    const window =
+      req.body.model === 'test-context-million'
+        ? 1000000
+        : ['test-context-32k', 'test-context-upgrade'].includes(req.body.model)
+          ? 32768
+          : 8192;
     const counted = Math.ceil(
       (JSON.stringify(req.body.messages).length + JSON.stringify(req.body.tools ?? []).length) / 2,
     );

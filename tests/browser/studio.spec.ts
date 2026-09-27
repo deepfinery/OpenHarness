@@ -694,3 +694,27 @@ test('reflection keeps chat stable and preserves readable drafts and feedback af
     page.locator('.chat-message.assistant').getByRole('button', { name: 'View activity' }),
   ).toBeFocused();
 });
+
+test('provider editor saves an exact decimal 1M context window', async ({ page }) => {
+  const name = `Million context ${tag}`;
+  const p = await api(page.request, '/providers', 'POST', {
+    name,
+    kind: 'openai-compatible',
+    baseUrl: 'http://fixtures:9090/v1',
+    model: 'test-context-million',
+  });
+  await page.reload();
+  await navButton(page, 'Settings').click();
+  await page.getByRole('button', { name, exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit model provider' });
+  await dialog.locator('summary').filter({ hasText: 'Advanced' }).click();
+  await dialog.getByLabel('Context window', { exact: true }).fill('1000000');
+  expect(
+    await dialog
+      .getByLabel('Context window', { exact: true })
+      .evaluate((e: HTMLInputElement) => e.checkValidity()),
+  ).toBe(true);
+  await dialog.getByRole('button', { name: 'Save provider', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect((await api(page.request, `/providers/${p.id}`)).contextWindow).toBe(1000000);
+});

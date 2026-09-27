@@ -71,3 +71,23 @@ test('large current requests and assistant prose fit, with trailing request cons
   assert.ok(result.messages.at(-1)?.content.endsWith('END: include sources.'));
   assert.match(result.messages.at(-1)!.content, /context omitted/);
 });
+
+test('a million-token window accepts large context while keeping output and job allowances separate', () => {
+  const allowance = contextAllowance(1000000, 4096, 2000000);
+  assert.equal(allowance.promptTokens, 915904);
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'Research.' },
+    { role: 'user', content: 'context '.repeat(380000) },
+  ];
+  const fitted = compactDialog(messages, allowance.promptTokens);
+  assert.ok(fitted.fits);
+  assert.equal(fitted.changed, false);
+  assert.ok(fitted.tokens > 800000);
+  assert.ok(
+    !compactDialog(messages, contextAllowance(128000, 4096).promptTokens).messages.some(
+      (m) => m.content === messages[1].content,
+    ),
+  );
+  const limited = contextAllowance(1000000, 4096, 100000);
+  assert.ok(limited.promptTokens + limited.maxOutputTokens <= 100000);
+});
