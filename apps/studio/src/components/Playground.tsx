@@ -742,6 +742,14 @@ function ActivityHistory({ runId, onClose }: { runId: string; onClose: () => voi
   const [run, setRun] = useState<any>();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const mounted = useRef(false);
+  const pendingContent = useRef(new Set<string>());
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -768,20 +776,24 @@ function ActivityHistory({ runId, onClose }: { runId: string; onClose: () => voi
     };
   }, [runId]);
   useEffect(() => {
-    let stopped = false;
     for (const entry of entries) {
-      if (!opened[entry.id] || entry.status !== 'completed' || contents[entry.id] !== undefined) continue;
+      if (
+        !opened[entry.id] ||
+        entry.status !== 'completed' ||
+        contents[entry.id] !== undefined ||
+        pendingContent.current.has(entry.id)
+      )
+        continue;
+      pendingContent.current.add(entry.id);
       void api(`/runs/${runId}/activity/${entry.id}`)
         .then((result) => {
-          if (!stopped) setContents((previous) => ({ ...previous, [entry.id]: result.content ?? '' }));
+          if (mounted.current) setContents((previous) => ({ ...previous, [entry.id]: result.content ?? '' }));
         })
         .catch((e) => {
-          if (!stopped) setError(errorMessage(e));
-        });
+          if (mounted.current) setError(errorMessage(e));
+        })
+        .finally(() => pendingContent.current.delete(entry.id));
     }
-    return () => {
-      stopped = true;
-    };
   }, [entries, opened, contents, runId]);
   return (
     <Modal title="Agent activity" wide onClose={onClose}>

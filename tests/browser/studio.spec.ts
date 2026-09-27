@@ -623,6 +623,15 @@ test('saved safety policies can be deleted directly from the policy list', async
 test('reflection keeps chat stable and preserves readable drafts and feedback after reload', async ({
   page,
 }) => {
+  // Reading a saved stage can take longer than the popup's status polling interval.
+  const stageReads = new Map<string, number>();
+  await page.route('**/api/runs/*/activity/*', async (route) => {
+    const url = route.request().url();
+    stageReads.set(url, (stageReads.get(url) ?? 0) + 1);
+    const response = await route.fetch();
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    await route.fulfill({ response });
+  });
   const model = await api(page.request, '/providers', 'POST', {
     name: `Reflection history ${tag}`,
     kind: 'openai-compatible',
@@ -674,6 +683,7 @@ test('reflection keeps chat stable and preserves readable drafts and feedback af
     .filter({ has: page.locator('summary strong', { hasText: /^Critique 1$/ }) });
   await critique.locator('summary').click();
   await expect(critique).toContainText('REVIEW END');
+  expect([...stageReads.values()]).toEqual([1, 1]);
   expect((await api(page.request, `/runs/${started.id}/activity`)).entries).toHaveLength(3);
   await page.screenshot({ path: 'test-results/reflection-history.png' });
   await page.setViewportSize({ width: 390, height: 844 });
