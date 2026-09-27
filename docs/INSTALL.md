@@ -163,3 +163,18 @@ enrollment so the tokens and allow-lists are in place. Notes that apply when the
 | `command is not on the allow-list`      | Add the program to `allow_commands` in the connector config (host) or `ALLOW_COMMANDS` (container).                                                                                                 |
 | `device timeout`                        | Raise `GATEWAY_TOOL_TIMEOUTS=run_command=600` or the connector's `command_timeout_seconds`.                                                                                                         |
 | Studio says the gateway is unreachable  | `docker compose ps gateway`, `GATEWAY_URL` from the api container, `GATEWAY_ADMIN_TOKEN` matches.                                                                                                   |
+
+## Restricted or privileged VM host access
+
+For a standalone Linux machine, **Machines & clusters → Add machine / Configure → Machine access** offers two modes:
+
+- **Restricted connector** keeps the existing command allow-list and work-directory boundary. Commands run in the connector environment; seeing host kernel entries in `/proc` does not prove host userspace access.
+- **Privileged VM host (root)** is an administrator-only setting for the Linux Docker connector. Its generated command uses `--privileged --pid=host --user 0`, `HOST_ACCESS=true`, and `MACHINE_ACCESS_MODE=host`. `run_command` enters the VM host’s mount, PID, network, UTS and IPC namespaces with the host root and working directory. It can execute any host command as root, including disruptive operations; sudo is not needed. This is full administrator access, not read-only diagnostics.
+
+The setting alone cannot elevate a running container. Save it, open **Installation instructions**, enter the reachable **Harness gateway address** and your saved token, then rebuild/recreate the connector on that VM. Instructions include the repository clone, build, private environment file, Docker flags and log command. An existing token can be reused. If it was lost, issue a new token and update the connector.
+
+The connector refuses host mode without root, local host-access opt-in, and a separate target mount namespace. The gateway requires the machine’s host-access setting both at connection time and before tool dispatch. Changing back to restricted disconnects the privileged connector and refuses its reconnection; reinstall in restricted mode to restore connectivity. Already-started host commands may have acted before revocation.
+
+In host mode, `nvidia-smi`, `dcgmi`, `journalctl` and similar programs run from the VM’s own filesystem and use its libraries, devices and services. Install missing NVIDIA/DCGM utilities **on the VM**. This mode does not require duplicating the driver’s userland packages in the connector image or adding `--gpus all` to expose devices inside the connector namespace. `system_info` verifies host identity and labels connector facts separately. `run_command` reports its execution scope. The file tools remain restricted to the connector work directory; use host `run_command` for other VM files and processes.
+
+Gateway tool allow-lists, agent approvals, tool auditing, output caps, command deadlines and idempotency remain in effect. Full host command access intentionally removes the local executable deny-list for `run_command`; cluster drain/cooldown checks cannot constrain arbitrary standalone root commands. For bounded fleet operations, use the separate [cluster diagnostics and remediation](gpu-clusters.md) flow. Shared cluster tokens cannot enroll unrestricted host-command connectors. OpenShell is not part of this mode.

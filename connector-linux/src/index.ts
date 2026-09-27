@@ -1,3 +1,4 @@
+import { assertHostCommandAccess } from './hostAccess.js';
 import { registerGpuTools } from './gpu.js';
 // Programmatic entry point: build a connector server without starting a transport (used by tests and the CLI).
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -8,10 +9,15 @@ export { linuxToolNames, registerLinuxTools };
 export const connectorVersion = '0.1.0';
 
 export async function createConnectorServer(config: ConnectorConfig) {
+  const hostCommands = config.access_mode === 'host';
+  if (hostCommands) {
+    if (config.read_only) throw new Error('Privileged host commands cannot run in read-only mode.');
+    await assertHostCommandAccess();
+  }
   const policy = await Policy.create({
     workDir: config.work_dir,
-    allowCommands: config.allow_commands,
-    denyCommands: config.deny_commands,
+    allowCommands: hostCommands ? ['*'] : config.allow_commands,
+    denyCommands: hostCommands ? [] : config.deny_commands,
     allowShell: config.allow_shell,
     maxOutputBytes: config.max_output_bytes,
     commandTimeoutMs: config.command_timeout_seconds * 1000,
@@ -27,6 +33,6 @@ export async function createConnectorServer(config: ConnectorConfig) {
     actions: config.read_only ? [] : (process.env.HOST_REMEDIATION_ACTIONS ?? '').split(',').filter(Boolean),
     stateDir: process.env.HOST_STATE_DIR ?? '/host-state',
   });
-  registerLinuxTools(server, { policy, audit, hostname: config.hostname });
+  registerLinuxTools(server, { policy, audit, hostname: config.hostname, hostCommands });
   return { server, policy, audit };
 }

@@ -40,6 +40,14 @@ export function createDeviceServer(deviceId: string, identity: string, deps: Dev
   const allowed = async () => {
     const record = await deps.registry.get(deviceId);
     if (!record || record.disabled) throw new McpError(GatewayErrorCode.DeviceOffline, 'device offline');
+    if (
+      deps.hub.session(deviceId)?.capabilities.includes('host_full_access') &&
+      (record.cluster_id || record.access_mode !== 'host')
+    )
+      throw new McpError(
+        GatewayErrorCode.ToolNotAllowed,
+        'privileged host access is disabled; reinstall in restricted mode',
+      );
     if (record.cluster_id) {
       const cluster = await deps.clusters?.get(record.cluster_id);
       if (!cluster || cluster.disabled)

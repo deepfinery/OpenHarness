@@ -23,7 +23,7 @@ let base = '';
 let device: { server: McpServer; transport: WebSocketClientTransport } | undefined;
 
 /** A tiny device: an MCP server with an echo tool and a slow tool, dialing the gateway like a real connector. */
-async function startDevice(id: string, token = deviceToken) {
+async function startDevice(id: string, token = deviceToken, hostAccess = false) {
   const server = new McpServer({ name: 'test-device', version: '0.0.1' });
   server.registerTool(
     'echo',
@@ -47,7 +47,7 @@ async function startDevice(id: string, token = deviceToken) {
       platform: 'linux',
       hostname: 'test-host',
       connector_version: '0.0.1',
-      capabilities: ['echo', 'slow', 'secret'],
+      capabilities: ['echo', 'slow', 'secret', ...(hostAccess ? ['host_full_access'] : [])],
     },
     log: silentLogger,
     onStateChange: (s) => states.push(s),
@@ -249,4 +249,42 @@ test('admin API enrolls devices with a one-time token, deny-by-default tools, an
   assert.equal((await fetch(`${base}/admin/devices`)).status, 401);
   assert.equal((await admin('/admin/devices/box-2', 'DELETE')).status, 204);
   assert.equal((await admin('/admin/devices/box-2', 'DELETE')).status, 404);
+});
+
+test('privileged connector registration needs explicit machine permission and is revoked on restriction', async () => {
+  await gateway.registry.create({
+    device_id: 'host-access-test',
+    name: 'Host access',
+    platform: 'linux',
+    owner: 'tenant-a',
+    allowed_tools: ['echo'],
+    token_hash: await hashDeviceToken(deviceToken),
+    created_at: new Date().toISOString(),
+    disabled: false,
+  });
+  const denied = await startDevice('host-access-test', deviceToken, true);
+  try {
+    await waitFor(() => denied.states.includes('stopped') || denied.states.includes('disconnected'));
+    assert.ok(!gateway.hub.session('host-access-test')?.online);
+  } finally {
+    await denied.server.close();
+  }
+  assert.equal((await admin('/admin/devices/host-access-test', 'PUT', { access_mode: 'host' })).status, 200);
+  const allowed = await startDevice('host-access-test', deviceToken, true);
+  let client: Client | undefined;
+  try {
+    await waitFor(() => !!gateway.hub.session('host-access-test')?.online);
+    client = await orchestratorClient('host-access-test');
+    const result: any = await client.callTool({ name: 'echo', arguments: { text: 'host access allowed' } });
+    assert.match(result.content[0].text, /host access allowed/);
+    assert.equal(
+      (await admin('/admin/devices/host-access-test', 'PUT', { access_mode: 'restricted' })).status,
+      200,
+    );
+    await assert.rejects(client.callTool({ name: 'echo', arguments: { text: 'must not execute' } }));
+    await waitFor(() => !gateway.hub.session('host-access-test')?.online);
+  } finally {
+    await client?.close();
+    await allowed.server.close();
+  }
 });

@@ -101,3 +101,15 @@ test('file tools stay inside the work directory and honour read-only mode; repla
   assert.equal(blocked.isError, true);
   assert.match(blocked.content[0].text, /read-only/);
 });
+
+test('restricted system_info labels connector scope and host access requires local installation opt-in', async () => {
+  const { client } = await connectedClient();
+  const info = await call(client, 'system_info', {});
+  assert.equal(info.structuredContent.execution_scope, 'connector');
+  assert.match(info.structuredContent.command_access, /allow-list/);
+  await assert.rejects(
+    connectedClient({ access_mode: 'host' }),
+    /requires root|Host PID namespace|Privileged host mode/,
+  );
+  await client.close();
+});

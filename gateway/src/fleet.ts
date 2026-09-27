@@ -10,6 +10,12 @@ export function deviceView(record: DeviceRecord, hub: DeviceHub, publicUrl: stri
   return {
     device_id: record.device_id,
     cluster_id: record.cluster_id,
+    access_mode: record.access_mode ?? 'restricted',
+    active_access_mode: session?.online
+      ? session.capabilities.includes('host_full_access')
+        ? 'host'
+        : 'restricted'
+      : null,
     name: record.name || record.device_id,
     platform: record.platform,
     owner: record.owner,

@@ -192,6 +192,7 @@ export function InfrastructurePage({
         </div>
       ) : view.tab === 'machines' ? (
         <MachinesPage
+          isAdmin={isAdmin}
           data={current}
           refresh={refreshAll}
           act={act}

@@ -208,6 +208,7 @@ export function createHttpApp(deps: HttpDeps) {
     platform: z.enum(platforms),
     owner: z.string().max(200).default(''),
     allowed_tools: z.array(z.string().min(1).max(200)).max(200).default([]),
+    access_mode: z.enum(['restricted', 'host']).default('restricted'),
   });
   app.get(
     '/admin/devices',
@@ -225,6 +226,8 @@ export function createHttpApp(deps: HttpDeps) {
     requireAdmin,
     wrap(async (req, res) => {
       const body = enrollBody.parse(req.body);
+      if (body.access_mode === 'host' && body.platform !== 'linux')
+        throw new HttpError(400, 'Privileged host mode requires Linux');
       if (await registry.get(body.device_id)) throw new HttpError(409, 'device id already exists');
       const token = generateDeviceToken();
       await registry.create({
@@ -250,10 +253,21 @@ export function createHttpApp(deps: HttpDeps) {
           name: z.string().trim().max(100).optional(),
           allowed_tools: z.array(z.string().min(1).max(200)).max(200).optional(),
           disabled: z.boolean().optional(),
+          access_mode: z.enum(['restricted', 'host']).optional(),
         })
         .parse(req.body);
+      const existing = await registry.get(String(req.params.id));
+      if (
+        patch.access_mode !== undefined &&
+        (existing?.cluster_id || (patch.access_mode === 'host' && existing?.platform !== 'linux'))
+      )
+        throw new HttpError(400, 'Access mode is only configurable for standalone Linux machines');
       if (!(await registry.update(String(req.params.id), patch))) throw new HttpError(404, 'unknown device');
-      if (patch.disabled) hub.disconnect(String(req.params.id));
+      if (
+        patch.disabled ||
+        (patch.access_mode !== undefined && patch.access_mode !== (existing?.access_mode ?? 'restricted'))
+      )
+        hub.disconnect(String(req.params.id));
       res.json({ device: deviceView((await registry.get(String(req.params.id)))!, hub, publicUrl) });
     }),
   );

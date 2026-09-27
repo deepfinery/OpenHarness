@@ -1,3 +1,4 @@
+import { machineInstallSnippets } from './machineInstall.js';
 // Machines: devices enrolled at the gateway, mirrored as `device` connections so agents can use their tools.
 import { randomUUID } from 'node:crypto';
 import { collection } from './db.js';
@@ -10,6 +11,8 @@ export type Platform = (typeof devicePlatforms)[number];
 export type DeviceView = {
   device_id: string;
   cluster_id?: string;
+  access_mode?: 'restricted' | 'host';
+  active_access_mode?: 'restricted' | 'host' | null;
   name: string;
   platform: Platform;
   owner: string;
@@ -200,23 +203,18 @@ export async function syncMachines(ownerId: string, userId?: string) {
   return listMachines(ownerId);
 }
 export function installSnippets(device: DeviceView, token: string, connectUrl: string) {
-  const insecure = connectUrl.startsWith('ws://');
-  // Inside a container, localhost is the container itself; reach a gateway on the same host through the Docker host gateway.
-  const local = /^wss?:\/\/(localhost|127\.0\.0\.1)(?=[:/])/.test(connectUrl);
-  const containerUrl = local
-    ? connectUrl.replace(/\/\/(localhost|127\.0\.0\.1)/, '//host.docker.internal')
-    : connectUrl;
-  const env = `GATEWAY_URL=${connectUrl} DEVICE_ID=${device.device_id} DEVICE_TOKEN=${token}${insecure ? ' GATEWAY_ALLOW_INSECURE=true' : ''}`;
-  return {
-    linux: `# On the machine (Node.js 22.13+ installed), from a checkout of this repository:\nnpm --prefix connector-core ci && npm --prefix connector-core run build\nnpm --prefix connector-linux ci && npm --prefix connector-linux run build\nsudo ${env} sh connector-linux/install.sh`,
-    docker: `# Any host with Docker, from a checkout of this repository:\ndocker build -f connector-linux/Dockerfile -t openharness-connector-linux .\ndocker run -d --name openharness-${device.device_id} --restart unless-stopped${local ? ' --add-host host.docker.internal:host-gateway' : ''} \\\n  -e GATEWAY_URL=${containerUrl} -e DEVICE_ID=${device.device_id} -e DEVICE_TOKEN=${token}${insecure ? ' -e GATEWAY_ALLOW_INSECURE=true' : ''} \\\n  -v "$PWD/machine-work:/work" openharness-connector-linux`,
-    windows: `# PowerShell as Administrator, from a checkout of this repository (connector-windows ships in the next release):\n$env:GATEWAY_URL='${connectUrl}'; $env:DEVICE_ID='${device.device_id}'; $env:DEVICE_TOKEN='${token}'${insecure ? "; $env:GATEWAY_ALLOW_INSECURE='true'" : ''}\n.\\connector-windows\\install.ps1`,
-    chrome: `1. Load connector-chrome/dist as an unpacked extension (chrome://extensions, Developer mode).\n2. Open the extension options and enter:\n   Gateway: ${connectUrl}\n   Device ID: ${device.device_id}\n   Token: ${token}\n3. Allow the sites the agent may control. (The Chrome connector ships in the next release.)`,
-  };
+  return machineInstallSnippets(device, token, connectUrl);
 }
+
 export async function enrollMachine(
   ownerId: string,
-  input: { deviceId: string; name: string; platform: Platform; allowedTools: string[] },
+  input: {
+    deviceId: string;
+    name: string;
+    platform: Platform;
+    allowedTools: string[];
+    accessMode?: 'restricted' | 'host';
+  },
   userId?: string,
 ) {
   const result = await gatewayAdmin<{ device: DeviceView; token: string; connect_url: string }>(
@@ -228,6 +226,7 @@ export async function enrollMachine(
       platform: input.platform,
       owner: ownerId,
       allowed_tools: input.allowedTools,
+      access_mode: input.accessMode ?? 'restricted',
     },
   );
   const connectionId = await ensureDeviceConnection(ownerId, result.device, userId);
@@ -250,7 +249,7 @@ async function owned(ownerId: string, deviceId: string) {
 export async function updateMachine(
   ownerId: string,
   deviceId: string,
-  patch: { name?: string; allowedTools?: string[]; disabled?: boolean },
+  patch: { name?: string; allowedTools?: string[]; disabled?: boolean; accessMode?: 'restricted' | 'host' },
   userId?: string,
 ) {
   await owned(ownerId, deviceId);
@@ -258,6 +257,7 @@ export async function updateMachine(
     ...(patch.name !== undefined ? { name: patch.name } : {}),
     ...(patch.allowedTools !== undefined ? { allowed_tools: patch.allowedTools } : {}),
     ...(patch.disabled !== undefined ? { disabled: patch.disabled } : {}),
+    ...(patch.accessMode !== undefined ? { access_mode: patch.accessMode } : {}),
   });
   const connectionId = await ensureDeviceConnection(ownerId, result.device, userId);
   const record = await connections().findOne({ _id: connectionId });
