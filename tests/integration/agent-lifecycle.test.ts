@@ -254,3 +254,56 @@ test('language policy and original request reach every pattern, child and final 
     if (scenario.synthesis) assert.ok(calls.some((r: any) => r.system.includes('Analysis has ended.')));
   }
 });
+
+test('workflow wrappers retain the original request language without bypassing input redaction', async () => {
+  const policy = await ok('/guardrails', {
+    name: 'Private language reference',
+    provider: 'builtin',
+    stages: ['input'],
+    pii: true,
+  });
+  const { agent: a, provider } = await agent('test-language', { guardrailIds: [policy.id] });
+  const workflow = await ok('/workflows', {
+    name: 'Language wrapper regression',
+    startAt: 'start',
+    nodes: [
+      { id: 'start', type: 'start', name: 'Start', next: 'agent' },
+      {
+        id: 'agent',
+        type: 'agent',
+        name: 'Research',
+        prompt: 'Prüfe die deutschen Quellen.',
+        next: 'finish',
+        config: {
+          name: 'Language worker',
+          providerId: provider.id,
+          systemPrompt: 'Research accurately.',
+          tokenBudget: 200000,
+          guardrailIds: [policy.id],
+        },
+      },
+      { id: 'finish', type: 'finish', name: 'Finish', template: '{{last}}' },
+    ],
+  });
+  for (const target of [{ agentId: a.id }, { workflowId: workflow.id }]) {
+    const marker = randomUUID();
+    const input = `Explain the outlook in English for alice@example.com. ${marker}`;
+    const started = await ok('/runs', { ...target, input });
+    let result: any;
+    for (let i = 0; i < 120; i++) {
+      result = await ok(`/runs/${started.id}`);
+      if (!['queued', 'running'].includes(result.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    assert.equal(result.status, 'succeeded', result.error);
+    const stats = await (await fetch(fixture + '/stats')).json();
+    const calls = stats.languageRequests.filter((r: any) => r.source?.includes(marker));
+    assert.ok(calls.length > 0);
+    for (const call of calls) {
+      assert.match(call.source, /Explain the outlook in English/);
+      assert.match(call.source, /\[EMAIL\]/);
+      assert.doesNotMatch(JSON.stringify(call), /alice@example.com/);
+      if ('workflowId' in target) assert.equal(call.latest, 'Prüfe die deutschen Quellen.');
+    }
+  }
+});

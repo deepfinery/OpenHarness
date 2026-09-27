@@ -176,7 +176,20 @@ export async function runAgent(
     await ctx.event(event);
   };
   try {
+    const sameLanguageRequest =
+      ctx.responseLanguageRequest === undefined || ctx.responseLanguageRequest === input;
     input = await checkRail(guarded, 'input', input);
+    if (!ctx.depth) {
+      // executeRun already checks the originating request against workspace/workflow policies.
+      // Apply this node's additional policies too, without reintroducing redacted input as a reference.
+      guarded.responseLanguageRequest = sameLanguageRequest
+        ? input
+        : await checkRail(
+            { ...guarded, guardrails: guardrails.filter((p) => !ctx.defaultGuardrailIds?.includes(p.id)) },
+            'input',
+            ctx.responseLanguageRequest!,
+          );
+    }
     // Prior turns are reference context, not a fresh input to authorize or reject.
     // A greeting never opens tools, recalls notebooks, or resumes an earlier job.
     if (isGreeting(input) && !ctx.resumeFromHuman) {
@@ -1958,6 +1971,7 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
     runId: run._id,
     taskId: run.taskId ?? run._id,
     sourceTaskIds: run.sourceTaskIds,
+    responseLanguageRequest: run.input.trim() ? run.input : undefined,
     signal,
     onDelta,
     device: run.device,
