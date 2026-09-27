@@ -213,3 +213,44 @@ test('reflection history preserves output redaction', async () => {
   assert.match(saved[0].content, /\[EMAIL\]/);
   assert.ok(saved.every((e: any) => !e.content.includes('alice@example.com')));
 });
+
+// Deterministic HTTP prompt contracts, not a claim to evaluate a live model's translation ability.
+test('language policy and original request reach every pattern, child and final synthesis', async () => {
+  const cases = [
+    {
+      pattern: 'react',
+      input: 'Analyze Nvidia stock and latest news, is it bulish or bearish? what is the outlook?',
+    },
+    { pattern: 'reflection', input: 'Erkläre die Ergebnisse.' },
+    { pattern: 'plan-execute', input: 'Explain the results in Japanese.' },
+    { pattern: 'loop', input: 'Summarize the results in English.' },
+    { pattern: 'react', input: 'delegate-language: Analyze the outlook in English.', delegate: true },
+    { pattern: 'react', input: 'research-language: Explain the evidence.', synthesis: true },
+  ];
+  for (const scenario of cases) {
+    const input = `${scenario.input} [${randomUUID()}]`;
+    const { agent: a } = await agent('test-language', {
+      pattern: scenario.pattern,
+      timezone: 'Europe/Berlin',
+      maxTurns: scenario.synthesis ? 1 : 6,
+      patternConfig: { iterations: 1 },
+      delegation: { enabled: Boolean(scenario.delegate) },
+    });
+    const result = await run(a.id, input, [
+      { role: 'user', content: 'Antworte auf Deutsch.' },
+      { role: 'assistant', content: 'Hier ist die vorherige Antwort.' },
+    ]);
+    assert.equal(result.status, 'succeeded', result.error);
+    const stats = await (await fetch(fixture + '/stats')).json();
+    const calls = stats.languageRequests.filter((r: any) => r.source?.endsWith(input));
+    assert.ok(calls.length >= (scenario.pattern === 'reflection' ? 3 : 1));
+    for (const call of calls) {
+      assert.match(call.system, /Reply in the language of the original user request/);
+      assert.match(call.system, /unless it explicitly requests another output language/);
+      assert.match(call.system, /timezone and internal task prompts must not change/);
+      assert.ok(!call.system.includes(input), 'user wording must not become system instructions');
+    }
+    if (scenario.delegate) assert.ok(calls.some((r: any) => r.latest === 'Prüfe die deutschen Quellen.'));
+    if (scenario.synthesis) assert.ok(calls.some((r: any) => r.system.includes('Analysis has ended.')));
+  }
+});

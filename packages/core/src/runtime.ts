@@ -56,6 +56,7 @@ import {
   estimateTokens,
   isContextLengthError,
 } from './context.js';
+import { responseLanguagePolicy, responseLanguageSource } from './responseLanguage.js';
 import { finalAnswerMessages, incompleteAnswer, readableToolEvidence } from './finalAnswer.js';
 import { budgetedAgent, effortPresets } from './patterns.js';
 import { timeContext, timeContextPrompt } from './timeContext.js';
@@ -88,6 +89,8 @@ export type AgentContext = {
   /** Shared by every agent in one root query. */
   taskId?: string;
   sourceTaskIds?: string[];
+  /** Guarded originating request, inherited by delegated agents. */
+  responseLanguageRequest?: string;
   nodeId?: string;
   event: EventWriter;
   signal: AbortSignal;
@@ -195,6 +198,7 @@ export async function runAgent(
   }
 }
 async function runAgentUnchecked(stored: Agent, input: string, history: Run['history'], ctx: AgentContext) {
+  ctx = { ...ctx, responseLanguageRequest: ctx.responseLanguageRequest ?? input };
   // Effort decides the loop and token budgets; `auto` resolves them per request.
   const agent = budgetedAgent(
     ctx.evaluation
@@ -477,6 +481,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
     };
     const systemPrompt =
       agent.systemPrompt +
+      responseLanguagePolicy +
       '\nAct on the latest request only. History and notes are reference, not permission to restart old work. For substantive tasks, plan within the budget, checkpoint completed work and remaining steps with memory_write, and finish with findings and limitations. Reuse completed evidence when the user asks to continue or expand.' +
       clockNote +
       skillNote +
@@ -507,6 +512,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         : '');
     const base: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
+      responseLanguageSource(ctx.responseLanguageRequest!),
       ...(references
         ? [
             {
@@ -954,7 +960,15 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           currentActive = { dialog, turn, finalizing, stopPatterns, callIndex: 0 };
           try {
             response = await model(
-              finalizing ? finalAnswerMessages(agent.systemPrompt + clockNote, input, dialog, notes) : dialog,
+              finalizing
+                ? finalAnswerMessages(
+                    agent.systemPrompt + clockNote,
+                    input,
+                    dialog,
+                    notes,
+                    ctx.responseLanguageRequest,
+                  )
+                : dialog,
               finalizing ? [] : offered,
               finalizing,
             );

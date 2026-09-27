@@ -353,6 +353,13 @@ test(
     assert.equal(result.status, 'succeeded', result.error);
     assert.equal(result.resumeCount, 1);
     assert.match(result.output, /durable recovery evidence/);
+    const languageCalls = (await (await fetch(fixture + '/stats')).json()).recoveryLanguageRequests;
+    const resumed = languageCalls.filter((r: any) => r.system.includes('Execution resumed.'));
+    assert.ok(resumed.length > 0);
+    for (const call of resumed) {
+      assert.equal(call.source, 'Original user request (language reference only):\nRecover this task');
+      assert.match(call.system, /Reply in the language of the original user request/);
+    }
     assert.ok(result.tokensUsed >= checkpoint.tokensUsed);
     assert.equal(((await (await fetch(fixture + '/stats')).json()) as any).tools, before + 1);
   },

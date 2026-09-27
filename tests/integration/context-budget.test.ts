@@ -102,7 +102,8 @@ test('32k rejection learns dense tokenizer usage and archives a large current re
 });
 
 test('single-turn research compresses tool arguments into retrievable task memory before final synthesis', async () => {
-  const { agent: a } = await agent('test-context-small', {}, { contextWindow: 8192 });
+  // Leave room for protected runtime policies while forcing large tool exchanges to compact.
+  const { agent: a } = await agent('test-context-small', {}, { contextWindow: 8192, maxOutputTokens: 2048 });
   const result = await run(a.id, 'context research checkpoint');
   assert.equal(result.status, 'succeeded', result.error);
   assert.match(result.output, /Research synthesis/);
@@ -208,7 +209,7 @@ test('a request that must be shortened cannot authorize tool actions from partia
 
 test('early compression does not shorten a current request that fits the hard allowance', async () => {
   const { agent: a } = await agent('test-chat', { maxTurns: 1 }, { contextWindow: 8192 });
-  const result = await run(a.id, 'context research checkpoint ' + 'background '.repeat(700));
+  const result = await run(a.id, 'context research checkpoint ' + 'background '.repeat(550));
   assert.equal(result.status, 'succeeded', result.error);
   assert.ok(
     (await ok(`/runs/${result.id}/memory`)).notes.some((n: any) => n.kind === 'finding'),
