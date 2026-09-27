@@ -12,6 +12,8 @@ export type ChatMessage = {
   content: string;
   /** Internal reference data, distinct from operating instructions and the current user request. */
   reference?: boolean;
+  /** Original user wording used only to select response language; retained during compaction. */
+  responseLanguageSource?: boolean;
   toolCalls?: ToolCall[];
   toolCallId?: string;
   name?: string;

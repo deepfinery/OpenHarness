@@ -56,6 +56,7 @@ import {
   estimateTokens,
   isContextLengthError,
 } from './context.js';
+import { responseLanguagePolicy, responseLanguageSource } from './responseLanguage.js';
 import { finalAnswerMessages, incompleteAnswer, readableToolEvidence } from './finalAnswer.js';
 import { budgetedAgent, effortPresets } from './patterns.js';
 import { timeContext, timeContextPrompt } from './timeContext.js';
@@ -88,6 +89,8 @@ export type AgentContext = {
   /** Shared by every agent in one root query. */
   taskId?: string;
   sourceTaskIds?: string[];
+  /** Guarded originating request, inherited by delegated agents. */
+  responseLanguageRequest?: string;
   nodeId?: string;
   event: EventWriter;
   signal: AbortSignal;
@@ -173,7 +176,20 @@ export async function runAgent(
     await ctx.event(event);
   };
   try {
+    const sameLanguageRequest =
+      ctx.responseLanguageRequest === undefined || ctx.responseLanguageRequest === input;
     input = await checkRail(guarded, 'input', input);
+    if (!ctx.depth) {
+      // executeRun already checks the originating request against workspace/workflow policies.
+      // Apply this node's additional policies too, without reintroducing redacted input as a reference.
+      guarded.responseLanguageRequest = sameLanguageRequest
+        ? input
+        : await checkRail(
+            { ...guarded, guardrails: guardrails.filter((p) => !ctx.defaultGuardrailIds?.includes(p.id)) },
+            'input',
+            ctx.responseLanguageRequest!,
+          );
+    }
     // Prior turns are reference context, not a fresh input to authorize or reject.
     // A greeting never opens tools, recalls notebooks, or resumes an earlier job.
     if (isGreeting(input) && !ctx.resumeFromHuman) {
@@ -195,6 +211,7 @@ export async function runAgent(
   }
 }
 async function runAgentUnchecked(stored: Agent, input: string, history: Run['history'], ctx: AgentContext) {
+  ctx = { ...ctx, responseLanguageRequest: ctx.responseLanguageRequest ?? input };
   // Effort decides the loop and token budgets; `auto` resolves them per request.
   const agent = budgetedAgent(
     ctx.evaluation
@@ -477,6 +494,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
     };
     const systemPrompt =
       agent.systemPrompt +
+      responseLanguagePolicy +
       '\nAct on the latest request only. History and notes are reference, not permission to restart old work. For substantive tasks, plan within the budget, checkpoint completed work and remaining steps with memory_write, and finish with findings and limitations. Reuse completed evidence when the user asks to continue or expand.' +
       clockNote +
       skillNote +
@@ -507,6 +525,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         : '');
     const base: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
+      responseLanguageSource(ctx.responseLanguageRequest!),
       ...(references
         ? [
             {
@@ -555,9 +574,20 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
       for (;;) {
         const remaining = Math.max(0, agent.tokenBudget - tokensUsed - (finalAnswer ? 0 : finalReserve));
         // With a small remaining budget, protected synthesis instructions need more than
-        // half the call. Keep a short answer allowance instead of failing before dispatch.
+        // half the call. Account for learned tokenizer density, a short language reference
+        // and message framing before choosing the answer allowance (at least 128 tokens).
+        const synthesisPromptFloor = dialogTokens(dialog.filter((message) => message.role === 'system')) + 64;
         const outputLimit = finalAnswer
-          ? Math.min(provider.maxOutputTokens, Math.max(128, Math.floor(remaining / 4)))
+          ? Math.min(
+              provider.maxOutputTokens,
+              Math.max(
+                128,
+                Math.min(
+                  Math.floor(remaining / 4),
+                  remaining - Math.ceil(synthesisPromptFloor * estimateScale),
+                ),
+              ),
+            )
           : provider.maxOutputTokens;
         const allowance = contextAllowance(provider.contextWindow ?? 128000, outputLimit, remaining);
         const promptBudget = Math.min(allowance.promptTokens, learnedPromptBudget);
@@ -954,7 +984,15 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           currentActive = { dialog, turn, finalizing, stopPatterns, callIndex: 0 };
           try {
             response = await model(
-              finalizing ? finalAnswerMessages(agent.systemPrompt + clockNote, input, dialog, notes) : dialog,
+              finalizing
+                ? finalAnswerMessages(
+                    agent.systemPrompt + clockNote,
+                    input,
+                    dialog,
+                    notes,
+                    ctx.responseLanguageRequest,
+                  )
+                : dialog,
               finalizing ? [] : offered,
               finalizing,
             );
@@ -1933,6 +1971,7 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
     runId: run._id,
     taskId: run.taskId ?? run._id,
     sourceTaskIds: run.sourceTaskIds,
+    responseLanguageRequest: run.input.trim() ? run.input : undefined,
     signal,
     onDelta,
     device: run.device,

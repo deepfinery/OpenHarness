@@ -52,14 +52,14 @@ test('final synthesis starts without tool calls and includes readable evidence a
   const messages = finalAnswerMessages('Be accurate.', 'Inspect the host.', dialog, []);
   assert.deepEqual(
     messages.map((m) => m.role),
-    ['system', 'user'],
+    ['system', 'user', 'user'],
   );
   assert.ok(messages.every((m) => !m.toolCalls && !m.toolCallId));
   assert.match(messages[0].content, /No tools are available/);
   assert.match(messages[0].content, /Do not invent findings/);
-  assert.match(messages[1].content, /Inspect the host/);
-  assert.match(messages[1].content, /Permission denied/);
-  assert.doesNotMatch(messages[1].content, /isError/);
+  assert.match(messages[2].content, /Inspect the host/);
+  assert.match(messages[2].content, /Permission denied/);
+  assert.doesNotMatch(messages[2].content, /isError/);
   assert.equal(JSON.stringify(dialog), before);
 });
 
@@ -100,7 +100,7 @@ test('final synthesis retains notebook references without promoting them to syst
     ],
     [],
   );
-  assert.match(messages[1].content, /cedar requires three health checks/);
-  assert.match(messages[1].content, /verify before relying on it/);
+  assert.match(messages[2].content, /cedar requires three health checks/);
+  assert.match(messages[2].content, /verify before relying on it/);
   assert.doesNotMatch(messages[0].content, /cedar/);
 });

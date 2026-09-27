@@ -86,7 +86,7 @@ function groups(messages: ChatMessage[]) {
 /**
  * Fits `messages` under `budget` tokens, escalating only as far as needed and never past `maxLevel`.
  * Level 1 shortens older tool results; level 2 also drops the oldest completed turns (keeping the system
- * prompt and the current turn); level 3 also trims the current turn's tool exchanges and text. System instructions are never truncated.
+ * prompt and the current turn); level 3 also trims the current turn's tool exchanges and text. System instructions are never truncated; a bounded language reference remains at user priority.
  * `fits` must be checked by callers: instructions alone can exceed the available budget.
  * Assistant tool calls always stay with their tool results.
  */
@@ -97,10 +97,16 @@ export function compactDialog(
 ): { messages: ChatMessage[]; changed: boolean; tokens: number; level: 0 | 1 | 2 | 3; fits: boolean } {
   if (dialogTokens(messages) <= budget)
     return { messages, changed: false, tokens: dialogTokens(messages), level: 0, fits: true };
-  const system = messages.filter((m) => m.role === 'system');
-  let rest = messages.filter((m) => m.role !== 'system');
+  const instructions = messages.filter((m) => m.role === 'system');
+  // Language context must not crowd out the final answer on a small remaining budget.
+  // Retain its opening and trailing constraints, targeting a fifth of the space after instructions with a short minimum.
+  const languageChars = Math.max(160, Math.floor((budget - dialogTokens(instructions)) * 0.2 * 3.5));
+  const retained = messages
+    .filter((m) => m.role === 'system' || m.responseLanguageSource)
+    .map((m) => (m.responseLanguageSource ? { ...m, content: excerpt(m.content, languageChars) } : m));
+  let rest = messages.filter((m) => m.role !== 'system' && !m.responseLanguageSource);
   let level: 1 | 2 | 3 = 1;
-  const fits = () => dialogTokens([...system, ...rest]) <= budget;
+  const fits = () => dialogTokens([...retained, ...rest]) <= budget;
 
   // Level 1: older tool results carry little value once the model has used them; the latest stays intact.
   const toolIndexes = rest.map((m, i) => (m.role === 'tool' ? i : -1)).filter((i) => i >= 0);
@@ -134,13 +140,13 @@ export function compactDialog(
     rest.splice(index, 1);
   }
   if (!fits() && rest.length) {
-    const chars = Math.max(0, Math.floor((budget - dialogTokens(system) - 7) * 3.5));
+    const chars = Math.max(0, Math.floor((budget - dialogTokens(retained) - 7) * 3.5));
     rest = rest.map((m) => ({ ...m, content: excerpt(m.content, chars) }));
   }
   return finish();
 
   function finish() {
-    const out = [...system, ...rest];
+    const out = [...retained, ...rest];
     return {
       messages: out,
       changed: true,

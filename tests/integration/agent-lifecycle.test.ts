@@ -213,3 +213,97 @@ test('reflection history preserves output redaction', async () => {
   assert.match(saved[0].content, /\[EMAIL\]/);
   assert.ok(saved.every((e: any) => !e.content.includes('alice@example.com')));
 });
+
+// Deterministic HTTP prompt contracts, not a claim to evaluate a live model's translation ability.
+test('language policy and original request reach every pattern, child and final synthesis', async () => {
+  const cases = [
+    {
+      pattern: 'react',
+      input: 'Analyze Nvidia stock and latest news, is it bulish or bearish? what is the outlook?',
+    },
+    { pattern: 'reflection', input: 'Erkläre die Ergebnisse.' },
+    { pattern: 'plan-execute', input: 'Explain the results in Japanese.' },
+    { pattern: 'loop', input: 'Summarize the results in English.' },
+    { pattern: 'react', input: 'delegate-language: Analyze the outlook in English.', delegate: true },
+    { pattern: 'react', input: 'research-language: Explain the evidence.', synthesis: true },
+  ];
+  for (const scenario of cases) {
+    const input = `${scenario.input} [${randomUUID()}]`;
+    const { agent: a } = await agent('test-language', {
+      pattern: scenario.pattern,
+      timezone: 'Europe/Berlin',
+      maxTurns: scenario.synthesis ? 1 : 6,
+      patternConfig: { iterations: 1 },
+      delegation: { enabled: Boolean(scenario.delegate) },
+    });
+    const result = await run(a.id, input, [
+      { role: 'user', content: 'Antworte auf Deutsch.' },
+      { role: 'assistant', content: 'Hier ist die vorherige Antwort.' },
+    ]);
+    assert.equal(result.status, 'succeeded', result.error);
+    const stats = await (await fetch(fixture + '/stats')).json();
+    const calls = stats.languageRequests.filter((r: any) => r.source?.endsWith(input));
+    assert.ok(calls.length >= (scenario.pattern === 'reflection' ? 3 : 1));
+    for (const call of calls) {
+      assert.match(call.system, /Reply in the language of the original user request/);
+      assert.match(call.system, /unless it explicitly requests another output language/);
+      assert.match(call.system, /timezone and internal task prompts must not change/);
+      assert.ok(!call.system.includes(input), 'user wording must not become system instructions');
+    }
+    if (scenario.delegate) assert.ok(calls.some((r: any) => r.latest === 'Prüfe die deutschen Quellen.'));
+    if (scenario.synthesis) assert.ok(calls.some((r: any) => r.system.includes('Analysis has ended.')));
+  }
+});
+
+test('workflow wrappers retain the original request language without bypassing input redaction', async () => {
+  const policy = await ok('/guardrails', {
+    name: 'Private language reference',
+    provider: 'builtin',
+    stages: ['input'],
+    pii: true,
+  });
+  const { agent: a, provider } = await agent('test-language', { guardrailIds: [policy.id] });
+  const workflow = await ok('/workflows', {
+    name: 'Language wrapper regression',
+    startAt: 'start',
+    nodes: [
+      { id: 'start', type: 'start', name: 'Start', next: 'agent' },
+      {
+        id: 'agent',
+        type: 'agent',
+        name: 'Research',
+        prompt: 'Prüfe die deutschen Quellen.',
+        next: 'finish',
+        config: {
+          name: 'Language worker',
+          providerId: provider.id,
+          systemPrompt: 'Research accurately.',
+          tokenBudget: 200000,
+          guardrailIds: [policy.id],
+        },
+      },
+      { id: 'finish', type: 'finish', name: 'Finish', template: '{{last}}' },
+    ],
+  });
+  for (const target of [{ agentId: a.id }, { workflowId: workflow.id }]) {
+    const marker = randomUUID();
+    const input = `Explain the outlook in English for alice@example.com. ${marker}`;
+    const started = await ok('/runs', { ...target, input });
+    let result: any;
+    for (let i = 0; i < 120; i++) {
+      result = await ok(`/runs/${started.id}`);
+      if (!['queued', 'running'].includes(result.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    assert.equal(result.status, 'succeeded', result.error);
+    const stats = await (await fetch(fixture + '/stats')).json();
+    const calls = stats.languageRequests.filter((r: any) => r.source?.includes(marker));
+    assert.ok(calls.length > 0);
+    for (const call of calls) {
+      assert.match(call.source, /Explain the outlook in English/);
+      assert.match(call.source, /\[EMAIL\]/);
+      assert.doesNotMatch(JSON.stringify(call), /alice@example.com/);
+      if ('workflowId' in target) assert.equal(call.latest, 'Prüfe die deutschen Quellen.');
+    }
+  }
+});

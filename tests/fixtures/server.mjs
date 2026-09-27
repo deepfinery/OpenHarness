@@ -453,7 +453,16 @@ function answer(messages, tools) {
       sources: ['fixture://cedar'],
     });
   }
-  if (String(input).includes('context research checkpoint')) {
+  if (
+    String(input).includes('context research checkpoint') ||
+    (!tools?.length &&
+      messages.some(
+        (m) =>
+          m.role === 'user' &&
+          m.content.startsWith('Original user request (language reference only):') &&
+          m.content.includes('context research checkpoint'),
+      ))
+  ) {
     if (!tools?.length)
       return {
         content:
@@ -468,7 +477,11 @@ function answer(messages, tools) {
   if (String(input).includes('exhaust tool evidence')) {
     if (!tools?.length && String(input).includes('summarize')) {
       const clean =
-        messages.filter((m) => m.role !== 'system').length === 1 &&
+        messages.filter((m) => m.role !== 'system').length === 2 &&
+        messages.some(
+          (m) =>
+            m.role === 'user' && m.content.startsWith('Original user request (language reference only):'),
+        ) &&
         !messages.some((m) => m.role === 'tool' || m.tool_calls?.length) &&
         String(input).includes('MCP lookup: recorded evidence');
       return {
@@ -1030,6 +1043,18 @@ app.post('/v1/chat/completions', async (req, res) => {
           };
   }
   if (req.body.model === 'test-durable-recovery') {
+    stats.recoveryLanguageRequests ??= [];
+    stats.recoveryLanguageRequests.push({
+      system: req.body.messages
+        .filter((m) => m.role === 'system')
+        .map((m) => m.content)
+        .join('\n'),
+      source: req.body.messages.find(
+        (m) =>
+          m.role === 'user' && m.content.startsWith('Original user request (language reference only):\n'),
+      )?.content,
+    });
+
     const result = req.body.messages.find((m) => m.role === 'tool');
     const lookup = req.body.tools?.find((t) => t.function.description?.includes('/ lookup:'))?.function.name;
     message = result
@@ -1044,6 +1069,53 @@ app.post('/v1/chat/completions', async (req, res) => {
             },
           ],
         };
+  }
+  if (req.body.model === 'test-language') {
+    const messages = req.body.messages;
+    const system = messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+      .join('\n');
+    const source = messages.find(
+      (m) => m.role === 'user' && m.content.startsWith('Original user request (language reference only):\n'),
+    )?.content;
+    const latest = messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+    stats.languageRequests ??= [];
+    stats.languageRequests.push({ system, source, latest });
+    stats.languageRequests = stats.languageRequests.slice(-100);
+    const delegate =
+      latest.includes('delegate-language') &&
+      req.body.tools?.some((t) => t.function.name === 'spawn_agents') &&
+      messages.at(-1)?.role !== 'tool';
+    const research = latest.includes('research-language') && !system.includes('Analysis has ended.');
+    message =
+      delegate || research
+        ? {
+            content: '',
+            tool_calls: [
+              {
+                id: randomUUID(),
+                type: 'function',
+                function: {
+                  name: delegate ? 'spawn_agents' : 'memory_write',
+                  arguments: JSON.stringify(
+                    delegate
+                      ? { agents: [{ task: 'Prüfe die deutschen Quellen.', effort: 'light' }] }
+                      : {
+                          title: 'German evidence',
+                          content: 'Die Ergebnisse sind positiv.',
+                          kind: 'finding',
+                        },
+                  ),
+                },
+              },
+            ],
+          }
+        : {
+            content: latest.includes('Before doing anything')
+              ? '1. Prüfe die Quellen.'
+              : 'Deutsche Quellen und Kritik als Testdaten.',
+          };
   }
   if (req.body.model === 'test-reflection-history') {
     await new Promise((resolve) => setTimeout(resolve, 1800));
