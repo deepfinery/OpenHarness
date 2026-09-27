@@ -66,6 +66,8 @@ export const toolBindingSchema = z.object({
 export const agentPatterns = ['react', 'plan-execute', 'reflection', 'loop'] as const;
 export type AgentPattern = (typeof agentPatterns)[number];
 export const patternConfigSchema = z.object({
+  /** Omit to critique with the same provider/model used for the work. */
+  judgeProviderId: id.optional(),
   reflections: z.number().int().min(1).max(3).default(1),
   iterations: z.number().int().min(1).max(10).default(3),
   doneMarker: z.string().trim().min(1).max(50).default('DONE'),
@@ -497,9 +499,15 @@ export type Run = Stored<RunInput> & {
   parentRunId?: string;
   /** Root query whose temporary notebook this run shares. Set by the runtime, never by model input. */
   taskId?: string;
+  /** Read-only task notebooks from earlier turns of this same conversation. */
+  sourceTaskIds?: string[];
   parentNodeId?: string;
   /** Tokens a sub-agent run used; they also count against its parent. */
   tokensUsed?: number;
+  /** A final answer could not be generated; keep the saved partial evidence visible. */
+  summaryUnavailable?: boolean;
+  /** Agent continuations exist; recovery must also check the external-call journal. */
+  recoveryReady?: boolean;
   /** The latest human feedback on the result. */
   feedback?: { rating: 'up' | 'down'; comment?: string; at: Date; by?: string };
   /** Turning the run and its feedback into a lesson for the workflow's experience folder. */

@@ -147,6 +147,16 @@ function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
           <span className="port-label port-in">In</span>
         </>
       )}
+      {n.type === 'agent' && (
+        <Handle
+          type="target"
+          id="guardrail"
+          position={Position.Top}
+          className="guardrail-port"
+          data-testid={`port-${n.id}-guardrail`}
+          aria-label={`${n.name} safety policy`}
+        />
+      )}
       <button
         type="button"
         className="card-gear nodrag"
@@ -171,14 +181,6 @@ function GraphCard({ data, selected }: NodeProps<Node<FlowData>>) {
       {data.warning && <div className="card-warning">{data.warning}</div>}
       {n.type === 'agent' && (
         <div className="agent-ports">
-          <Handle
-            type="target"
-            id="guardrail"
-            position={Position.Top}
-            className="guardrail-port"
-            data-testid={`port-${n.id}-guardrail`}
-            aria-label={`${n.name} safety policy`}
-          />
           <span>
             Tools <small>{data.attached || ''}</small>
           </span>

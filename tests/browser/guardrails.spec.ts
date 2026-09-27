@@ -66,6 +66,8 @@ test('create a safety policy and connect its box above the harness agent', async
   const railBox = (await rail.boundingBox())!,
     agentBox = (await agent.boundingBox())!;
   expect(railBox.y + railBox.height).toBeLessThan(agentBox.y);
+  const port = (await page.getByTestId('port-agent-guardrail').boundingBox())!;
+  expect(Math.abs(port.y + port.height / 2 - agentBox.y)).toBeLessThan(3);
   await rail.dblclick();
   await expect(page.getByLabel('Guardrail policy', { exact: true })).toHaveValue(policy.id);
   // Close card settings while keeping the workflow editor open.

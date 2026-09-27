@@ -87,7 +87,7 @@ export function incompleteAnswer(notes: EvidenceNote[] = []): string {
         ]
       : []),
     'The recorded evidence is available in this run’s Memory and Trace panels. Successful tool calls do not establish that the task succeeded; blocked or failed checks remain unresolved.',
-    'Review the saved evidence and continue with a narrower request to complete the unfinished checks.',
+    'Continue this conversation with the remaining scope or an expanded budget. Reuse the saved findings and verify unfinished checks before claiming completion.',
   ].join('\n\n');
 }
 

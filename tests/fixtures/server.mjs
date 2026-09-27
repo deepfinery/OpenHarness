@@ -468,7 +468,7 @@ function answer(messages, tools) {
   if (String(input).includes('exhaust tool evidence')) {
     if (!tools?.length && String(input).includes('summarize')) {
       const clean =
-        messages.length === 2 &&
+        messages.filter((m) => m.role !== 'system').length === 1 &&
         !messages.some((m) => m.role === 'tool' || m.tool_calls?.length) &&
         String(input).includes('MCP lookup: recorded evidence');
       return {
@@ -502,6 +502,17 @@ function answer(messages, tools) {
   if (String(input).includes('inspect past forty')) {
     const count = messages.filter((m) => m.role === 'tool').length;
     return count < 41 ? memoryCall('memory_search', {}) : { content: 'Completed 41 inspection turns.' };
+  }
+  if (String(input).includes('expand previous evidence')) {
+    if (lastToolName === 'memory_search') {
+      const note = JSON.parse(last.content).notes.find((n) => n.title === 'Immediate finding');
+      return note
+        ? memoryCall('memory_read', { note_id: note.note_id })
+        : { content: 'Prior evidence missing' };
+    }
+    if (lastToolName === 'memory_read')
+      return { content: `Expanded without repeating: ${JSON.parse(last.content).content}` };
+    return memoryCall('memory_search', { query: 'immediate evidence' });
   }
   if (String(input).includes('task notebook roundtrip')) {
     if (lastToolName === 'memory_write') return memoryCall('memory_search', { query: 'immediate evidence' });
@@ -919,6 +930,13 @@ app.post('/v1/chat/completions', async (req, res) => {
     });
   }
   stats.models++;
+  if (
+    ['test-durable-recovery', 'test-durable-team'].includes(req.body.model) &&
+    req.body.messages.some(
+      (m) => m.role === 'tool' && String(m.content).includes('MCP lookup: durable recovery evidence'),
+    )
+  )
+    await new Promise((r) => setTimeout(r, 15000));
   if (JSON.stringify(req.body).includes('delay-model')) await new Promise((r) => setTimeout(r, 15000));
   if (req.body.model.startsWith('test-context-')) {
     const window = req.body.model === 'test-context-32k' ? 32768 : 8192;
@@ -982,6 +1000,51 @@ app.post('/v1/chat/completions', async (req, res) => {
     : req.body.model === 'test-clock'
       ? clockAnswer(req.body.messages, req.body.tools)
       : answer(req.body.messages, req.body.tools);
+  if (req.body.model === 'test-durable-team') {
+    const child = req.body.messages.some(
+      (m) => m.role === 'system' && String(m.content).includes('You are a sub-agent'),
+    );
+    const input = req.body.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+    const result = req.body.messages.find((m) => m.role === 'tool');
+    const lookup = req.body.tools?.find((t) => t.function.description?.includes('/ lookup:'))?.function.name;
+    message = result
+      ? { content: `Team result: ${result.content}` }
+      : child && input.includes('Fast sibling')
+        ? { content: 'Fast sibling completed once' }
+        : {
+            content: '',
+            tool_calls: [
+              {
+                id: randomUUID(),
+                type: 'function',
+                function: child
+                  ? { name: lookup, arguments: JSON.stringify({ query: 'durable recovery evidence' }) }
+                  : {
+                      name: 'spawn_agents',
+                      arguments: JSON.stringify({
+                        agents: [{ task: 'Fast sibling' }, { task: 'Slow sibling', effort: 'medium' }],
+                      }),
+                    },
+              },
+            ],
+          };
+  }
+  if (req.body.model === 'test-durable-recovery') {
+    const result = req.body.messages.find((m) => m.role === 'tool');
+    const lookup = req.body.tools?.find((t) => t.function.description?.includes('/ lookup:'))?.function.name;
+    message = result
+      ? { content: `Recovered result: ${result.content}` }
+      : {
+          content: 'Collect one durable result',
+          tool_calls: [
+            {
+              id: randomUUID(),
+              type: 'function',
+              function: { name: lookup, arguments: JSON.stringify({ query: 'durable recovery evidence' }) },
+            },
+          ],
+        };
+  }
   // Fail only after a real MCP result, so recovery must preserve already completed tool calls.
   if (
     req.body.model.startsWith('test-response-') &&

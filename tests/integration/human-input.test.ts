@@ -653,3 +653,47 @@ for (const choice of ['approve', 'deny'])
       await change(false);
     }
   });
+
+test(
+  'email failures stay actionable in the inbox and resolved tasks remain available',
+  { skip: process.env.TEST_FAULT_INJECTION !== 'true' },
+  async () => {
+    const a = await agent({ approvals: { notifyEmail: true } });
+    const tenantId = (await ok('/api/auth/me')).tenantId;
+    // Disable delivery only in this test tenant. JSON SMTP otherwise succeeds immediately.
+    mutateTestDatabase(
+      `await collection('email_settings').updateOne({_id:${JSON.stringify(`${tenantId}:email`)}}, {$set:{ownerId:${JSON.stringify(tenantId)},host:'fixtures',port:25,secure:false,username:'',from:'test@openharness.test',enabled:false}}, {upsert:true});`,
+    );
+    try {
+      const run = await start(a, 'human checkpoint test');
+      await wait(run.id, 'waiting_for_human');
+      let r = (await requests(run.id))[0];
+      for (let i = 0; i < 50 && !r.notifyError; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        r = (await requests(run.id))[0];
+      }
+      assert.match(r.notifyError ?? '', /disabled/);
+      assert.equal(r.notifiedAt, undefined);
+      mutateTestDatabase(
+        `await collection('email_settings').deleteOne({_id:${JSON.stringify(`${tenantId}:email`)}});`,
+      );
+      await ok(`/api/inbox/${r._id}/retry-email`, {});
+      for (let i = 0; i < 50 && !r.notifiedAt; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        r = (await requests(run.id))[0];
+      }
+      assert.ok(r.notifiedAt);
+      assert.equal(r.notifyError, undefined);
+      await decide(r._id, { decision: 'answer', answer: 'Europe' });
+      await wait(run.id, 'succeeded');
+      assert.equal((await requests(run.id)).length, 0);
+      const resolved = (await ok(`/api/inbox?runId=${run.id}&status=resolved`)).requests;
+      assert.equal(resolved[0]._id, r._id);
+      assert.equal(resolved[0].decision.answer, 'Europe');
+    } finally {
+      mutateTestDatabase(
+        `await collection('email_settings').deleteOne({_id:${JSON.stringify(`${tenantId}:email`)}});`,
+      );
+    }
+  },
+);

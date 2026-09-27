@@ -105,7 +105,7 @@ async function processJob(job: Job, controller: AbortController) {
       }
     }, 300);
     try {
-      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(1800000)]);
+      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(86400000)]);
       const output = await executeRun(run, signal, onDelta);
       signal.throwIfAborted();
       await recordArtifact(run.ownerId, run._id, 'answer.md', 'text/markdown', Buffer.from(output)).catch(
@@ -127,10 +127,22 @@ async function processJob(job: Job, controller: AbortController) {
         },
       );
       clearInterval(flush);
+      const outcome = await runs.findOne({ _id: run._id });
       await runs.updateOne(
         { ...filter, cancelRequested: { $ne: true } },
         {
-          $set: { status: 'succeeded', output, finishedAt: new Date(), updatedAt: new Date() },
+          $set: {
+            status: outcome?.summaryUnavailable ? 'failed' : 'succeeded',
+            output,
+            ...(outcome?.summaryUnavailable
+              ? {
+                  error:
+                    'Final summary unavailable; the task is incomplete. Review saved evidence or continue this conversation.',
+                }
+              : {}),
+            finishedAt: new Date(),
+            updatedAt: new Date(),
+          },
           $unset: { partial: '', 'checkpoint.cursor': '' },
         },
       );
@@ -146,6 +158,12 @@ async function processJob(job: Job, controller: AbortController) {
           },
         );
         await wakeHumanRun(run._id);
+      } else if (controller.signal.aborted && !current?.cancelRequested) {
+        // Leave recovery to the durable dispatcher, including queue loss and graceful restart.
+        await runs.updateOne(filter, {
+          $set: { leaseUntil: new Date(0), updatedAt: new Date() },
+          $unset: { partial: '' },
+        });
       } else {
         const status = current?.cancelRequested
           ? 'cancelled'
@@ -166,7 +184,7 @@ async function processJob(job: Job, controller: AbortController) {
       { $set: { status: 'cancelled', finishedAt: new Date() } },
     );
     const finished = await runs.findOne({ _id: run._id });
-    if (finished && !['waiting_for_human', 'queued'].includes(finished.status)) {
+    if (finished && !['waiting_for_human', 'queued', 'running'].includes(finished.status)) {
       await settleConversation(finished);
       await saveExperiments(finished).catch((error) =>
         console.warn('Memory save will retry:', safeError(error)),

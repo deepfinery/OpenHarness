@@ -23,7 +23,7 @@ export async function settleConversation(run: Run) {
     {
       $unset: { pending: '' },
       $set: { updatedAt: new Date(), lastRunId: run._id, lastTurn: { input: run.input, status: run.status } },
-      ...(run.status === 'succeeded'
+      ...(run.output !== undefined
         ? {
             $push: {
               messages: {

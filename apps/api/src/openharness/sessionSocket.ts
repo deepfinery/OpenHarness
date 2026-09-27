@@ -163,7 +163,7 @@ export function attachSessionSockets(server: Server) {
                   }
                 }
                 if (isTerminal(run.status)) {
-                  if (run.status === 'succeeded') {
+                  if (run.output !== undefined) {
                     const rest = unsentOutput(run.output ?? '', segment, sent);
                     if (rest) send({ type: 'text', id, content: rest });
                   }

@@ -316,3 +316,103 @@ test(
     assert.equal(result.output, 'Workflow edited after submission');
   },
 );
+
+test(
+  'agent recovery reuses a completed MCP call and retains charged tokens',
+  { skip: !enabled, timeout: 150000 },
+  async () => {
+    const p = await request('/providers', {
+      name: 'Durable agent model',
+      kind: 'openai-compatible',
+      baseUrl: 'http://fixtures:9090/v1',
+      model: 'test-durable-recovery',
+    });
+    const a = await request('/agents', {
+      name: 'Durable MCP agent',
+      providerId: p.id,
+      systemPrompt: 'Collect evidence and answer.',
+      tokenBudget: 200000,
+      connections: [{ connectionId, tools: ['lookup'] }],
+    });
+    const before = ((await (await fetch(fixture + '/stats')).json()) as any).tools;
+    const started = await request('/runs', { agentId: a.id, input: 'Recover this task' });
+    const checkpoint = await until(
+      () => request(`/runs/${started.id}`),
+      (r) => r.events.some((e: any) => e.type === 'tool_completed') && r.tokensUsed > 0,
+    );
+    try {
+      await compose('kill', '-s', 'SIGKILL', 'runner');
+    } finally {
+      await compose('up', '-d', 'runner');
+    }
+    const result = await until(
+      () => request(`/runs/${started.id}`),
+      (r) => ['succeeded', 'failed', 'interrupted'].includes(r.status),
+      120000,
+    );
+    assert.equal(result.status, 'succeeded', result.error);
+    assert.equal(result.resumeCount, 1);
+    assert.match(result.output, /durable recovery evidence/);
+    assert.ok(result.tokensUsed >= checkpoint.tokensUsed);
+    assert.equal(((await (await fetch(fixture + '/stats')).json()) as any).tools, before + 1);
+  },
+);
+
+test(
+  'parent recovery joins the same children and does not rerun completed siblings',
+  { skip: !enabled, timeout: 150000 },
+  async () => {
+    const p = await request('/providers', {
+      name: 'Durable team model',
+      kind: 'openai-compatible',
+      baseUrl: 'http://fixtures:9090/v1',
+      model: 'test-durable-team',
+    });
+    const a = await request('/agents', {
+      name: 'Durable lead',
+      providerId: p.id,
+      systemPrompt: 'Delegate independent tasks and combine results.',
+      tokenBudget: 400000,
+      delegation: { enabled: true, maxAgents: 2 },
+      connections: [{ connectionId, tools: ['lookup'] }],
+    });
+    const before = ((await (await fetch(fixture + '/stats')).json()) as any).tools;
+    const started = await request('/runs', { agentId: a.id, input: 'Complete a durable team task' });
+    const active = await until(
+      () => request(`/runs/${started.id}`),
+      (r) => r.events.filter((e: any) => e.type === 'subagent_started').length === 2,
+    );
+    const ids = active.events
+      .filter((e: any) => e.type === 'subagent_started')
+      .map((e: any) => e.data.subagentId);
+    await until(
+      () => Promise.all(ids.map((id: string) => request(`/runs/${id}`))),
+      (children) =>
+        children.some((c) => c.status === 'succeeded') &&
+        children.some(
+          (c) => c.status === 'running' && c.events.some((e: any) => e.type === 'tool_completed'),
+        ),
+    );
+    try {
+      await compose('kill', '-s', 'SIGKILL', 'runner');
+    } finally {
+      await compose('up', '-d', 'runner');
+    }
+    const result = await until(
+      () => request(`/runs/${started.id}`),
+      (r) => ['succeeded', 'failed', 'interrupted'].includes(r.status),
+      120000,
+    );
+    assert.equal(result.status, 'succeeded', result.error);
+    assert.equal(result.resumeCount, 1);
+    assert.equal(result.events.filter((e: any) => e.type === 'subagent_started').length, 2);
+    assert.equal(result.events.filter((e: any) => e.type === 'subagent_resumed').length, 1);
+    assert.match(result.output, /Fast sibling completed once/);
+    assert.match(result.output, /durable recovery evidence/);
+    assert.equal(((await (await fetch(fixture + '/stats')).json()) as any).tools, before + 1);
+    const children = await Promise.all(ids.map((id: string) => request(`/runs/${id}`)));
+    assert.ok(children.every((c) => c.status === 'succeeded'));
+    assert.ok(result.tokensUsed >= children.reduce((total, c) => total + c.tokensUsed, 0));
+    assert.ok(result.tokensUsed <= 400000);
+  },
+);
