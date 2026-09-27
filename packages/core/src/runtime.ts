@@ -12,7 +12,14 @@ import { recordToolArtifacts, recordMachineFile } from './artifacts.js';
 import type { Agent, Run, RunCheckpoint, RunEvent, Workflow } from './schema.js';
 import { collection } from './db.js';
 import { config } from './config.js';
-import { chat, ModelResponseError, ownedProvider, type ChatMessage, type ToolDefinition } from './llm.js';
+import {
+  chat,
+  ModelResponseError,
+  ownedProvider,
+  providerLearningFilter,
+  type ChatMessage,
+  type ToolDefinition,
+} from './llm.js';
 import { connectMcp, ownedConnection, toolAlias } from './mcp.js';
 import { afterTool, beforeTool, loadHooks, type HookRecord } from './hooks.js';
 import { runSubagents, SPAWN_TOOL, spawnToolDefinition, type SpawnRequest } from './subagents.js';
@@ -557,10 +564,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
       if (estimated <= 0 || counted <= estimated * estimateScale) return;
       estimateScale = Math.max(estimateScale, (counted / estimated) * 1.1);
       await collection('providers')
-        .updateOne(
-          { _id: provider._id, ownerId: ctx.ownerId, model: provider.model },
-          { $max: { contextTokenScale: estimateScale } },
-        )
+        .updateOne(providerLearningFilter(provider), { $max: { contextTokenScale: estimateScale } })
         .catch(() => {});
     }
     /** Every attempt budgets instructions, tool schemas, output, wire overhead and final synthesis. */
@@ -796,10 +800,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           if (limit && limit < (provider.contextWindow ?? Infinity)) {
             provider.contextWindow = limit;
             await collection('providers')
-              .updateOne(
-                { _id: provider._id, ownerId: ctx.ownerId, model: provider.model },
-                { $min: { contextWindow: limit } },
-              )
+              .updateOne(providerLearningFilter(provider), { $min: { contextWindow: limit } })
               .catch(() => {});
           }
           const estimated = fitted.tokens + toolTokens;

@@ -348,14 +348,14 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
             </Field>
             <Field
               label="Context window (tokens)"
-              hint="Long conversations are trimmed to fit. Learned automatically from the provider's first limit error."
+              hint="Prompt plus output capacity, for example 1000000 for a 1M server. Raise this after upgrading the server; limit errors can lower it. Job token budgets are separate."
             >
               <input
                 aria-label="Context window"
                 type="number"
                 min={2048}
                 max={4000000}
-                step={1024}
+                step={1}
                 value={form.contextWindow ?? 128000}
                 onChange={(e) => update('contextWindow', Number(e.target.value))}
               />
