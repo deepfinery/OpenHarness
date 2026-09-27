@@ -1,3 +1,4 @@
+import { machineInstallSnippets } from '../../../../packages/core/src/machineInstall.js';
 import { useEffect, useState } from 'react';
 import type { FleetCluster } from './InfrastructurePage';
 import {
@@ -16,6 +17,7 @@ import { api, errorMessage, send, timestamp, type Data, type Machine, type Platf
 import { Button, CopyButton, Empty, ErrorNotice, Field, IconButton, Modal } from './ui';
 
 type PageProps = {
+  isAdmin: boolean;
   data: Data;
   refresh: () => Promise<void>;
   act: (task: () => Promise<unknown>) => Promise<void>;
@@ -43,6 +45,7 @@ const slug = (name: string) =>
 
 /** The unified inventory includes standalone machines and cluster-enrolled nodes. */
 export function MachinesPage({
+  isAdmin,
   data,
   refresh,
   act,
@@ -308,6 +311,7 @@ export function MachinesPage({
       )}
       {adding && (
         <AddMachineModal
+          isAdmin={isAdmin}
           data={data}
           onClose={() => setAdding(false)}
           onEnrolled={async (result) => {
@@ -322,6 +326,7 @@ export function MachinesPage({
       )}
       {editing && (
         <MachineSettingsModal
+          isAdmin={isAdmin}
           data={data}
           machine={data.machines.find((m) => m.device_id === editing.device_id) ?? editing}
           onClose={() => setEditing(null)}
@@ -388,16 +393,19 @@ function ToolChecklist({
   );
 }
 function AddMachineModal({
+  isAdmin,
   data,
   onClose,
   onEnrolled,
 }: {
+  isAdmin: boolean;
   data: Data;
   onClose: () => void;
   onEnrolled: (result: Enrollment) => Promise<void>;
 }) {
   const [name, setName] = useState('');
   const [platform, setPlatform] = useState<Platform>('linux');
+  const [accessMode, setAccessMode] = useState<'restricted' | 'host'>('restricted');
   const [kind, setKind] = useState<'host' | 'container'>('host');
   const [deviceId, setDeviceId] = useState('');
   const [idTouched, setIdTouched] = useState(false);
@@ -416,7 +424,13 @@ function AddMachineModal({
           e.preventDefault();
           setBusy(true);
           setError('');
-          void send('/devices', { name, deviceId: deviceId || undefined, platform, allowedTools: tools })
+          void send('/devices', {
+            name,
+            deviceId: deviceId || undefined,
+            platform,
+            allowedTools: tools,
+            accessMode: platform === 'linux' && isAdmin ? accessMode : 'restricted',
+          })
             .then((result: Enrollment) =>
               onEnrolled({
                 ...result,
@@ -484,6 +498,25 @@ function AddMachineModal({
             />
           </Field>
         </div>
+        {platform === 'linux' && (
+          <Field
+            label="Machine access"
+            hint="Privileged mode requires reinstalling the Linux container with root and host namespace access. It permits arbitrary host commands, including disruptive actions."
+          >
+            <select
+              aria-label="Machine access"
+              disabled={!isAdmin}
+              value={accessMode}
+              onChange={(e) => {
+                setAccessMode(e.target.value as 'restricted' | 'host');
+                if (e.target.value === 'host') setKind('container');
+              }}
+            >
+              <option value="restricted">Restricted connector</option>
+              <option value="host">Privileged VM host (root)</option>
+            </select>
+          </Field>
+        )}
         <div className="form-section">
           <h3>Tools the agent may use</h3>
           <ToolChecklist
@@ -518,13 +551,24 @@ function ConnectModal({
 }) {
   const tabs =
     enrollment.machine.platform === 'linux'
-      ? (['linux', 'docker'] as const)
+      ? enrollment.machine.access_mode === 'host'
+        ? (['docker'] as const)
+        : (['linux', 'docker'] as const)
       : ([enrollment.machine.platform] as const);
   const [tab, setTab] = useState<string>(
     enrollment.install.preferred && tabs.includes(enrollment.install.preferred as never)
       ? enrollment.install.preferred
       : tabs[0],
   );
+  const [token, setToken] = useState(enrollment.token);
+  const [gateway, setGateway] = useState(enrollment.connectUrl);
+  let snippets = enrollment.install,
+    setupError = '';
+  try {
+    snippets = machineInstallSnippets(enrollment.machine, token, gateway);
+  } catch (e) {
+    setupError = errorMessage(e);
+  }
   const labels: Record<string, string> = {
     linux: 'Linux service',
     docker: 'Container',
@@ -552,10 +596,32 @@ function ConnectModal({
           hint="Shown once. Paste it into the connector; it is stored hashed on the gateway."
         >
           <div className="secret-row">
-            <code>{enrollment.token}</code>
-            <CopyButton value={enrollment.token} />
+            <input
+              aria-label="Device token"
+              type="password"
+              autoComplete="off"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="Paste your saved device token"
+            />
+            <CopyButton value={token} />
           </div>
         </Field>
+        <Field
+          label="Harness gateway address"
+          hint="Enter the harness server IP or DNS name with the gateway port, e.g. ws://192.0.2.10:8090. Use wss:// for TLS."
+        >
+          <input value={gateway} onChange={(e) => setGateway(e.target.value)} />
+        </Field>
+        <ErrorNotice error={setupError} />
+        {enrollment.machine.access_mode === 'host' && (
+          <p className="field-help">
+            Commands run as root on the VM host; sudo is unnecessary. Host NVIDIA/DCGM tools must be installed
+            on the VM. The connector uses those binaries and devices through host namespaces, so copying
+            driver packages into this image or adding --gpus all is unnecessary for this mode. File tools
+            remain scoped to the connector work directory; use run_command for host files.
+          </p>
+        )}
         <div className="tabs compact">
           {tabs.map((t) => (
             <button type="button" key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
@@ -566,20 +632,17 @@ function ConnectModal({
         <div className="code-card">
           <div>
             <span>{labels[tab]}</span>
-            <CopyButton value={enrollment.install[tab] ?? ''} />
+            <CopyButton value={setupError ? '' : (snippets[tab] ?? '')} />
           </div>
-          <pre>{enrollment.install[tab]}</pre>
+          <pre>{setupError ? 'Correct the settings above to generate instructions.' : snippets[tab]}</pre>
         </div>
         <p className="field-help">
           Gateway address: <code>{enrollment.connectUrl}</code>. The machine only needs outbound access to it.
         </p>
-        {['localhost', '127.0.0.1', '[::1]'].includes(
-          new URL(enrollment.connectUrl).hostname.toLowerCase(),
-        ) && (
+        {/^wss?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?=[:/]|$)/i.test(gateway) && (
           <p role="alert" className="field-help">
-            This gateway address points to localhost. Remote machines and containers cannot reach the gateway
-            at this address. Set GATEWAY_PUBLIC_URL to a reachable gateway address and recreate the API
-            service before copying a new install command.
+            This address points to the connector itself. Enter the harness server’s reachable IP or DNS name
+            above before copying the install commands.
           </p>
         )}
       </div>
@@ -590,12 +653,14 @@ function ConnectModal({
   );
 }
 function MachineSettingsModal({
+  isAdmin,
   data,
   machine,
   onClose,
   onSaved,
   onRotated,
 }: {
+  isAdmin: boolean;
   data: Data;
   machine: Machine;
   onClose: () => void;
@@ -603,6 +668,7 @@ function MachineSettingsModal({
   onRotated: (result: Enrollment) => void;
 }) {
   const [name, setName] = useState(machine.name);
+  const [accessMode, setAccessMode] = useState<'restricted' | 'host'>(machine.access_mode ?? 'restricted');
   const [tools, setTools] = useState(machine.allowed_tools);
   const [disabled, setDisabled] = useState(machine.disabled);
   const [error, setError] = useState('');
@@ -615,7 +681,16 @@ function MachineSettingsModal({
           e.preventDefault();
           setBusy('save');
           setError('');
-          void send(`/devices/${machine.device_id}`, { name, allowedTools: tools, disabled }, 'PUT')
+          void send(
+            `/devices/${machine.device_id}`,
+            {
+              name,
+              allowedTools: tools,
+              disabled,
+              ...(accessMode !== (machine.access_mode ?? 'restricted') ? { accessMode } : {}),
+            },
+            'PUT',
+          )
             .then(() => onSaved())
             .then(onClose)
             .catch((err) => setError(errorMessage(err)))
@@ -644,6 +719,30 @@ function MachineSettingsModal({
             </div>
           </Field>
         </div>
+        {machine.platform === 'linux' && !machine.cluster_id && (
+          <Field
+            label="Machine access"
+            hint="Changing this setting disconnects the connector. Reinstall using Installation instructions. The setting alone cannot grant host privileges."
+          >
+            <select
+              aria-label="Machine access"
+              disabled={!isAdmin}
+              value={accessMode}
+              onChange={(e) => setAccessMode(e.target.value as 'restricted' | 'host')}
+            >
+              <option value="restricted">Restricted connector</option>
+              <option value="host">Privileged VM host (root)</option>
+            </select>
+            <small>
+              Active connector:{' '}
+              {machine.active_access_mode === 'host'
+                ? 'Privileged host'
+                : machine.online
+                  ? 'Restricted'
+                  : 'Offline'}
+            </small>
+          </Field>
+        )}
         <div className="form-section">
           <h3>Tools the agent may use</h3>
           <p className="field-help">
@@ -670,24 +769,60 @@ function MachineSettingsModal({
               This node uses its cluster’s shared token. Rotate it from Manage cluster.
             </small>
           ) : (
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={busy === 'rotate'}
-              onClick={() => {
-                if (!confirm('Issue a new token? The connector must be reconfigured with it.')) return;
-                setBusy('rotate');
-                void send(`/devices/${machine.device_id}/rotate-token`)
-                  .then((r) =>
-                    onRotated({ machine, token: r.token, connectUrl: r.connectUrl, install: r.install }),
-                  )
-                  .catch((err) => setError(errorMessage(err)))
-                  .finally(() => setBusy(''));
-              }}
-            >
-              <KeyRound size={14} />
-              New token
-            </Button>
+            <div className="row-actions">
+              {machine.platform === 'linux' && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={Boolean(busy)}
+                  onClick={() => {
+                    setBusy('install');
+                    setError('');
+                    void send(
+                      `/devices/${machine.device_id}`,
+                      {
+                        name,
+                        allowedTools: tools,
+                        disabled,
+                        ...(accessMode !== (machine.access_mode ?? 'restricted') ? { accessMode } : {}),
+                      },
+                      'PUT',
+                    )
+                      .then(async (updated: Machine) => {
+                        await onSaved();
+                        onRotated({
+                          machine: updated,
+                          token: '',
+                          connectUrl: data.gateway.publicUrl.replace(/\/$/, '') + '/connect',
+                          install: {},
+                        });
+                      })
+                      .catch((e) => setError(errorMessage(e)))
+                      .finally(() => setBusy(''));
+                  }}
+                >
+                  Installation instructions
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy === 'rotate'}
+                onClick={() => {
+                  if (!confirm('Issue a new token? The connector must be reconfigured with it.')) return;
+                  setBusy('rotate');
+                  void send(`/devices/${machine.device_id}/rotate-token`)
+                    .then((r) =>
+                      onRotated({ machine, token: r.token, connectUrl: r.connectUrl, install: r.install }),
+                    )
+                    .catch((err) => setError(errorMessage(err)))
+                    .finally(() => setBusy(''));
+                }}
+              >
+                <KeyRound size={14} />
+                New token
+              </Button>
+            </div>
           )}
           <div className="row-actions">
             <Button type="button" variant="secondary" onClick={onClose}>

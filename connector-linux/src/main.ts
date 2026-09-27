@@ -68,6 +68,7 @@ Environment: GATEWAY_URL DEVICE_ID DEVICE_PLATFORM DEVICE_TOKEN|DEVICE_TOKEN_FIL
     device_id: config.device_id,
     work_dir: policy.workDir,
     read_only: policy.readOnly,
+    access_mode: config.access_mode,
     tools: linuxToolNames,
     allow_commands: config.allow_commands,
   });
@@ -82,7 +83,7 @@ Environment: GATEWAY_URL DEVICE_ID DEVICE_PLATFORM DEVICE_TOKEN|DEVICE_TOKEN_FIL
           platform: config.platform,
           hostname: config.hostname,
           connector_version: connectorVersion,
-          capabilities: [...linuxToolNames],
+          capabilities: [...linuxToolNames, ...(config.access_mode === 'host' ? ['host_full_access'] : [])],
         },
         log,
         onStateChange: (state, info) =>

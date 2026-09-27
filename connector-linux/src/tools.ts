@@ -1,3 +1,4 @@
+import { hostCommand } from './hostAccess.js';
 // The Linux/container tool set. Every tool applies the local policy itself; the gateway's allow-list is a second layer.
 import { spawn } from 'node:child_process';
 import { mkdir, readdir, readFile, stat, appendFile, writeFile, open } from 'node:fs/promises';
@@ -18,7 +19,7 @@ export const linuxToolNames = [
   'system_info',
   'process_list',
 ] as const;
-type ToolContext = { policy: Policy; audit: AuditLog; hostname: string };
+type ToolContext = { policy: Policy; audit: AuditLog; hostname: string; hostCommands?: boolean };
 type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 
 const text = (value: unknown): CallToolResult => ({
@@ -93,7 +94,13 @@ function runProcess(
     truncated: boolean;
     timed_out: boolean;
   }>((resolve, reject) => {
-    const child = spawn(argv[0], argv.slice(1), { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+    const child = spawn(argv[0], argv.slice(1), {
+      cwd,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: false,
+      detached: process.platform !== 'win32',
+    });
     let out = Buffer.alloc(0),
       err = Buffer.alloc(0),
       truncated = false,
@@ -113,7 +120,12 @@ function runProcess(
     child.stderr.on('data', (c: Buffer) => collect(c, 'err'));
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      try {
+        if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL');
+        else child.kill('SIGKILL');
+      } catch {
+        child.kill('SIGKILL');
+      }
     }, timeoutMs);
     child.on('error', (error) => {
       clearTimeout(timer);
@@ -160,8 +172,9 @@ export function registerLinuxTools(server: McpServer, ctx: ToolContext) {
     'run_command',
     {
       title: 'Run a command',
-      description:
-        'Runs a program on this machine without a shell. Provide argv as a list (program first). Only allow-listed programs run; output is capped and the command is killed at the timeout.',
+      description: ctx.hostCommands
+        ? 'Runs any program as root in the VM HOST namespaces, using host binaries, libraries, devices and filesystem. No sudo is needed. Provide argv, e.g. ["nvidia-smi"] or ["dcgmi","discovery","--list"]. Use this tool for host files and processes too. Output and runtime are bounded.'
+        : 'Runs a program inside the connector environment without a shell. Provide argv as a list (program first). Only allow-listed programs run; output is capped and the command is killed at the timeout.',
       inputSchema: {
         argv: z
           .array(z.string().min(1))
@@ -178,24 +191,35 @@ export function registerLinuxTools(server: McpServer, ctx: ToolContext) {
       'run_command',
       async ({ argv, cwd, timeout_seconds, stdin }) => {
         policy.checkCommand(argv);
-        const dir = await policy.resolvePath(cwd ?? '.');
+        const dir = ctx.hostCommands ? (cwd ?? '/') : await policy.resolvePath(cwd ?? '.');
         const timeoutMs = policy.timeoutMs(timeout_seconds);
         const started = Date.now();
-        const result = await runProcess(argv, {
-          cwd: dir,
+        const result = await runProcess(ctx.hostCommands ? hostCommand(argv, dir) : argv, {
+          cwd: ctx.hostCommands ? '/' : dir,
           timeoutMs,
           maxBytes: policy.maxOutputBytes,
           stdin,
-          env: safeEnv,
+          env: ctx.hostCommands
+            ? { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C.UTF-8', HOME: '/root', TERM: 'dumb' }
+            : safeEnv,
         });
         const duration_ms = Date.now() - started;
         if (result.timed_out) throw new Error(`command timed out after ${Math.round(timeoutMs / 1000)} s`);
-        const summary = { ...result, duration_ms, argv };
+        const summary = {
+          ...result,
+          duration_ms,
+          argv,
+          execution_scope: ctx.hostCommands ? 'host' : 'connector',
+          effective_access: ctx.hostCommands ? 'root' : 'restricted',
+        };
         return {
           content: [
             {
               type: 'text',
               text: [
+                ctx.hostCommands
+                  ? '[execution scope: VM host, root]'
+                  : '[execution scope: connector, restricted]',
                 result.stdout,
                 result.stderr && `[stderr]\n${result.stderr}`,
                 `[exit ${result.exit_code ?? result.signal}]`,
@@ -216,7 +240,7 @@ export function registerLinuxTools(server: McpServer, ctx: ToolContext) {
     {
       title: 'Read a file',
       description:
-        'Reads a UTF-8 text file inside the work directory. Large files are truncated to the output cap.',
+        'Reads a UTF-8 text file inside the CONNECTOR work directory, not the VM host. In host mode use run_command for host files. Large files are truncated to the output cap.',
       inputSchema: { path: z.string().min(1), max_bytes: z.number().int().min(1).optional() },
     },
     guarded(ctx, 'read_file', async ({ path, max_bytes }) => {
@@ -356,11 +380,28 @@ export function registerLinuxTools(server: McpServer, ctx: ToolContext) {
     'system_info',
     {
       title: 'System information',
-      description: 'Hostname, OS, CPU, memory, load and uptime of this machine.',
+      description:
+        'Reports actual execution scope. In privileged host mode verifies host hostname and OS through the host namespaces; connector/container facts are labeled separately.',
       inputSchema: {},
     },
-    guarded(ctx, 'system_info', async () =>
-      text({
+    guarded(ctx, 'system_info', async () => {
+      const host = ctx.hostCommands
+        ? await runProcess(hostCommand(['sh', '-c', 'hostname; uname -a; id']), {
+            cwd: '/',
+            timeoutMs: policy.timeoutMs(),
+            maxBytes: policy.maxOutputBytes,
+            env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C' },
+          })
+        : undefined;
+      if (host && host.exit_code !== 0) throw new Error('Host identity verification failed: ' + host.stderr);
+      return text({
+        execution_scope: ctx.hostCommands ? 'host' : 'connector',
+        host_identity: host?.stdout,
+        command_access: ctx.hostCommands
+          ? 'Any host command as root; no sudo needed'
+          : 'Connector allow-list; host visibility is not implied',
+        file_tool_scope: 'connector work directory; use run_command for host files in host mode',
+        facts_scope: 'connector (kernel and /proc visibility may be shared with host)',
         hostname: ctx.hostname,
         platform: os.platform(),
         release: os.release(),
@@ -375,14 +416,15 @@ export function registerLinuxTools(server: McpServer, ctx: ToolContext) {
         work_dir: policy.workDir,
         read_only: policy.readOnly,
         node: process.version,
-      }),
-    ),
+      });
+    }),
   );
   server.registerTool(
     'process_list',
     {
       title: 'List processes',
-      description: 'Running processes with pid, parent, user, state and memory (from /proc).',
+      description:
+        'Processes visible in the connector PID namespace (host processes only when installed with host PID access).',
       inputSchema: {},
     },
     guarded(ctx, 'process_list', async () => {

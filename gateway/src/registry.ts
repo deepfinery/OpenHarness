@@ -6,6 +6,7 @@ import type { Platform } from '@openharness/connector-core';
 export type DeviceRecord = {
   device_id: string;
   cluster_id?: string;
+  access_mode?: 'restricted' | 'host';
   name: string;
   /** argon2id hash of the device token; the token itself is never stored. */
   token_hash: string;
@@ -17,7 +18,7 @@ export type DeviceRecord = {
   disabled: boolean;
 };
 export type DevicePatch = Partial<
-  Pick<DeviceRecord, 'name' | 'token_hash' | 'allowed_tools' | 'disabled' | 'owner'>
+  Pick<DeviceRecord, 'name' | 'token_hash' | 'allowed_tools' | 'disabled' | 'owner' | 'access_mode'>
 >;
 export interface Registry {
   get(deviceId: string): Promise<DeviceRecord | undefined>;

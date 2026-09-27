@@ -201,6 +201,11 @@ export class DeviceHub {
       authenticated = await verifyDeviceToken(record.token_hash, hello.token);
     if (!record || !authenticated)
       throw new HubError(CloseCode.UNAUTHENTICATED, 'unknown device or bad token');
+    if (
+      hello.capabilities.includes('host_full_access') &&
+      (record.cluster_id || record.access_mode !== 'host')
+    )
+      throw new HubError(CloseCode.FORBIDDEN, 'privileged host access is not enabled for this machine');
     if (record.disabled) throw new HubError(CloseCode.FORBIDDEN, 'device disabled');
     if (record.platform !== hello.platform) throw new HubError(CloseCode.FORBIDDEN, 'platform mismatch');
 

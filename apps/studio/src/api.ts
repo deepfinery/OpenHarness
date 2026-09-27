@@ -37,6 +37,8 @@ export type Platform = 'linux' | 'windows' | 'chrome';
 export type Machine = {
   device_id: string;
   cluster_id?: string;
+  access_mode?: 'restricted' | 'host';
+  active_access_mode?: 'restricted' | 'host' | null;
   name: string;
   platform: Platform;
   online: boolean;

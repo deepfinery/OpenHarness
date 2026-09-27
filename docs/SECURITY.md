@@ -86,3 +86,7 @@ call only what each connector's local policy permits. Neither can widen the othe
 - In the bundled stack the gateway connects to the shared MongoDB with the stack's credentials and uses its own
   `agentic_gateway` database. For a stricter split, create a MongoDB user with `readWrite` on that database only
   and put it in `GATEWAY_MONGODB_URI`; a standalone gateway (`gateway/compose.yaml`) already has its own MongoDB.
+
+### Privileged standalone machine connectors
+
+An administrator can explicitly enable full host commands for a standalone Linux Docker connector. This requires matching local root/host-namespace installation flags; it is not remote privilege escalation of a restricted connector. Treat this mode as granting the agent root access to that VM. Restricted mode remains the default. Gateway tool permissions still apply, and revoking host mode disconnects the connector and blocks further dispatch. See [installation and scope](INSTALL.md#restricted-or-privileged-vm-host-access). Cluster shared-token enrollments cannot use full host-command mode.

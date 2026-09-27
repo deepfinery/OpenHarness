@@ -1,3 +1,4 @@
+import { HttpError } from '../../../packages/core/src/security.js';
 // Machines API: enroll, list, sync and remove devices through the gateway; the studio's Machines page uses it.
 import { Router } from 'express';
 import { z } from 'zod';
@@ -31,9 +32,12 @@ devices.post('/', async (req, res) => {
       name: z.string().trim().min(1).max(100),
       deviceId: z.string().regex(deviceIdPattern).optional(),
       platform: z.enum(devicePlatforms),
+      accessMode: z.enum(['restricted', 'host']).default('restricted'),
       allowedTools: z.array(z.string().min(1).max(200)).max(200).default([]),
     })
     .parse(req.body);
+  if (body.accessMode === 'host' && (req.principal!.user.role !== 'admin' || !req.principal!.sessionHash))
+    throw new HttpError(403, 'Administrator access required for privileged host mode');
   const deviceId =
     body.deviceId ??
     `${
@@ -59,8 +63,11 @@ devices.put('/:id', async (req, res) => {
       name: z.string().trim().min(1).max(100).optional(),
       allowedTools: z.array(z.string().min(1).max(200)).max(200).optional(),
       disabled: z.boolean().optional(),
+      accessMode: z.enum(['restricted', 'host']).optional(),
     })
     .parse(req.body);
+  if (body.accessMode !== undefined && (req.principal!.user.role !== 'admin' || !req.principal!.sessionHash))
+    throw new HttpError(403, 'Administrator access required to change machine access mode');
   res.json(
     await updateMachine(req.principal!.tenantId, String(req.params.id), body, req.principal!.user._id),
   );
