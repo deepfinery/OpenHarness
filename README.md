@@ -8,6 +8,10 @@ A self-hosted studio for agent harnesses, MCP tools, and knowledge, implementing
 
 [Read the OpenHarness overview (PDF, 15 pages)](OpenHarness.pdf)
 
+[Detailed agentic capabilities guide](docs/agentic-guide/README.md) — agent loops,
+orchestration patterns, experiment storage, scalability and recovery, with PDF
+and editable Word editions.
+
 ## Product tour
 
 Explore the studio: organize harnesses, follow agent activity, retain knowledge, and share reusable skills. Select any screenshot to view it at full size.
