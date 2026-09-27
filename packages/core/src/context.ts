@@ -86,7 +86,7 @@ function groups(messages: ChatMessage[]) {
 /**
  * Fits `messages` under `budget` tokens, escalating only as far as needed and never past `maxLevel`.
  * Level 1 shortens older tool results; level 2 also drops the oldest completed turns (keeping the system
- * prompt and the current turn); level 3 also trims the current turn's tool exchanges and text. System instructions and the original response-language reference are never truncated.
+ * prompt and the current turn); level 3 also trims the current turn's tool exchanges and text. System instructions are never truncated; a bounded language reference remains at user priority.
  * `fits` must be checked by callers: instructions alone can exceed the available budget.
  * Assistant tool calls always stay with their tool results.
  */
@@ -97,7 +97,13 @@ export function compactDialog(
 ): { messages: ChatMessage[]; changed: boolean; tokens: number; level: 0 | 1 | 2 | 3; fits: boolean } {
   if (dialogTokens(messages) <= budget)
     return { messages, changed: false, tokens: dialogTokens(messages), level: 0, fits: true };
-  const retained = messages.filter((m) => m.role === 'system' || m.responseLanguageSource);
+  const instructions = messages.filter((m) => m.role === 'system');
+  // Language context must not crowd out the final answer on a small remaining budget.
+  // Retain its opening and trailing constraints, targeting a fifth of the space after instructions with a short minimum.
+  const languageChars = Math.max(160, Math.floor((budget - dialogTokens(instructions)) * 0.2 * 3.5));
+  const retained = messages
+    .filter((m) => m.role === 'system' || m.responseLanguageSource)
+    .map((m) => (m.responseLanguageSource ? { ...m, content: excerpt(m.content, languageChars) } : m));
   let rest = messages.filter((m) => m.role !== 'system' && !m.responseLanguageSource);
   let level: 1 | 2 | 3 = 1;
   const fits = () => dialogTokens([...retained, ...rest]) <= budget;

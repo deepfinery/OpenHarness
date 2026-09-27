@@ -67,3 +67,16 @@ test('large language references are bounded while retaining the opening and trai
   assert.match(source.content, /Answer in English/);
   assert.match(source.content, /context omitted/);
 });
+
+test('a small synthesis budget shortens the language reference without dropping its trailing constraint', () => {
+  const request =
+    'Explain the report. ' + 'Background about the vendor contract. '.repeat(120) + ' Answer in English.';
+  const messages = finalAnswerMessages('Help.', request, [{ role: 'user', content: request }], []);
+  const fitted = compactDialog(messages, 500);
+  assert.ok(fitted.fits);
+  const source = fitted.messages.find((m) => m.responseLanguageSource)!;
+  assert.ok(source.content.length < responseLanguageSource(request).content.length);
+  assert.match(source.content, /Original user request/);
+  assert.match(source.content, /Answer in English/);
+  assert.equal(source.role, 'user');
+});

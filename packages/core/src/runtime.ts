@@ -561,9 +561,20 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
       for (;;) {
         const remaining = Math.max(0, agent.tokenBudget - tokensUsed - (finalAnswer ? 0 : finalReserve));
         // With a small remaining budget, protected synthesis instructions need more than
-        // half the call. Keep a short answer allowance instead of failing before dispatch.
+        // half the call. Account for learned tokenizer density, a short language reference
+        // and message framing before choosing the answer allowance (at least 128 tokens).
+        const synthesisPromptFloor = dialogTokens(dialog.filter((message) => message.role === 'system')) + 64;
         const outputLimit = finalAnswer
-          ? Math.min(provider.maxOutputTokens, Math.max(128, Math.floor(remaining / 4)))
+          ? Math.min(
+              provider.maxOutputTokens,
+              Math.max(
+                128,
+                Math.min(
+                  Math.floor(remaining / 4),
+                  remaining - Math.ceil(synthesisPromptFloor * estimateScale),
+                ),
+              ),
+            )
           : provider.maxOutputTokens;
         const allowance = contextAllowance(provider.contextWindow ?? 128000, outputLimit, remaining);
         const promptBudget = Math.min(allowance.promptTokens, learnedPromptBudget);
