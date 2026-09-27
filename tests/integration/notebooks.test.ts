@@ -212,7 +212,10 @@ test('sub-agents inherit a dedicated agent notebook without a workflow workspace
   const result = await run({ agentId: a.id }, 'Please research with sub-agents');
   const children = result.events.filter((e: any) => e.type === 'subagent_started');
   assert.equal(children.length, 2);
-  const child = await ok(`/runs/${children[0].data.subagentId}`);
+  // Parallel children can emit their start events in either order.
+  const writer = children.find((e: any) => e.data.task.includes('record a finding'));
+  assert.ok(writer, 'the notebook-writing child was started');
+  const child = await ok(`/runs/${writer.data.subagentId}`);
   assert.equal(child.status, 'succeeded', child.error);
   assert.ok(child.events.some((e: any) => e.type === 'knowledge_written'));
 });
