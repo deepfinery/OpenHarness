@@ -5,6 +5,11 @@
   run the required checks, and merge the completed PR to main. Merge closes the
   PR and its linked issue; do not close an unmerged PR as a substitute.
 
+- Hosted CI is disabled for this development environment. Keep it disabled and
+  merge PRs without hosted CI checks; do not re-enable CI or add a required CI
+  merge gate unless the user requests it. Run relevant local checks as described
+  below.
+
 - Keep all source, configuration, dependencies, and deployment assets within
   this repository. Builds must work from a fresh clone without sibling projects.
 - All external agent tools use MCP. Do not introduce provider-specific connector
