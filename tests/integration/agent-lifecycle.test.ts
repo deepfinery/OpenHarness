@@ -155,3 +155,61 @@ test('pattern passes follow configured iteration limits independently of a conte
   assert.ok(result.events.some((e: any) => e.type === 'model' && e.message.startsWith('Final answer')));
   assert.ok(result.tokensUsed < 2000000);
 });
+
+test('reflection keeps intermediate text out of chat and exposes complete tenant-scoped stage history', async () => {
+  const { agent: a } = await agent('test-reflection-history', { pattern: 'reflection' });
+  const started = await ok('/runs', { agentId: a.id, input: 'Prepare a reviewed answer' });
+  let finished: any;
+  for (let i = 0; i < 160; i++) {
+    const current = await ok(`/runs/${started.id}`);
+    if (!['queued', 'running'].includes(current.status)) {
+      finished = current;
+      break;
+    }
+    assert.ok(!current.partial, 'drafts and critiques must not stream into the answer');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(finished?.status, 'succeeded', finished?.error);
+  assert.equal(finished.output, 'Final revised answer with verified evidence.');
+  const history = await ok(`/runs/${started.id}/activity`);
+  assert.deepEqual(
+    history.entries.map((e: any) => e.label),
+    ['Draft', 'Critique 1', 'Revision 1'],
+  );
+  assert.ok(history.entries.every((e: any) => e.status === 'completed' && e.content === undefined));
+  const saved = await Promise.all(
+    history.entries.map((e: any) => ok(`/runs/${started.id}/activity/${e.id}`)),
+  );
+  assert.ok(saved[0].content.length > 6000);
+  assert.match(saved[0].content, /DRAFT END$/);
+  assert.ok(saved[1].content.length > 6000);
+  assert.match(saved[1].content, /REVIEW END$/);
+  assert.equal(saved[2].content, finished.output);
+  assert.deepEqual((await ok(`/runs/${started.id}/activity`)).entries, history.entries);
+  const login = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { Origin: base, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'admin@openharness.test', password: 'Integration-test-password-42' }),
+  });
+  const otherCookie = login.headers.get('set-cookie')!.split(';')[0];
+  for (const path of [`/runs/${started.id}/activity`, `/runs/${started.id}/activity/${saved[0].id}`]) {
+    const denied = await fetch(base + '/api' + path, { headers: { Cookie: otherCookie } });
+    assert.equal(denied.status, 404);
+  }
+});
+
+test('reflection history preserves output redaction', async () => {
+  const policy = await ok('/guardrails', {
+    name: 'Private reflection output',
+    provider: 'builtin',
+    stages: ['output'],
+    pii: true,
+  });
+  const { agent: a } = await agent('test-guardrail', { pattern: 'reflection', guardrailIds: [policy.id] });
+  const result = await run(a.id, 'guarded private output');
+  assert.equal(result.status, 'succeeded', result.error);
+  const history = await ok(`/runs/${result.id}/activity`);
+  const saved = await Promise.all(history.entries.map((e: any) => ok(`/runs/${result.id}/activity/${e.id}`)));
+  assert.match(saved[0].content, /\[EMAIL\]/);
+  assert.ok(saved.every((e: any) => !e.content.includes('alice@example.com')));
+});

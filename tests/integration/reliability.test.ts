@@ -469,3 +469,49 @@ test(
     assert.match(result.stdout, /Journal boundaries verified/);
   },
 );
+
+test(
+  'reflection history keeps completed stages exactly once after a worker crash',
+  { skip: !enabled, timeout: 150000 },
+  async () => {
+    const provider = await request('/providers', {
+      name: 'Reflection recovery',
+      kind: 'openai-compatible',
+      baseUrl: 'http://fixtures:9090/v1',
+      model: 'test-reflection-history',
+    });
+    const agent = await request('/agents', {
+      name: 'Reflection recovery',
+      providerId: provider.id,
+      systemPrompt: 'Review your answer.',
+      pattern: 'reflection',
+      tokenBudget: 200000,
+    });
+    const started = await request('/runs', { agentId: agent.id, input: 'Review a durable answer' });
+    const before = await until(
+      () => request(`/runs/${started.id}/activity`),
+      (h) => h.entries.some((e: any) => e.label === 'Critique 1'),
+    );
+    const draft = before.entries.find((e: any) => e.label === 'Draft');
+    const saved = await request(`/runs/${started.id}/activity/${draft.id}`);
+    try {
+      await compose('kill', '-s', 'SIGKILL', 'runner');
+    } finally {
+      await compose('up', '-d', 'runner');
+    }
+    const result = await until(
+      () => request(`/runs/${started.id}`),
+      (r) => ['succeeded', 'failed', 'interrupted'].includes(r.status),
+      120000,
+    );
+    assert.equal(result.status, 'succeeded', result.error);
+    assert.equal(result.resumeCount, 1);
+    const after = await request(`/runs/${started.id}/activity`);
+    assert.deepEqual(
+      after.entries.map((e: any) => e.label),
+      ['Draft', 'Critique 1', 'Revision 1'],
+    );
+    assert.ok(after.entries.every((e: any) => e.status === 'completed'));
+    assert.deepEqual(await request(`/runs/${started.id}/activity/${draft.id}`), saved);
+  },
+);

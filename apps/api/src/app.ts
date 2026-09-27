@@ -1,4 +1,5 @@
 import { guardrailApi } from './guardrails.js';
+import { activities, activityView, readAgentActivity } from '../../../packages/core/src/agentActivity.js';
 import {
   canAnswer,
   decideHuman,
@@ -359,6 +360,20 @@ async function memoryRun(req: express.Request) {
   checkTokenScope(req, 'read', run);
   return run;
 }
+app.get('/api/runs/:id/activity', async (req, res) => {
+  const run = await memoryRun(req);
+  const entries = await activities()
+    .find({ ownerId: run.ownerId, runId: run._id })
+    .sort({ startedAt: 1, _id: 1 })
+    .toArray();
+  res.json({ entries: entries.map(activityView), runStatus: run.status });
+});
+app.get('/api/runs/:id/activity/:activityId', async (req, res) => {
+  const run = await memoryRun(req);
+  const entry = await readAgentActivity(run.ownerId, run._id, String(req.params.activityId));
+  if (!entry) throw new HttpError(404, 'Activity not found');
+  res.json(entry);
+});
 app.get('/api/runs/:id/memory', async (req, res) => {
   const run = await memoryRun(req);
   const scope = { ownerId: run.ownerId, taskId: run.taskId ?? run._id };

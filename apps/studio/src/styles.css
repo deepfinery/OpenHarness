@@ -1950,6 +1950,52 @@ strong {
   color: #8f9eaf;
   margin-left: 9px;
 }
+.activity-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.activity-status .thinking {
+  min-width: 0;
+}
+.activity-status .thinking > span,
+.activity-status > button {
+  flex-shrink: 0;
+}
+.activity-status .thinking > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-history {
+  padding: 20px 26px;
+}
+.activity-stage {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.activity-stage > summary {
+  cursor: pointer;
+  padding: 12px;
+}
+.activity-stage > summary span,
+.activity-stage > summary small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.activity-stage > .markdown,
+.activity-stage > p {
+  padding: 0 16px 16px;
+  overflow-wrap: anywhere;
+}
+.activity-events > summary {
+  cursor: pointer;
+  padding: 12px 0;
+}
 @keyframes pulse {
   50% {
     opacity: 0.3;

@@ -619,3 +619,68 @@ test('saved safety policies can be deleted directly from the policy list', async
   await expect(page.getByRole('heading', { name, exact: true })).toHaveCount(0);
   expect((await api(page.request, '/guardrails')).some((p: any) => p.id === policy.id)).toBe(false);
 });
+
+test('reflection keeps chat stable and preserves readable drafts and feedback after reload', async ({
+  page,
+}) => {
+  const model = await api(page.request, '/providers', 'POST', {
+    name: `Reflection history ${tag}`,
+    kind: 'openai-compatible',
+    baseUrl: 'http://fixtures:9090/v1',
+    model: 'test-reflection-history',
+  });
+  const agent = await api(page.request, '/agents', 'POST', {
+    name: `Reflective writer ${tag}`,
+    providerId: model.id,
+    systemPrompt: 'Review your answer.',
+    pattern: 'reflection',
+    tokenBudget: 200000,
+  });
+  await page.reload();
+  await navButton(page, 'Playground').click();
+  await page.getByLabel('Playground agent or harness').selectOption(`agent:${agent.id}`);
+  const response = page.waitForResponse(
+    (r) => r.url().endsWith('/api/chat') && r.request().method() === 'POST',
+  );
+  await chat(page, 'Prepare a reviewed answer');
+  const started = await (await response).json();
+  await expect(page.locator('.activity-status')).toContainText('Working on your request');
+  await expect(page.locator('.chat-message.assistant .markdown')).toHaveCount(0);
+  await page.locator('.activity-status').getByRole('button', { name: 'View activity' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Agent activity' });
+  const draft = dialog
+    .locator('.activity-stage')
+    .filter({ has: page.locator('summary strong', { hasText: /^Draft$/ }) });
+  await expect(draft).toContainText('Completed', { timeout: 15000 });
+  await page.keyboard.press('Tab');
+  await expect(draft.locator('summary')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(draft).toContainText('DRAFT END');
+  await expect(page.locator('.chat-scroll')).not.toContainText('Initial draft for review');
+  await expect(dialog.locator('.activity-stage')).toHaveCount(3, { timeout: 15000 });
+  await expect(dialog.locator('.activity-stage').last()).toContainText('Completed', { timeout: 15000 });
+  await expect(draft).toContainText('DRAFT END');
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(page.locator('.chat-message.assistant .markdown')).toHaveText(
+    'Final revised answer with verified evidence.',
+  );
+  await page.reload();
+  await expect(page.locator('.chat-message.assistant .markdown')).toHaveText(
+    'Final revised answer with verified evidence.',
+  );
+  await page.locator('.chat-message.assistant').getByRole('button', { name: 'View activity' }).click();
+  const critique = dialog
+    .locator('.activity-stage')
+    .filter({ has: page.locator('summary strong', { hasText: /^Critique 1$/ }) });
+  await critique.locator('summary').click();
+  await expect(critique).toContainText('REVIEW END');
+  expect((await api(page.request, `/runs/${started.id}/activity`)).entries).toHaveLength(3);
+  await page.screenshot({ path: 'test-results/reflection-history.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.locator('.chat-message.assistant').getByRole('button', { name: 'View activity' }),
+  ).toBeFocused();
+});

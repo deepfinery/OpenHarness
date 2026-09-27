@@ -23,7 +23,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, errorMessage, send, timestamp, type Data, type Entity } from '../api';
-import { Button, Empty, ErrorNotice, IconButton, Status } from './ui';
+import { Button, Empty, ErrorNotice, IconButton, Modal, Status } from './ui';
 import { TaskMemory } from './TaskMemory';
 
 export function Markdown({ text }: { text: string }) {
@@ -208,6 +208,7 @@ export function Playground({
   const [panel, setPanel] = useState<'trace' | 'history' | 'memory'>('trace');
   const [historyRuns, setHistoryRuns] = useState<any[]>([]);
   const [inspected, setInspected] = useState<any>(null);
+  const [activityRunId, setActivityRunId] = useState<string>();
   const bottom = useRef<HTMLDivElement>(null);
   const stopFollowing = useRef<() => void>(() => {});
   const current = targets.find((t) => `${t.type}:${t.id}` === target);
@@ -285,6 +286,7 @@ export function Playground({
   }, [panel, run?.status]);
 
   function reset() {
+    setActivityRunId(undefined);
     setRestoring(false);
     generation.current++;
     remember(undefined);
@@ -408,6 +410,7 @@ export function Playground({
     }
   }
   const streaming = busy && typeof run?.partial === 'string' && run.partial.length > 0;
+  const activity = [...(run?.events ?? [])].reverse().find((e: any) => e.type === 'agent_activity_started');
   const shown = inspected ?? run;
   return (
     <div className={`playground chat-playground ${showTrace ? '' : 'trace-hidden'}`}>
@@ -470,6 +473,11 @@ export function Playground({
                     <strong>{m.role === 'user' ? 'You' : (current?.name ?? 'Agent')}</strong>
                     <Markdown text={m.role === 'assistant' ? displayAnswer(m.content) : m.content} />
                     {m.role === 'assistant' && m.runId && <FeedbackBar runId={m.runId} />}
+                    {m.role === 'assistant' && m.runId && (
+                      <button className="text-button" onClick={() => setActivityRunId(m.runId)}>
+                        View activity
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -488,23 +496,42 @@ export function Playground({
                     <span className="caret" />
                   </div>
                 ) : (
-                  <div className="thinking">
-                    <span />
-                    <span />
-                    <span />
-                    <small>
-                      {run?.status === 'queued'
-                        ? 'Waiting for a runner'
-                        : run?.events?.length
-                          ? run.events[run.events.length - 1].message
-                          : 'Working on your request'}
-                    </small>
+                  <div className="activity-status">
+                    <div className="thinking" role="status">
+                      <span />
+                      <span />
+                      <span />
+                      <small>
+                        {run?.status === 'queued'
+                          ? 'Waiting for a runner'
+                          : activity
+                            ? `Working on your request · ${activity.data.label}`
+                            : run?.events?.length
+                              ? run.events[run.events.length - 1].message
+                              : 'Working on your request'}
+                      </small>
+                    </div>
+                    {run?.id && (
+                      <button className="text-button" onClick={() => setActivityRunId(run.id)}>
+                        View activity
+                      </button>
+                    )}
                   </div>
+                )}
+                {streaming && run?.id && (
+                  <button className="text-button" onClick={() => setActivityRunId(run.id)}>
+                    View activity
+                  </button>
                 )}
               </div>
             </div>
           )}
           {run?.status === 'waiting_for_human' && <HumanInbox runId={run.id} />}
+          {!busy && run && !run.output && terminal.includes(run.status) && (
+            <button className="text-button" onClick={() => setActivityRunId(run.id)}>
+              View activity
+            </button>
+          )}
           <div ref={bottom} />
         </div>
         <div className="chat-compose">
@@ -591,6 +618,9 @@ export function Playground({
               <div className="trace-meta">
                 <small>Run</small>
                 <code>{shown.id}</code>
+                <button className="text-button" onClick={() => setActivityRunId(shown.id)}>
+                  View activity
+                </button>
                 <span>
                   {timestamp(shown.createdAt)} {shown.status && <Status status={shown.status} />}
                 </span>
@@ -695,7 +725,117 @@ export function Playground({
           </div>
         )}
       </aside>
+      {activityRunId && (
+        <ActivityHistory
+          key={activityRunId}
+          runId={activityRunId}
+          onClose={() => setActivityRunId(undefined)}
+        />
+      )}
     </div>
+  );
+}
+function ActivityHistory({ runId, onClose }: { runId: string; onClose: () => void }) {
+  const [entries, setEntries] = useState<any[]>([]);
+  const [contents, setContents] = useState<Record<string, string>>({});
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
+  const [run, setRun] = useState<any>();
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function refresh() {
+      try {
+        const [history, current] = await Promise.all([api(`/runs/${runId}/activity`), api(`/runs/${runId}`)]);
+        if (stopped) return;
+        setEntries(history.entries);
+        setRun(current);
+        setLoading(false);
+        setError('');
+        if (!terminal.includes(current.status)) timer = setTimeout(refresh, 1000);
+      } catch (e) {
+        if (!stopped) {
+          setError(errorMessage(e));
+          setLoading(false);
+        }
+      }
+    }
+    void refresh();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [runId]);
+  useEffect(() => {
+    let stopped = false;
+    for (const entry of entries) {
+      if (!opened[entry.id] || entry.status !== 'completed' || contents[entry.id] !== undefined) continue;
+      void api(`/runs/${runId}/activity/${entry.id}`)
+        .then((result) => {
+          if (!stopped) setContents((previous) => ({ ...previous, [entry.id]: result.content ?? '' }));
+        })
+        .catch((e) => {
+          if (!stopped) setError(errorMessage(e));
+        });
+    }
+    return () => {
+      stopped = true;
+    };
+  }, [entries, opened, contents, runId]);
+  return (
+    <Modal title="Agent activity" wide onClose={onClose}>
+      <div className="activity-history">
+        <p>Drafts, reviewer feedback and revisions stay here. The chat shows the final answer.</p>
+        {loading && <p role="status">Loading activity…</p>}
+        <ErrorNotice error={error} />
+        {entries.map((entry) => (
+          <details
+            key={entry.id}
+            className="activity-stage"
+            onToggle={(event) => {
+              const open = event.currentTarget.open;
+              setOpened((previous) =>
+                previous[entry.id] === open ? previous : { ...previous, [entry.id]: open },
+              );
+            }}
+          >
+            <summary>
+              <strong>{entry.label}</strong>
+              <span>
+                {entry.agent} · {entry.model}
+              </span>
+              <time dateTime={entry.startedAt}>{timestamp(entry.startedAt)}</time>
+              <small>
+                {entry.status === 'completed'
+                  ? 'Completed'
+                  : terminal.includes(run?.status)
+                    ? 'Incomplete'
+                    : run?.status === 'waiting_for_human'
+                      ? 'Waiting for input'
+                      : 'In progress'}
+              </small>
+            </summary>
+            {entry.status === 'completed' ? (
+              contents[entry.id] !== undefined ? (
+                <Markdown text={contents[entry.id]} />
+              ) : (
+                <p>Loading saved text…</p>
+              )
+            ) : (
+              <p>This stage has not finished. Completed text will remain available here.</p>
+            )}
+          </details>
+        ))}
+        {!!run?.events?.length && (
+          <details className="activity-events">
+            <summary>Execution events</summary>
+            <Trace events={run.events} />
+          </details>
+        )}
+        {!loading && !entries.length && !run?.events?.length && <p>No activity recorded yet.</p>}
+      </div>
+    </Modal>
   );
 }
 export function Trace({ events }: { events: any[] }) {

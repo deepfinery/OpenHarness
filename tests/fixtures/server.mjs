@@ -1045,6 +1045,17 @@ app.post('/v1/chat/completions', async (req, res) => {
           ],
         };
   }
+  if (req.body.model === 'test-reflection-history') {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const latest = req.body.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+    message = {
+      content: latest.startsWith('Critique the answer')
+        ? 'Reviewer feedback: verify the evidence. ' + 'Detailed feedback. '.repeat(400) + ' REVIEW END'
+        : latest.startsWith('Revise your answer')
+          ? 'Final revised answer with verified evidence.'
+          : 'Initial draft for review. ' + 'Draft evidence. '.repeat(400) + ' DRAFT END',
+    };
+  }
   // Fail only after a real MCP result, so recovery must preserve already completed tool calls.
   if (
     req.body.model.startsWith('test-response-') &&
