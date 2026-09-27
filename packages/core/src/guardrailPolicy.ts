@@ -20,6 +20,7 @@ export const guardrailPolicyObjectSchema = z.object({
   jailbreak: z.boolean().default(true),
   contentSafety: z.boolean().default(true),
   semanticChecks: z.boolean().default(false),
+  safetyModelProviderId: z.string().uuid().optional(),
   templateId: z.enum(['bias', 'toxicity', 'hallucinations', 'opacity', 'pii', 'vulnerability']).optional(),
   safetyInstructions: z.string().trim().max(4000).default(''),
   deniedTerms: z.array(z.string().trim().min(1).max(200)).max(100).default([]),

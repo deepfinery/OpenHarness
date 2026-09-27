@@ -49,3 +49,30 @@ test(
     }
   },
 );
+
+test('Kubernetes nodes get stable unique enrollment identities without per-node tokens', async () => {
+  const { configFromEnv } = await import('../src/config.js');
+  const token = 'shared-token-for-every-node';
+  const first = configFromEnv({ CLUSTER_NODE_NAME: 'gpu-worker-1.example.com', DEVICE_TOKEN: token });
+  const again = configFromEnv({ CLUSTER_NODE_NAME: 'gpu-worker-1.example.com', DEVICE_TOKEN: token });
+  const second = configFromEnv({ CLUSTER_NODE_NAME: 'gpu-worker-2.example.com', DEVICE_TOKEN: token });
+  assert.match(first.device_id!, /^gpu-[a-f0-9]{24}$/);
+  assert.equal(first.device_id, again.device_id);
+  assert.notEqual(first.device_id, second.device_id);
+  assert.equal(first.token, second.token);
+  assert.equal(configFromEnv({ DEVICE_ID: 'explicit', CLUSTER_NODE_NAME: 'node' }).device_id, 'explicit');
+});
+
+test('Kubernetes identity includes the cluster ID but not its rotating secret', async () => {
+  const { configFromEnv } = await import('../src/config.js');
+  const name = 'gpu-1';
+  const id = '952ad839-8190-4133-9e71-f53bc3861ce4';
+  const first = configFromEnv({ CLUSTER_NODE_NAME: name, DEVICE_TOKEN: `cl_${id}.dv_first-secret` });
+  const rotated = configFromEnv({ CLUSTER_NODE_NAME: name, DEVICE_TOKEN: `cl_${id}.dv_rotated-secret` });
+  const other = configFromEnv({
+    CLUSTER_NODE_NAME: name,
+    DEVICE_TOKEN: 'cl_852ad839-8190-4133-9e71-f53bc3861ce4.dv_other-secret',
+  });
+  assert.equal(first.device_id, rotated.device_id);
+  assert.notEqual(first.device_id, other.device_id);
+});

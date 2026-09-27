@@ -61,7 +61,20 @@ guardrailApi.post('/guardrail-check', requireAdmin, async (req, res) => {
       tool: z.string().max(250).optional(),
     })
     .parse(req.body);
-  res.json(await evaluateRail({ ...body.policy, id: 'preview' }, body.stage, body.content, body.tool));
+  try {
+    res.json(
+      await evaluateRail(
+        { ...body.policy, id: 'preview' },
+        body.stage,
+        body.content,
+        body.tool,
+        undefined,
+        req.principal!.tenantId,
+      ),
+    );
+  } catch (error) {
+    throw new HttpError(503, error instanceof Error ? error.message : 'Safety check unavailable');
+  }
 });
 const probes = [
   { name: 'Benign question', input: 'What is two plus two?', expect: 'allow' },

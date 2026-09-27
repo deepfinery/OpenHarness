@@ -182,7 +182,7 @@ test('service errors honor fail mode and durable latency budgets', async () => {
     });
     const r = await run(await agent(p.id), 'What is two plus two?');
     assert.equal(r.status, 'succeeded');
-    assert.equal(r.output.includes(p.blockMessage), failMode === 'closed');
+    assert.equal(r.output.includes('safety check is unavailable'), failMode === 'closed');
     assert.ok(r.events.some((e: any) => e.type === 'guardrail' && e.data.reason?.includes('unavailable')));
   }
   assert.equal(
@@ -498,3 +498,158 @@ test('YAML import validation and export preserve editable policies and tenant bo
     cookie = tenantCookie;
   }
 });
+
+test(
+  'all templates allow Hi through real NeMo; selected workspace classifiers enforce decisions',
+  { skip: process.env.TEST_NEMO !== 'true' },
+  async () => {
+    const credentials = {
+      email: `template-benign-${randomUUID()}@openharness.test`,
+      password: 'Integration-test-password-42',
+    };
+    await ok('/users', { ...credentials, name: 'Template regressions', role: 'admin', workspace: 'new' });
+    cookie = (await raw('/auth/login', credentials)).headers.get('set-cookie')!.split(';')[0];
+    providerId = (
+      await ok('/providers', {
+        name: 'Answer model',
+        kind: 'openai-compatible',
+        baseUrl: 'http://fixtures:9090/v1',
+        model: 'test-guardrail',
+      })
+    ).id;
+    const classifier = await ok('/providers', {
+      name: 'Workspace safety model',
+      kind: 'openai-compatible',
+      baseUrl: 'http://fixtures:9090/v1',
+      model: 'test-safety-classifier',
+    });
+    for (const template of guardrailTemplates) {
+      const p = {
+        ...template.policy,
+        ...(template.policy.semanticChecks ? { safetyModelProviderId: classifier.id } : {}),
+      };
+      for (const content of ['Hi', 'Hello! How can I help?', 'What is two plus two?']) {
+        const r = await ok('/guardrail-check', { policy: p, stage: p.stages[0], content });
+        assert.equal(r.decision, 'allow', `${template.id}: ${content}`);
+      }
+      if (p.semanticChecks) {
+        assert.equal(
+          (
+            await ok('/guardrail-check', {
+              policy: p,
+              stage: p.stages[0],
+              content: 'unsafe semantic fixture',
+            })
+          ).decision,
+          'block',
+        );
+        const saved = await policy(p);
+        assert.equal(saved.safetyModelProviderId, classifier.id);
+      }
+    }
+    const toxicity = {
+      ...guardrailTemplates.find((t) => t.id === 'toxicity')!.policy,
+      safetyModelProviderId: classifier.id,
+    };
+    assert.equal((await run(await agent((await policy(toxicity)).id), 'Hi')).status, 'succeeded');
+    // A model returning prose instead of a decision is unavailable, not a toxicity violation.
+    const bad = { ...toxicity, safetyModelProviderId: providerId };
+    assert.equal((await raw('/guardrail-check', { policy: bad, stage: 'input', content: 'Hi' })).status, 503);
+    const r = await run(await agent((await policy(bad)).id), 'Hi');
+    assert.match(r.output, /safety check is unavailable/);
+    assert.ok(!r.output.includes(bad.blockMessage));
+    assert.ok(!r.events.some((e: any) => e.type === 'model'));
+    const own = cookie;
+    cookie = adminCookie;
+    try {
+      assert.equal((await raw('/guardrails', toxicity)).status, 400);
+      assert.equal(
+        (await raw('/guardrail-check', { policy: toxicity, stage: 'input', content: 'Hi' })).status,
+        503,
+      );
+    } finally {
+      cookie = own;
+    }
+  },
+);
+
+test(
+  'missing NeMo service model is a setup error, with an automatic tenant-model fallback',
+  { skip: !process.env.TEST_COMPOSE_PROJECT, timeout: 120000 },
+  async () => {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const exec = promisify(execFile);
+    const project = process.env.TEST_COMPOSE_PROJECT!;
+    assert.match(project, /^openharness-test-/);
+    const name = `${project}-unconfigured-rails`;
+    const compose = [
+      'compose',
+      '-p',
+      project,
+      '-f',
+      'compose.yaml',
+      '-f',
+      'tests/compose.test.yaml',
+      ...(process.env.TEST_COMPOSE_OVERRIDE ? ['-f', process.env.TEST_COMPOSE_OVERRIDE] : []),
+    ];
+    await exec('docker', [
+      ...compose,
+      'run',
+      '-d',
+      '--no-deps',
+      '--name',
+      name,
+      '-e',
+      'NEMO_SAFETY_MODEL_URL=',
+      '-e',
+      'NEMO_SAFETY_MODEL=',
+      'guardrails',
+    ]);
+    try {
+      for (let i = 0; i < 90; i++) {
+        const r = await exec('docker', ['inspect', '-f', '{{.State.Health.Status}}', name]);
+        if (r.stdout.trim() === 'healthy') break;
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      const credentials = {
+        email: `nemo-fallback-${randomUUID()}@openharness.test`,
+        password: 'Integration-test-password-42',
+      };
+      await ok('/users', { ...credentials, name: 'Fallback checks', role: 'admin', workspace: 'new' });
+      cookie = (await raw('/auth/login', credentials)).headers.get('set-cookie')!.split(';')[0];
+      const saved = await policy(guardrailTemplates.find((t) => t.id === 'toxicity')!.policy);
+      async function direct() {
+        const script = `
+          import {collection} from './dist/packages/core/src/db.js';
+          import {config} from './dist/packages/core/src/config.js';
+          import {evaluateRail} from './dist/packages/core/src/guardrails.js';
+          config.NEMO_GUARDRAILS_URL=${JSON.stringify(`http://${name}:8000`)};
+          const p=await collection('guardrails').findOne({_id:${JSON.stringify(saved.id)}});
+          try { console.log(JSON.stringify(await evaluateRail({...p,id:p._id},'input','Hi',undefined,undefined,p.ownerId))); }
+          catch(e) { console.log(JSON.stringify({error:e.message})); }
+          process.exit(0);
+        `;
+        const r = await exec('docker', [
+          'exec',
+          `${project}-api-1`,
+          'node',
+          '--input-type=module',
+          '-e',
+          script,
+        ]);
+        return JSON.parse(r.stdout.trim());
+      }
+      assert.match((await direct()).error, /Safety model not configured/);
+      await ok('/providers', {
+        name: 'First tenant classifier',
+        kind: 'openai-compatible',
+        baseUrl: 'http://fixtures:9090/v1',
+        model: 'test-safety-classifier',
+      });
+      assert.equal((await direct()).decision, 'allow');
+    } finally {
+      await exec('docker', ['rm', '-f', name]);
+    }
+  },
+);

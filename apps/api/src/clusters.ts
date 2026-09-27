@@ -33,6 +33,10 @@ function install(token: string) {
     privilegedCommand: 'sudo sh connector-linux/install-cluster.sh /path/to/cluster.env --host-access',
   };
 }
+clusters.get('/:id/install', requireAdmin, async (req, res) => {
+  await ownedCluster(req.principal!.tenantId, String(req.params.id));
+  res.json({ install: { connectUrl: `${gatewayPublicUrl()}/connect` } });
+});
 clusters.post('/', requireAdmin, async (req, res) => {
   await rateLimit(`cluster-create:${req.principal!.tenantId}`, 20);
   const body = z.object({ name: z.string().min(1).max(100) }).parse(req.body);

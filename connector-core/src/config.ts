@@ -1,5 +1,6 @@
 // Connector configuration: a JSON file plus environment overrides, and a token that never appears in logs.
 import { readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { hostname as osHostname } from 'node:os';
 import { z } from 'zod';
 import { deviceIdPattern, platforms } from './frames.js';
@@ -42,7 +43,17 @@ const strip = <T extends object>(o: T): Partial<T> =>
 export function configFromEnv(env: NodeJS.ProcessEnv) {
   return strip({
     gateway_url: env.GATEWAY_URL,
-    device_id: env.DEVICE_ID,
+    device_id:
+      env.DEVICE_ID ??
+      (env.CLUSTER_NODE_NAME
+        ? 'gpu-' +
+          createHash('sha256')
+            .update(
+              (/^cl_([a-f0-9-]{36})\./.exec(env.DEVICE_TOKEN ?? '')?.[1] ?? '') + ':' + env.CLUSTER_NODE_NAME,
+            )
+            .digest('hex')
+            .slice(0, 24)
+        : undefined),
     platform: env.DEVICE_PLATFORM,
     hostname: env.DEVICE_HOSTNAME,
     token: env.DEVICE_TOKEN,

@@ -1,3 +1,4 @@
+import { ClusterInstall } from './ClusterInstall';
 import { AgentFields } from './agentFields';
 import { defaultAgent } from '../workflowGraph';
 import type { Agent } from '../../../../packages/core/src/schema.js';
@@ -5,7 +6,7 @@ import { useState } from 'react';
 import { Activity, ArrowRight, Layers3, Plus, ShieldCheck } from 'lucide-react';
 import type { FleetCluster } from './InfrastructurePage';
 import { api, send, errorMessage, timestamp, type Data } from '../api';
-import { Button, CopyButton, ErrorNotice, Field, Modal, Empty } from './ui';
+import { Button, ErrorNotice, Field, Modal, Empty } from './ui';
 const actions = ['gpu_reset', 'restart_fabric_manager', 'reboot'];
 export function ClustersPage({
   data,
@@ -231,26 +232,7 @@ export function ClustersPage({
       )}
       {enrollment && (
         <Modal title="Install cluster nodes" onClose={() => setEnrollment(null)} wide>
-          <div className="fleet-cluster-form">
-            <ErrorNotice error={error} />
-            <p>
-              Save this shared enrollment configuration as a root-readable file on each node. The token is
-              shown once. Rotation disconnects every node until its configuration is updated.
-            </p>
-            <pre>{enrollment.environment}</pre>
-            <CopyButton value={enrollment.environment} />
-            <p>From a checkout of this repository, install the connector container:</p>
-            <pre>{enrollment.command}</pre>
-            <CopyButton value={enrollment.command} />
-            <p>For host NVIDIA diagnostics, explicitly grant privileged host access:</p>
-            <pre>{enrollment.privilegedCommand}</pre>
-            <CopyButton value={enrollment.privilegedCommand} />
-            <p className="muted">
-              Use a gateway address reachable from every node. WSS validates TLS certificates; WS is available
-              for development. Host tools use the node’s installed NVIDIA/DCGM utilities. Disruptive
-              operations also require HOST_REMEDIATION_ACTIONS and a fresh drain authorization on that node.
-            </p>
-          </div>
+          <ClusterInstall enrollment={enrollment} />
         </Modal>
       )}
       {selected && monitor && policy && !enrollment && !draftAgent && (
@@ -439,6 +421,19 @@ export function ClustersPage({
               <div className="row-actions">
                 <Button type="submit" disabled={busy}>
                   Save cluster
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    void act(async () => {
+                      const result = await api(`/clusters/${selected._id}/install`);
+                      setEnrollment(result.install);
+                    })
+                  }
+                >
+                  Installation instructions
                 </Button>
                 <Button
                   type="button"

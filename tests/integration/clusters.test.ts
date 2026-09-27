@@ -147,6 +147,40 @@ test(
       assert.ok(detail.device.id.startsWith(`cluster-${suffix}`));
     }
     await ok(`/clusters/${cluster._id}/monitor`, { agentId: agent.id, enabled: false }, 'PUT');
+    // A node appearing later uses the same shared token, like a newly scheduled DaemonSet pod.
+    const late = `openharness-cluster-test-${suffix}-late`;
+    await exec('docker', [
+      'run',
+      '-d',
+      '--name',
+      late,
+      '--network',
+      `${project}_default`,
+      '-e',
+      'GATEWAY_URL=ws://gateway:8090/connect',
+      '-e',
+      'GATEWAY_ALLOW_INSECURE=true',
+      '-e',
+      `DEVICE_TOKEN=${token}`,
+      '-e',
+      `CLUSTER_NODE_NAME=gpu-late-${suffix}.example.com`,
+      'openharness-connector-cluster-test:local',
+    ]);
+    containers.push(late);
+    const lateNode = await until(async () =>
+      (await ok('/devices')).machines.find(
+        (m: any) => m.cluster_id === cluster._id && m.device_id.startsWith('gpu-') && m.online,
+      ),
+    );
+    assert.match(lateNode.device_id, /^gpu-[a-f0-9]{24}$/);
+    await exec('docker', ['restart', late]);
+    await until(async () =>
+      (await ok('/devices')).machines.some((m: any) => m.device_id === lateNode.device_id && m.online),
+    );
+    assert.equal((await ok('/clusters')).clusters[0].node_count, 4);
+    const instructions = await ok(`/clusters/${cluster._id}/install`);
+    assert.ok(instructions.install.connectUrl);
+    assert.ok(!JSON.stringify(instructions).includes(token));
     const rotated = await ok(`/clusters/${cluster._id}/rotate-token`, {});
     assert.notEqual(rotated.install.token, token);
     await until(
@@ -164,6 +198,7 @@ test('cluster credentials and monitoring controls are isolated by workspace', as
   await ok('/users', { ...other, name: 'Other admin', workspace: 'new', role: 'admin' });
   cookie = (await raw('/auth/login', other)).headers.get('set-cookie')!.split(';')[0];
   assert.equal((await raw(`/clusters/${cluster._id}/rotate-token`, {})).status, 404);
+  assert.equal((await raw(`/clusters/${cluster._id}/install`)).status, 404);
   assert.equal((await raw(`/clusters/${cluster._id}`, { disabled: false }, 'PUT')).status, 404);
   assert.equal((await ok('/clusters')).clusters.length, 0);
   cookie = ownCookie;

@@ -154,3 +154,48 @@ for (const scheme of ['ws', 'wss']) {
     },
   );
 }
+
+test(
+  'native cluster installer reads shared credentials as data and reconnects with a stable node ID',
+  { skip: !enabled, timeout: 180000 },
+  async () => {
+    await compose('up', '--no-build', '--no-deps', '--force-recreate', '-d', 'installer');
+    const cluster = await ok('/clusters', { name: 'Native cluster installer' });
+    const environment = `GATEWAY_URL=ws://gateway:8090/connect\nDEVICE_TOKEN=${cluster.install.token}\nGATEWAY_ALLOW_INSECURE=true\n`;
+    async function install() {
+      return inInstaller(`
+        import {writeFileSync} from 'node:fs';
+        import {spawnSync} from 'node:child_process';
+        writeFileSync('/etc/machine-id', 'native-cluster-${randomUUID()}\\n', {flag:'a'});
+        writeFileSync('/run/cluster.env', ${JSON.stringify(environment)}, {mode:0o600});
+        const r=spawnSync('node',['connector-linux/install-cluster-native.mjs','/run/cluster.env'], {encoding:'utf8'});
+        if(r.status!==0) throw new Error(r.stderr);
+        console.log('installed');
+      `);
+    }
+    await install();
+    let node: any;
+    for (let i = 0; i < 80; i++) {
+      node = (await ok('/devices')).machines.find(
+        (d: any) => d.cluster_id === cluster.cluster._id && d.online,
+      );
+      if (node) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    assert.ok(node, 'native cluster node enrolled');
+    assert.match(node.device_id, /^gpu-[a-f0-9]{24}$/);
+    await compose(
+      'exec',
+      '-T',
+      'installer',
+      'node',
+      'connector-linux/install-cluster-native.mjs',
+      '/run/cluster.env',
+    );
+    await online(node.device_id);
+    assert.equal(
+      (await ok('/clusters')).clusters.find((c: any) => c._id === cluster.cluster._id).node_count,
+      1,
+    );
+  },
+);

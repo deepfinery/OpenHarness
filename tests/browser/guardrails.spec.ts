@@ -98,6 +98,12 @@ test('template gallery creates editable policies, previews PII, and fits mobile 
   };
   await api('/users', { ...credentials, name: 'Template admin', workspace: 'new', role: 'admin' });
   await api('/auth/login', credentials);
+  const classifier = await api('/providers', {
+    name: 'Safety classifier',
+    kind: 'openai-compatible',
+    baseUrl: 'http://fixtures:9090/v1',
+    model: 'test-safety-classifier',
+  });
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/guardrails');
@@ -127,6 +133,13 @@ test('template gallery creates editable policies, previews PII, and fits mobile 
       await page.getByLabel('Guardrail provider').selectOption('nemo');
       await page.getByRole('checkbox', { name: /Safety model checks/ }).check();
       await page.screenshot({ path: 'test-results/guardrail-template-editor.png', fullPage: true });
+    }
+    if (name === 'Toxicity') {
+      await page.getByLabel('Safety model', { exact: true }).selectOption(classifier.id);
+      await page.getByRole('button', { name: 'Try it out', exact: true }).click();
+      await page.getByLabel('Test content').fill('Hi');
+      await page.getByRole('button', { name: 'Check content', exact: true }).click();
+      await expect(page.locator('.guardrail-preview')).toContainText('allow');
     }
     if (name === 'PII presence') {
       await page.getByRole('button', { name: 'Try it out', exact: true }).click();

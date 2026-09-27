@@ -1,3 +1,4 @@
+import { classifyWithWorkspaceModel } from './guardrailClassifier.js';
 import { randomUUID } from 'node:crypto';
 import { collection } from './db.js';
 import { config } from './config.js';
@@ -37,31 +38,80 @@ export async function evaluateRail(
   content: string,
   tool?: string,
   signal?: AbortSignal,
+  ownerId?: string,
 ): Promise<RailDecision> {
   if (content.length > 250000) throw new Error('Guardrail payload exceeds its inspection limit');
+  if (!policy.stages.includes(stage)) return { decision: 'allow', content, reason: 'Stage not enabled' };
   const local = builtinRail(policy, stage, content, tool);
   if (local.decision === 'block' || policy.provider === 'builtin') return local;
-  const response = await fetch(`${config.NEMO_GUARDRAILS_URL.replace(/\/$/, '')}/v1/checks`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    redirect: 'error',
-    signal: signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(policy.timeoutMs)])
-      : AbortSignal.timeout(policy.timeoutMs),
-    body: JSON.stringify({
-      model: 'openharness',
-      messages: [{ role: 'user', content: local.content }],
-      guardrails: {
-        config_id: policy.configId,
-        rail_types: ['input'],
-        context: { oh_policy: policy, oh_stage: stage, oh_tool: tool ?? '' },
-      },
-    }),
-  });
-  if (!response.ok) throw new Error(`NeMo check returned HTTP ${response.status}`);
-  const result = (await response.json()) as { status?: string; content?: string };
+  const deadline = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(policy.timeoutMs)])
+    : AbortSignal.timeout(policy.timeoutMs);
+  let semanticAllowed: boolean | undefined;
+  if (policy.semanticChecks && ownerId) {
+    try {
+      semanticAllowed = await classifyWithWorkspaceModel(ownerId, policy, stage, local.content, deadline);
+    } catch {
+      throw new Error(
+        'Safety model check failed. Check the selected model, credentials, context limit and timeout in the policy settings.',
+      );
+    }
+  }
+  const request = async () => {
+    const response = await fetch(`${config.NEMO_GUARDRAILS_URL.replace(/\/$/, '')}/v1/checks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      redirect: 'error',
+      signal: deadline,
+      body: JSON.stringify({
+        model: 'openharness',
+        messages: [{ role: 'user', content: local.content }],
+        guardrails: {
+          config_id: policy.configId,
+          rail_types: ['input'],
+          context: {
+            oh_policy: policy,
+            oh_stage: stage,
+            oh_tool: tool ?? '',
+            oh_semantic_allowed: semanticAllowed,
+          },
+        },
+      }),
+    });
+    if (!response.ok) throw new Error(`NeMo check returned HTTP ${response.status}`);
+    return (await response.json()) as { status?: string; content?: string };
+  };
+  let result = await request();
+  if (
+    policy.semanticChecks &&
+    ownerId &&
+    semanticAllowed === undefined &&
+    result.content?.startsWith('OPENHARNESS_RAIL_ERROR:Safety model not configured.')
+  ) {
+    try {
+      semanticAllowed = await classifyWithWorkspaceModel(
+        ownerId,
+        policy,
+        stage,
+        local.content,
+        deadline,
+        true,
+      );
+    } catch {
+      throw new Error(
+        'Safety model check failed. Select a suitable safety model in the policy editor and check its timeout.',
+      );
+    }
+    if (semanticAllowed !== undefined) result = await request();
+  }
   if (!['passed', 'blocked', 'modified'].includes(result.status ?? ''))
     throw new Error('Invalid NeMo decision');
+  if (result.content?.startsWith('OPENHARNESS_RAIL_ERROR:'))
+    throw new Error(result.content.slice('OPENHARNESS_RAIL_ERROR:'.length));
+  if (result.status === 'blocked' && result.content === "I'm sorry, an internal error has occurred.")
+    throw new Error(
+      'NeMo could not evaluate the policy. Configure a safety model and check the service status.',
+    );
   if (result.status === 'blocked')
     return { decision: 'block', content: policy.blockMessage, reason: 'NeMo rail blocked content' };
   if (result.status === 'modified' && typeof result.content !== 'string')
@@ -93,12 +143,15 @@ export async function checkRail(ctx: GuardContext, stage: RailStage, content: st
         ).modifiedCount,
       );
       if (!reserved) throw new Error('Guardrail latency budget exhausted');
-      decision = await evaluateRail(policy, stage, text, tool, ctx.signal);
+      decision = await evaluateRail(policy, stage, text, tool, ctx.signal, ctx.ownerId);
     } catch (error) {
       ctx.signal?.throwIfAborted();
       decision = {
         decision: policy.failMode === 'open' ? 'allow' : 'block',
-        content: policy.failMode === 'open' ? text : policy.blockMessage,
+        content:
+          policy.failMode === 'open'
+            ? text
+            : 'The safety check is unavailable, so this request could not be evaluated. Check the policy’s safety model and service configuration, then try again.',
         reason: `Guardrail unavailable (${policy.failMode === 'open' ? 'failed open' : 'failed closed'})`,
       };
     } finally {
@@ -130,7 +183,7 @@ export async function checkRail(ctx: GuardContext, stage: RailStage, content: st
       data: audit,
     });
     await emitHarnessEvent(ctx.ownerId, 'guardrail.decided', { execution_id: ctx.runId, ...audit });
-    if (decision.decision === 'block') throw new GuardrailBlocked(policy.blockMessage);
+    if (decision.decision === 'block') throw new GuardrailBlocked(decision.content);
     text = decision.content;
   }
   return text;

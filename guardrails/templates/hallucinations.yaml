@@ -2,7 +2,7 @@
 # Requires the bundled openharness rails.co and actions.py.
 # Edit custom_data.openharness.policy; model credentials stay on the service.
 models: []
-colang_version: "1.0"
+colang_version: '1.0'
 rails:
   input:
     flows:
@@ -21,20 +21,20 @@ custom_data:
       stages:
         - output
       failMode: closed
-      timeoutMs: 5000
+      timeoutMs: 30000
       latencyBudgetMs: 120000
       pii: false
       jailbreak: false
       contentSafety: false
       semanticChecks: true
       templateId: hallucinations
-      safetyInstructions: "Review the answer for internal contradictions, fabricated-looking citations,
-        and factual conclusions unsupported by evidence presented in the answer. Block material
-        contradictions or factual assertions presented as verified without supporting evidence or an
-        explicit uncertainty qualifier. Allow clearly labeled estimates, opinions, creative writing,
-        and ordinary conversational replies. You only see the answer: do not assume access to
-        retrieved documents or external facts, and do not claim to have independently verified
-        them."
+      safetyInstructions: 'Review substantive answers for material internal contradictions, explicitly
+        invented sources presented as real, and conclusions that contradict evidence quoted in the
+        answer. Do not block merely because an answer has no citation. Allow greetings, ordinary
+        factual answers, clearly labeled estimates, opinions, and creative writing. Flag unsupported
+        claims of verification only when the answer itself provides evidence of fabrication. You only
+        see the answer: do not assume access to retrieved documents or external facts, and do not
+        claim to have independently verified them.'
       deniedTerms: []
       blockedTopics: []
       deniedTools: []
