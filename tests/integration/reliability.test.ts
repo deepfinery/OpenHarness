@@ -416,3 +416,56 @@ test(
     assert.ok(result.tokensUsed <= 400000);
   },
 );
+
+test(
+  'call journal deduplicates concurrent writes and refuses ambiguous retries',
+  { skip: !enabled, timeout: 30000 },
+  async () => {
+    const script = `
+      import assert from 'node:assert/strict';
+      import { randomUUID } from 'node:crypto';
+      import { mongo } from './dist/packages/core/src/db.js';
+      import { durableToolCall, hasAmbiguousCalls, AmbiguousToolCall } from './dist/packages/core/src/executionRecovery.js';
+      await mongo.connect();
+      const owner = randomUUID(), run = randomUUID();
+      let calls = 0;
+      const work = async () => { calls++; await new Promise(r => setTimeout(r, 50)); return { answer: 42 }; };
+      const results = await Promise.allSettled([
+        durableToolCall(owner, run, 'write-once', false, work),
+        durableToolCall(owner, run, 'write-once', false, work),
+      ]);
+      assert.equal(calls, 1);
+      assert.ok(results.some(r => r.status === 'fulfilled'));
+      assert.deepEqual(await durableToolCall(owner, run, 'write-once', false, work), { answer: 42 });
+      assert.equal(calls, 1);
+      assert.equal(await hasAmbiguousCalls(owner, [run]), false);
+      const uncertain = async () => { calls++; throw new Error('Lost the response'); };
+      await assert.rejects(durableToolCall(owner, run, 'uncertain', false, uncertain), AmbiguousToolCall);
+      await assert.rejects(durableToolCall(owner, run, 'uncertain', false, uncertain), AmbiguousToolCall);
+      assert.equal(calls, 2);
+      assert.equal(await hasAmbiguousCalls(owner, [run]), true);
+      await assert.rejects(durableToolCall(owner, run, 'read-only', true, uncertain));
+      assert.deepEqual(await durableToolCall(owner, run, 'read-only', true, work), { answer: 42 });
+      assert.equal(calls, 4);
+      await mongo.close();
+      console.log('Journal boundaries verified');
+    `;
+    const result = await command('docker', [
+      'compose',
+      '-p',
+      project,
+      '-f',
+      'compose.yaml',
+      '-f',
+      'tests/compose.test.yaml',
+      'exec',
+      '-T',
+      'api',
+      'node',
+      '--input-type=module',
+      '-e',
+      script,
+    ]);
+    assert.match(result.stdout, /Journal boundaries verified/);
+  },
+);
