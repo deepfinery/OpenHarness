@@ -151,6 +151,7 @@ test('harness designer drops MCP tools onto an agent, keeps dragged positions an
   await agent.dblclick();
   const modal = page.locator('.modal');
   await selectProvider(page, modal);
+  await modal.getByRole('tab', { name: 'Reasoning', exact: true }).click();
   await expect(modal.locator('.effort-control button')).toHaveCount(6);
   await modal.locator('.effort-control button', { hasText: /^High$/ }).click();
   await modal.getByLabel('Component name').fill('Harness assistant');
@@ -317,6 +318,7 @@ test('skills created on the Skills page are attached to an agent and loaded when
     .getByRole('button', { name: /open/i })
     .click();
   await page.locator('.harness-card.kind-agent').dblclick();
+  await page.locator('.modal').getByRole('tab', { name: 'Knowledge', exact: true }).click();
   await page.getByLabel(`Skill Incident triage ${tag}`).check();
   await page.getByLabel(`Skill Release notes ${tag}`).check();
   await page.locator('.modal').getByRole('button', { name: 'Done' }).click();
