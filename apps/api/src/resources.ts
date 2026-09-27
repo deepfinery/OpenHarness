@@ -75,6 +75,8 @@ export async function validateReferences(kind: string, ownerId: string, body: an
     if (body.experience?.enabled && !resolveNotebook(body).workspace)
       throw new HttpError(400, 'Learning from experience needs a knowledge workspace');
     await assertOwned('providers', ownerId, body.providerId);
+    if (body.patternConfig?.judgeProviderId)
+      await assertOwned('providers', ownerId, body.patternConfig.judgeProviderId);
     for (const binding of body.connections) {
       const c = await collection<Resource>('connections').findOne({ _id: binding.connectionId, ownerId });
       if (!c) throw new HttpError(400, 'An MCP connection does not belong to this workspace');
@@ -305,9 +307,17 @@ for (const [kind, schema] of Object.entries(definitions)) {
     const blockers: [string, Record<string, unknown>][] =
       kind === 'providers'
         ? [
-            ['agents', { providerId: id }],
+            ['agents', { $or: [{ providerId: id }, { 'patternConfig.judgeProviderId': id }] }],
             ['knowledge', { providerId: id }],
-            ['workflows', { 'nodes.config.providerId': id }],
+            [
+              'workflows',
+              {
+                $or: [
+                  { 'nodes.config.providerId': id },
+                  { 'nodes.config.patternConfig.judgeProviderId': id },
+                ],
+              },
+            ],
           ]
         : kind === 'connections'
           ? [

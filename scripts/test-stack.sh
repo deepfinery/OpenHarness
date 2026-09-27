@@ -4,6 +4,7 @@ cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 ./start.sh --configure-only
 export TEST_COMPOSE_PROJECT="openharness-test-$$"
 export STUDIO_PORT="${TEST_PORT:-18088}"
+export GATEWAY_PORT="${TEST_GATEWAY_PORT:-18090}"
 export PUBLIC_URL="http://localhost:$STUDIO_PORT"
 export TEST_BASE_URL="$PUBLIC_URL"
 export TEST_FAULT_INJECTION=true
@@ -18,6 +19,10 @@ cleanup() {
 trap cleanup EXIT
 compose up --build -d --wait --wait-timeout 480
 compose build installer
+# These suites start disposable containers directly; a fresh runner has no cached test images.
+docker build -f connector-linux/Dockerfile \
+  -t openharness-connector-cluster-test:local -t openharness-connector-host-access-test:local .
+docker build -f tests/fixtures/host-target.Dockerfile -t openharness-host-target-test:local .
 npm test
 npm run test:integration
 # The Open Harness conformance suite, pinned upstream, through the adapter in conformance/.

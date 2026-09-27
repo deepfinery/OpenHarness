@@ -6,7 +6,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { collection } from './db.js';
 import { humanSettingsSchema, type HumanSettings, type Run } from './schema.js';
-import { HttpError } from './security.js';
+import { HttpError, safeError } from './security.js';
 import { emitHarnessEvent } from './harnessEvents.js';
 import { validateToolArguments } from './toolValidation.js';
 import { readStoredFile, replaceFile } from './storage.js';
@@ -47,6 +47,8 @@ export type HumanRequest = {
   notebookId?: string;
   notebookRetryAt?: Date;
   notifiedAt?: Date;
+  notifyError?: string;
+  notifyAttempts?: number;
   notifyAfter?: Date;
   notifyLease?: Date;
   notebookRecordedAt?: Date;
@@ -426,20 +428,31 @@ export async function deliverHumanNotifications() {
         .filter((u) => canAnswer(r, { id: u._id, role: u.role }))
         .map((u) => u.email)
         .slice(0, 50);
-      if (recipients.length)
-        await sendEmail(r.ownerId, {
-          to: recipients.join(','),
-          subject: `OpenHarness: ${r.kind === 'question' ? 'input' : 'approval'} needed`,
-          text: `Run ${r.runId} is waiting. Sign in to review the request before ${r.expiresAt.toISOString()}.\n${config.PUBLIC_URL.replace(/\/$/, '')}/inbox?requestId=${r._id}&token=${humanLinkToken(r)}`,
-        });
+      if (!recipients.length)
+        throw new Error(
+          'No enabled approver has an email address. Check the request approvers and workspace users.',
+        );
+      await sendEmail(r.ownerId, {
+        to: recipients.join(','),
+        subject: `OpenHarness: ${r.kind === 'question' ? 'input' : 'approval'} needed`,
+        text: `Run ${r.runId} is waiting. Sign in to review the request before ${r.expiresAt.toISOString()}.\n${config.PUBLIC_URL.replace(/\/$/, '')}/inbox?requestId=${r._id}&token=${humanLinkToken(r)}`,
+      });
       await requests.updateOne(
         { _id: r._id, expiresAt: r.expiresAt },
-        { $set: { notifiedAt: new Date() }, $unset: { notifyLease: '' } },
+        {
+          $set: { notifiedAt: new Date() },
+          $inc: { notifyAttempts: 1 },
+          $unset: { notifyLease: '', notifyError: '', notifyAfter: '' },
+        },
       );
-    } catch {
+    } catch (error) {
       await requests.updateOne(
         { _id: r._id },
-        { $set: { notifyAfter: new Date(Date.now() + 60000) }, $unset: { notifyLease: '' } },
+        {
+          $set: { notifyAfter: new Date(Date.now() + 60000), notifyError: safeError(error) },
+          $inc: { notifyAttempts: 1 },
+          $unset: { notifyLease: '' },
+        },
       );
     }
   }

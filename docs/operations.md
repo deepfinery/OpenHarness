@@ -82,8 +82,10 @@ service must be listening on an interface reachable from Docker. Do not use
   lease prevents a second runner from executing an active run. After lease
   expiration the workflow's `resumePolicy` decides: `safe` (default) re-queues
   the run to continue from its checkpoint unless the in-flight step could have
-  acted externally (MCP action, Email step, or an agent with tools), which
-  yields `interrupted` with the reason; `always` resumes regardless; `never`
+  acted externally without a saved result. Agent continuations reuse completed
+  calls and children; ambiguous actions and explicit MCP/Email steps yield
+  `interrupted` with the reason. `always` opts into workflow step replay but
+  cannot override an ambiguous agent call journal; `never`
   always interrupts. `MAX_RESUMES` (default 3) caps automatic resumes; the
   trace records each `resumed` event.
 - Indexer outage: expired indexing leases return to the queue. Deterministic
@@ -98,7 +100,9 @@ service must be listening on an interface reachable from Docker. Do not use
 Review an interrupted run's trace before submitting a new run. Node checkpoints
 let a replacement runner skip completed steps; they are not an assertion that
 the step that was in flight is safe to replay, which is why external actions
-interrupt under the default policy. Every MCP call carries
+with unknown outcomes interrupt under the default policy. See
+[budgeted execution and recovery](execution-recovery.md) for checkpoint and child
+recovery boundaries. Every MCP call carries
 `_meta.idempotencyKey` so servers that deduplicate can absorb a replay under
 `resumePolicy: always`.
 

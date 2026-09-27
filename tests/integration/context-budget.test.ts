@@ -115,10 +115,11 @@ test('single-turn research compresses tool arguments into retrievable task memor
   assert.ok(notes.some((n: any) => n.kind === 'finding'));
 });
 
-test('persistent context rejection has bounded retries and an honest result, not a failed run', async () => {
+test('persistent context rejection has bounded retries and reports incomplete execution', async () => {
   const { agent: a } = await agent('test-context-reject');
   const result = await run(a.id, 'Research the available evidence');
-  assert.equal(result.status, 'succeeded', result.error);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.summaryUnavailable, true);
   assert.match(result.output, /assessment is incomplete/);
   assert.doesNotMatch(result.output, /HTTP 400/);
   assert.ok(result.events.filter((e: any) => e.type === 'context_retry').length <= 6);
@@ -185,7 +186,8 @@ test('instructions larger than the context remain intact and produce an explicit
     { contextWindow: 2048 },
   );
   const result = await run(a.id, 'Research the evidence');
-  assert.equal(result.status, 'succeeded', result.error);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.summaryUnavailable, true);
   assert.match(result.output, /assessment is incomplete/);
   assert.ok(result.events.some((e: any) => e.type === 'summary_unavailable'));
   assert.equal(result.events.filter((e: any) => e.type === 'model').length, 0);

@@ -1,3 +1,4 @@
+import { hasAmbiguousCalls } from './executionRecovery.js';
 import { snapshotGuardrails } from './guardrails.js';
 import { randomUUID } from 'node:crypto';
 import { collection } from './db.js';
@@ -225,7 +226,22 @@ export async function createRun(
   ]);
   const now = new Date();
   const { runId, overrides, ...attributes } = options;
+  const sourceTaskIds = options.conversationId
+    ? (
+        await runs
+          .find({
+            ownerId,
+            conversationId: options.conversationId,
+            parentRunId: { $exists: false },
+            status: { $in: ['succeeded', 'failed', 'interrupted'] },
+          })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .toArray()
+      ).map((r) => r.taskId ?? r._id)
+    : [];
   const run: Run = {
+    ...(sourceTaskIds.length ? { sourceTaskIds } : {}),
     ...(device ? { device } : {}),
     _id: runId ?? randomUUID(),
     ownerId,
@@ -352,7 +368,11 @@ export async function recoverStaleJobs() {
       });
       continue;
     }
-    const decision = resumeDecision(run);
+    const children = await runs.find({ ownerId: run.ownerId, parentRunId: run._id }).toArray();
+    const ambiguous = await hasAmbiguousCalls(run.ownerId, [run._id, ...children.map((c) => c._id)]);
+    const decision = ambiguous
+      ? { resume: false, reason: 'an external action has an unknown outcome' }
+      : resumeDecision(run);
     if (decision.resume) {
       await runs.updateOne(claim, {
         $set: { status: 'queued', updatedAt: now },

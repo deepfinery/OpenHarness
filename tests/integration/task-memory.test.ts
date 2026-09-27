@@ -27,12 +27,16 @@ async function ok(path: string, body?: unknown, method?: string) {
   assert.ok(r.status < 300, `${path}: ${r.status} ${JSON.stringify(r.data)}`);
   return r.data;
 }
-async function run(input: string, target: Record<string, string> = { workflowId: flow.id }) {
+async function run(
+  input: string,
+  target: Record<string, string> = { workflowId: flow.id },
+  expected = 'succeeded',
+) {
   const started = await ok('/runs', { ...target, input });
   for (let i = 0; i < 180; i++) {
     const result = await ok(`/runs/${started.id}`);
     if (!['queued', 'running'].includes(result.status)) {
-      assert.equal(result.status, 'succeeded', result.error);
+      assert.equal(result.status, expected, result.error);
       return result;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -178,7 +182,7 @@ test('turn exhaustion performs one tool-free synthesis and retains the evidence'
   assert.equal(result.events.filter((e: any) => e.type === 'model').length, 3);
   assert.equal(result.events.filter((e: any) => e.type === 'turn_limit').length, 1);
   assert.equal((await ok(`/runs/${result.id}/memory`)).notes.length, 2);
-  const refused = await run('exhaust analysis turns ignore synthesis', { agentId: agent.id });
+  const refused = await run('exhaust analysis turns ignore synthesis', { agentId: agent.id }, 'failed');
   assert.match(refused.output, /assessment is incomplete/);
   assert.equal(
     (await ok(`/runs/${refused.id}/memory`)).notes.length,
@@ -202,7 +206,7 @@ test('MCP evidence stays in memory when final synthesis is unavailable, and a cl
     tokenBudget: 100000,
   });
   for (const ending of ['ignore synthesis', 'malformed']) {
-    const result = await run(`exhaust tool evidence ${ending}`, { agentId: agent.id });
+    const result = await run(`exhaust tool evidence ${ending}`, { agentId: agent.id }, 'failed');
     assert.match(result.output, /assessment is incomplete/);
     assert.match(result.output, /Memory and Trace/);
     assert.doesNotMatch(result.output, /structuredContent|\{"content"|tool_calls/);

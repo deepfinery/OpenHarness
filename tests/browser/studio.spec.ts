@@ -151,6 +151,7 @@ test('harness designer drops MCP tools onto an agent, keeps dragged positions an
   await agent.dblclick();
   const modal = page.locator('.modal');
   await selectProvider(page, modal);
+  await modal.getByRole('tab', { name: 'Reasoning', exact: true }).click();
   await expect(modal.locator('.effort-control button')).toHaveCount(6);
   await modal.locator('.effort-control button', { hasText: /^High$/ }).click();
   await modal.getByLabel('Component name').fill('Harness assistant');
@@ -317,6 +318,7 @@ test('skills created on the Skills page are attached to an agent and loaded when
     .getByRole('button', { name: /open/i })
     .click();
   await page.locator('.harness-card.kind-agent').dblclick();
+  await page.locator('.modal').getByRole('tab', { name: 'Knowledge', exact: true }).click();
   await page.getByLabel(`Skill Incident triage ${tag}`).check();
   await page.getByLabel(`Skill Release notes ${tag}`).check();
   await page.locator('.modal').getByRole('button', { name: 'Done' }).click();
@@ -459,8 +461,10 @@ test('harness settings set a knowledge workspace and learning, agents allow sub-
   await agent.dblclick();
   const modal = page.locator('.modal');
   await selectProvider(page, modal);
+  await modal.getByRole('tab', { name: 'Reasoning', exact: true }).click();
   await modal.getByLabel('Can start sub-agents').check();
   await modal.getByLabel('Sub-agents per run').fill('3');
+  await modal.getByRole('tab', { name: 'General', exact: true }).click();
   await modal.getByLabel('Agent timezone').fill('America/New_York');
   await modal.getByRole('button', { name: 'Done' }).click();
   await page.locator('.workflow-header').getByRole('button', { name: 'Settings', exact: true }).click();
@@ -575,4 +579,43 @@ test('playground recovers when navigation happens before the chat response arriv
   await expect(page.locator('.trace-meta')).toContainText('cancelled');
   await expect(page.locator('.chat-message.user')).toContainText('keep the late response');
   await expect(page.getByLabel('Message your agent')).toBeEnabled();
+});
+
+test('agent category tabs retain model, judge, limits and human settings', async ({ page }) => {
+  const name = `Tabbed agent ${tag}`;
+  await newBlankWorkflow(page, name);
+  await page.getByRole('button', { name: 'Add AI agent', exact: true }).click();
+  await page.locator('.harness-card.kind-agent').dblclick();
+  const modal = page.locator('.modal');
+  await selectProvider(page, modal);
+  await expect(modal.getByLabel('Agent instructions')).toBeVisible();
+  await modal.getByRole('tab', { name: 'Reasoning', exact: true }).click();
+  await expect(modal.getByLabel('Agent instructions')).toBeHidden();
+  await modal.getByRole('radio', { name: /Reflection/ }).click();
+  await modal.getByLabel('Judge model').selectOption(providerId);
+  await modal.getByLabel('Token budget', { exact: true }).fill('2000000');
+  await modal.getByRole('tab', { name: 'Safety & human input', exact: true }).click();
+  await modal.getByText('Email authorized approvers', { exact: true }).click();
+  await modal.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+  await expect(modal.getByLabel('Agent long-term memory')).toBeVisible();
+  await modal.getByRole('tab', { name: 'Reasoning', exact: true }).click();
+  await expect(modal.getByLabel('Judge model')).toHaveValue(providerId);
+  await expect(modal.getByLabel('Token budget', { exact: true })).toHaveValue('2000000');
+  await modal.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const saved = (await api(page.request, '/workflows')).find((w: any) => w.name === name);
+  const config = saved.nodes.find((n: any) => n.type === 'agent').config;
+  expect(config.patternConfig.judgeProviderId).toBe(providerId);
+  expect(config.tokenBudget).toBe(2000000);
+  expect(config.approvals.notifyEmail).toBe(true);
+});
+
+test('saved safety policies can be deleted directly from the policy list', async ({ page }) => {
+  const name = `Delete regression ${tag}`;
+  const policy = await api(page.request, '/guardrails', 'POST', { name, provider: 'builtin' });
+  await page.goto('/guardrails');
+  await page.getByRole('button', { name: /My policies/ }).click();
+  await page.getByRole('button', { name: `Delete policy ${name}`, exact: true }).click();
+  await expect(page.getByRole('heading', { name, exact: true })).toHaveCount(0);
+  expect((await api(page.request, '/guardrails')).some((p: any) => p.id === policy.id)).toBe(false);
 });

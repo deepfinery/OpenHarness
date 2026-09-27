@@ -308,13 +308,13 @@ export function Playground({
         setRun(next);
         if (terminal.includes(next.status)) {
           setBusy(false);
-          if (next.status === 'succeeded')
+          if (next.output !== undefined)
             setMessages((m) =>
               m.some((message) => message.role === 'assistant' && message.runId === next.id)
                 ? m
                 : [...m, { role: 'assistant', content: next.output ?? '', runId: next.id }],
             );
-          else setError(next.error ?? `Run ${next.status}`);
+          if (next.status !== 'succeeded') setError(next.error ?? `Run ${next.status}`);
           void loadConversations();
         }
       },
@@ -771,8 +771,9 @@ export function EmbedChat({ id }: { id: string }) {
         await new Promise((resolve) => setTimeout(resolve, 1200));
         const next = await embedFetch(`/runs/${run.id}`, { signal: c.signal });
         if (terminal.includes(next.status)) {
+          if (next.output !== undefined)
+            setMessages((m) => [...m, { role: 'assistant', content: next.output }]);
           if (next.status !== 'succeeded') throw new Error(next.error ?? `Run ${next.status}`);
-          setMessages((m) => [...m, { role: 'assistant', content: next.output }]);
           break;
         }
       }

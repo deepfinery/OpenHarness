@@ -7009,3 +7009,32 @@ details.advanced summary {
   font-size: 12px;
   line-height: 1.6;
 }
+
+.agent-settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface, #fff);
+  padding: 10px 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #dce3eb;
+}
+.agent-settings-tabs button {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: transparent;
+  color: inherit;
+}
+.agent-settings-tabs button[aria-selected='true'] {
+  background: #e8f0fa;
+  border-color: #bdd1eb;
+  color: #174b7c;
+}
+.agent-settings-tabs + [role='tabpanel'][hidden],
+[role='tabpanel'][hidden] {
+  display: none;
+}

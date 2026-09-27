@@ -423,6 +423,21 @@ export function GuardrailsPage({
                       {isAdmin ? 'Edit policy' : 'View policy'}
                       <ArrowRight size={15} />
                     </Button>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        disabled={busy}
+                        aria-label={`Delete policy ${p.name}`}
+                        onClick={() =>
+                          act(async () => {
+                            await send(`/guardrails/${p.id}`, undefined, 'DELETE');
+                            setSuccess('Policy deleted.');
+                          })
+                        }
+                      >
+                        Delete policy
+                      </Button>
+                    )}
                   </article>
                 );
               })}

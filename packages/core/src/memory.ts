@@ -6,7 +6,7 @@ import { agentNote, cleanFolder, createNote, folderFor, noteFilename, notePath }
 
 /** Task notebooks are immediately consistent; queue delivery and vector indexing are not memory stores. */
 export const TASK_MEMORY_DAYS = 7;
-export type MemoryScope = { ownerId: string; taskId: string };
+export type MemoryScope = { ownerId: string; taskId: string; sourceTaskIds?: string[] };
 export type TaskNote = MemoryScope & {
   _id: string;
   runId: string;
@@ -20,7 +20,11 @@ export type TaskNote = MemoryScope & {
   expiresAt: Date;
 };
 const notes = () => collection<TaskNote>('task_notes');
-const live = (scope: MemoryScope) => ({ ...scope, expiresAt: { $gt: new Date() } });
+const live = (scope: MemoryScope) => ({
+  ownerId: scope.ownerId,
+  taskId: { $in: [scope.taskId, ...(scope.sourceTaskIds ?? [])] },
+  expiresAt: { $gt: new Date() },
+});
 export const taskNoteRef = (note: TaskNote) => ({
   note_id: note._id,
   path: `task/${note.taskId}/${note.folder}/${noteFilename(note.title)}`,
@@ -33,6 +37,7 @@ export const taskNoteRef = (note: TaskNote) => ({
 export async function writeTaskNote(
   scope: MemoryScope,
   input: {
+    id?: string;
     runId: string;
     agent: string;
     title: string;
@@ -43,8 +48,9 @@ export async function writeTaskNote(
   },
 ) {
   const note: TaskNote = {
-    ...scope,
-    _id: randomUUID(),
+    ownerId: scope.ownerId,
+    taskId: scope.taskId,
+    _id: input.id ?? randomUUID(),
     runId: input.runId,
     agent: input.agent,
     title: input.title.slice(0, 150),
@@ -56,6 +62,14 @@ export async function writeTaskNote(
     createdAt: new Date(),
     expiresAt: new Date(Date.now() + TASK_MEMORY_DAYS * 86400000),
   };
+  if (input.id) {
+    await notes().updateOne(
+      { _id: input.id, ownerId: scope.ownerId },
+      { $setOnInsert: note },
+      { upsert: true },
+    );
+    return taskNoteRef((await notes().findOne({ _id: input.id, ownerId: scope.ownerId }))!);
+  }
   await notes().insertOne(note);
   return taskNoteRef(note);
 }

@@ -245,6 +245,7 @@ app.get('/api/inbox', requireSession, async (req, res) => {
     .object({
       runId: z.string().uuid().optional(),
       requestId: z.string().uuid().optional(),
+      status: z.enum(['pending', 'resolved', 'cancelled', 'all']).default('pending'),
       token: z.string().max(128).optional(),
     })
     .parse(req.query);
@@ -265,11 +266,11 @@ app.get('/api/inbox', requireSession, async (req, res) => {
   const requests = await collection<HumanRequest>('human_requests')
     .find({
       ownerId: principal.tenantId,
-      status: 'pending',
+      ...(query.status === 'all' ? {} : { status: query.status }),
       ...(query.requestId ? { _id: query.requestId } : {}),
       ...(query.runId ? { runId: { $in: [query.runId, ...related.map((r) => r._id)] } } : {}),
     })
-    .sort({ createdAt: 1 })
+    .sort({ createdAt: query.status === 'pending' ? 1 : -1 })
     .limit(200)
     .toArray();
   const actor = { id: principal.user._id, role: principal.user.role };
@@ -286,6 +287,21 @@ app.post('/api/inbox/:id/decision', requireSession, async (req, res) => {
     String(req.params.id),
     { id: principal.user._id, role: principal.user.role },
     req.body,
+  );
+  res.json({ accepted: true });
+});
+app.post('/api/inbox/:id/retry-email', requireSession, async (req, res) => {
+  const p = req.principal!;
+  const requests = collection<HumanRequest>('human_requests');
+  const request = await requests.findOne({ _id: String(req.params.id), ownerId: p.tenantId });
+  if (!request) throw new HttpError(404, 'Human request not found');
+  if (!canAnswer(request, { id: p.user._id, role: p.user.role }))
+    throw new HttpError(403, 'You are not an approver for this request');
+  if (request.status !== 'pending' || !request.settings.notifyEmail || request.notifiedAt)
+    throw new HttpError(409, 'This request has no failed or pending email notification');
+  await requests.updateOne(
+    { _id: request._id, status: 'pending' },
+    { $unset: { notifyAfter: '', notifyError: '' } },
   );
   res.json({ accepted: true });
 });

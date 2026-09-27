@@ -30,6 +30,17 @@ function RequestCard({ request, refresh }: { request: RequestView; refresh: () =
       setBusy(false);
     }
   }
+  if (request.status !== 'pending')
+    return (
+      <article className="human-request" aria-label="Resolved human input request">
+        <h3>
+          {request.status === 'resolved' ? `Decision: ${request.decision?.decision}` : 'Request cancelled'}
+        </h3>
+        <p className="human-prompt">{request.prompt}</p>
+        <p>{request.decision?.answer ?? request.decision?.feedback}</p>
+        <small>Run {request.runId}</small>
+      </article>
+    );
   return (
     <article className="human-request" aria-label="Human input request">
       <h3>{request.kind === 'question' ? 'Your input is needed' : 'Review before continuing'}</h3>
@@ -37,6 +48,36 @@ function RequestCard({ request, refresh }: { request: RequestView; refresh: () =
       <small>
         Run {request.runId} · Expires {timestamp(request.expiresAt)}
       </small>
+      {request.settings.notifyEmail && (
+        <div className="notice" role="status">
+          <span>
+            {request.notifiedAt
+              ? 'Email notification sent.'
+              : request.notifyError
+                ? `Email delivery failed: ${request.notifyError}. Check Settings → Email. Delivery will retry automatically.`
+                : 'Email notification queued.'}
+          </span>
+          {request.notifyError && (
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await send(`/inbox/${request._id}/retry-email`, {});
+                  refresh();
+                } catch (e) {
+                  setError(errorMessage(e));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Retry email
+            </Button>
+          )}
+        </div>
+      )}
       {request.tool && (
         <p>
           <code>{request.tool}</code>
@@ -104,13 +145,15 @@ function RequestCard({ request, refresh }: { request: RequestView; refresh: () =
   );
 }
 export function HumanInbox({ runId }: { runId?: string }) {
+  const [status, setStatus] = useState('pending');
   const [requests, setRequests] = useState<RequestView[]>([]);
   const [error, setError] = useState('');
   async function refresh() {
     try {
-      const result = await api(
-        `/inbox${runId ? `?runId=${encodeURIComponent(runId)}` : location.pathname === '/inbox' ? location.search : ''}`,
-      );
+      const query = new URLSearchParams(!runId && location.pathname === '/inbox' ? location.search : '');
+      if (runId) query.set('runId', runId);
+      query.set('status', status);
+      const result = await api(`/inbox?${query}`);
       setRequests(result.requests);
       setError('');
     } catch (e) {
@@ -121,7 +164,7 @@ export function HumanInbox({ runId }: { runId?: string }) {
     void refresh();
     const timer = setInterval(() => void refresh(), 3000);
     return () => clearInterval(timer);
-  }, [runId]);
+  }, [runId, status]);
   return (
     <section className="human-inbox">
       {!runId && (
@@ -135,11 +178,24 @@ export function HumanInbox({ runId }: { runId?: string }) {
           </p>
         </>
       )}
+      {!runId && (
+        <label>
+          Show tasks{' '}
+          <select aria-label="Inbox task status" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="pending">Pending</option>
+            <option value="resolved">Resolved</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="all">All tasks</option>
+          </select>
+        </label>
+      )}
       <ErrorNotice error={error} />
       {requests.map((request) => (
         <RequestCard key={request._id} request={request} refresh={() => void refresh()} />
       ))}
-      {!runId && !requests.length && <p>No pending requests.</p>}
+      {!runId && !requests.length && (
+        <p>{status === 'pending' ? 'No pending requests.' : 'No matching requests.'}</p>
+      )}
     </section>
   );
 }

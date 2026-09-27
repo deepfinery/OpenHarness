@@ -53,3 +53,5 @@ The parent reads task notes with `memory_read` and persistent workspace notes wi
 - Each sub-agent is recorded as its own run, with `trigger: "subagent"`, `parentRunId`, `parentNodeId`,
   `tokensUsed` and its own trace. The parent's trace shows `subagent_started` and `subagent_completed`.
 - If the parent ends while a sub-agent is still running, the sub-agent is marked interrupted.
+- A runner crash resumes the same child IDs and budgets from durable continuations. Completed
+  reports are reused; only unfinished children continue. See [execution recovery](execution-recovery.md).

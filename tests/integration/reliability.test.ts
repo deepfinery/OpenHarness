@@ -316,3 +316,156 @@ test(
     assert.equal(result.output, 'Workflow edited after submission');
   },
 );
+
+test(
+  'agent recovery reuses a completed MCP call and retains charged tokens',
+  { skip: !enabled, timeout: 150000 },
+  async () => {
+    const p = await request('/providers', {
+      name: 'Durable agent model',
+      kind: 'openai-compatible',
+      baseUrl: 'http://fixtures:9090/v1',
+      model: 'test-durable-recovery',
+    });
+    const a = await request('/agents', {
+      name: 'Durable MCP agent',
+      providerId: p.id,
+      systemPrompt: 'Collect evidence and answer.',
+      tokenBudget: 200000,
+      connections: [{ connectionId, tools: ['lookup'] }],
+    });
+    const before = ((await (await fetch(fixture + '/stats')).json()) as any).tools;
+    const started = await request('/runs', { agentId: a.id, input: 'Recover this task' });
+    const checkpoint = await until(
+      () => request(`/runs/${started.id}`),
+      (r) => r.events.some((e: any) => e.type === 'tool_completed') && r.tokensUsed > 0,
+    );
+    try {
+      await compose('kill', '-s', 'SIGKILL', 'runner');
+    } finally {
+      await compose('up', '-d', 'runner');
+    }
+    const result = await until(
+      () => request(`/runs/${started.id}`),
+      (r) => ['succeeded', 'failed', 'interrupted'].includes(r.status),
+      120000,
+    );
+    assert.equal(result.status, 'succeeded', result.error);
+    assert.equal(result.resumeCount, 1);
+    assert.match(result.output, /durable recovery evidence/);
+    assert.ok(result.tokensUsed >= checkpoint.tokensUsed);
+    assert.equal(((await (await fetch(fixture + '/stats')).json()) as any).tools, before + 1);
+  },
+);
+
+test(
+  'parent recovery joins the same children and does not rerun completed siblings',
+  { skip: !enabled, timeout: 150000 },
+  async () => {
+    const p = await request('/providers', {
+      name: 'Durable team model',
+      kind: 'openai-compatible',
+      baseUrl: 'http://fixtures:9090/v1',
+      model: 'test-durable-team',
+    });
+    const a = await request('/agents', {
+      name: 'Durable lead',
+      providerId: p.id,
+      systemPrompt: 'Delegate independent tasks and combine results.',
+      tokenBudget: 400000,
+      delegation: { enabled: true, maxAgents: 2 },
+      connections: [{ connectionId, tools: ['lookup'] }],
+    });
+    const before = ((await (await fetch(fixture + '/stats')).json()) as any).tools;
+    const started = await request('/runs', { agentId: a.id, input: 'Complete a durable team task' });
+    const active = await until(
+      () => request(`/runs/${started.id}`),
+      (r) => r.events.filter((e: any) => e.type === 'subagent_started').length === 2,
+    );
+    const ids = active.events
+      .filter((e: any) => e.type === 'subagent_started')
+      .map((e: any) => e.data.subagentId);
+    await until(
+      () => Promise.all(ids.map((id: string) => request(`/runs/${id}`))),
+      (children) =>
+        children.some((c) => c.status === 'succeeded') &&
+        children.some(
+          (c) => c.status === 'running' && c.events.some((e: any) => e.type === 'tool_completed'),
+        ),
+    );
+    try {
+      await compose('kill', '-s', 'SIGKILL', 'runner');
+    } finally {
+      await compose('up', '-d', 'runner');
+    }
+    const result = await until(
+      () => request(`/runs/${started.id}`),
+      (r) => ['succeeded', 'failed', 'interrupted'].includes(r.status),
+      120000,
+    );
+    assert.equal(result.status, 'succeeded', result.error);
+    assert.equal(result.resumeCount, 1);
+    assert.equal(result.events.filter((e: any) => e.type === 'subagent_started').length, 2);
+    assert.equal(result.events.filter((e: any) => e.type === 'subagent_resumed').length, 1);
+    assert.match(result.output, /Fast sibling completed once/);
+    assert.match(result.output, /durable recovery evidence/);
+    assert.equal(((await (await fetch(fixture + '/stats')).json()) as any).tools, before + 1);
+    const children = await Promise.all(ids.map((id: string) => request(`/runs/${id}`)));
+    assert.ok(children.every((c) => c.status === 'succeeded'));
+    assert.ok(result.tokensUsed >= children.reduce((total, c) => total + c.tokensUsed, 0));
+    assert.ok(result.tokensUsed <= 400000);
+  },
+);
+
+test(
+  'call journal deduplicates concurrent writes and refuses ambiguous retries',
+  { skip: !enabled, timeout: 30000 },
+  async () => {
+    const script = `
+      import assert from 'node:assert/strict';
+      import { randomUUID } from 'node:crypto';
+      import { mongo } from './dist/packages/core/src/db.js';
+      import { durableToolCall, hasAmbiguousCalls, AmbiguousToolCall } from './dist/packages/core/src/executionRecovery.js';
+      await mongo.connect();
+      const owner = randomUUID(), run = randomUUID();
+      let calls = 0;
+      const work = async () => { calls++; await new Promise(r => setTimeout(r, 50)); return { answer: 42 }; };
+      const results = await Promise.allSettled([
+        durableToolCall(owner, run, 'write-once', false, work),
+        durableToolCall(owner, run, 'write-once', false, work),
+      ]);
+      assert.equal(calls, 1);
+      assert.ok(results.some(r => r.status === 'fulfilled'));
+      assert.deepEqual(await durableToolCall(owner, run, 'write-once', false, work), { answer: 42 });
+      assert.equal(calls, 1);
+      assert.equal(await hasAmbiguousCalls(owner, [run]), false);
+      const uncertain = async () => { calls++; throw new Error('Lost the response'); };
+      await assert.rejects(durableToolCall(owner, run, 'uncertain', false, uncertain), AmbiguousToolCall);
+      await assert.rejects(durableToolCall(owner, run, 'uncertain', false, uncertain), AmbiguousToolCall);
+      assert.equal(calls, 2);
+      assert.equal(await hasAmbiguousCalls(owner, [run]), true);
+      await assert.rejects(durableToolCall(owner, run, 'read-only', true, uncertain));
+      assert.deepEqual(await durableToolCall(owner, run, 'read-only', true, work), { answer: 42 });
+      assert.equal(calls, 4);
+      await mongo.close();
+      console.log('Journal boundaries verified');
+    `;
+    const result = await command('docker', [
+      'compose',
+      '-p',
+      project,
+      '-f',
+      'compose.yaml',
+      '-f',
+      'tests/compose.test.yaml',
+      'exec',
+      '-T',
+      'api',
+      'node',
+      '--input-type=module',
+      '-e',
+      script,
+    ]);
+    assert.match(result.stdout, /Journal boundaries verified/);
+  },
+);

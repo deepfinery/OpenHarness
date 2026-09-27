@@ -225,7 +225,7 @@ export async function stream(req: Request, res: Response, first: Run, filter: ob
     res.end();
   };
   const finish = (run: Run) => {
-    if (run.status === 'succeeded') {
+    if (run.output !== undefined) {
       const rest = unsentOutput(run.output ?? '', segment, sent);
       if (rest) {
         sent += rest.length;

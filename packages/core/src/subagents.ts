@@ -201,6 +201,7 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
         };
       }
       if (previous) {
+        agent = previous.snapshot.agents[id] ?? agent;
         await runs.updateOne(
           { _id: id, status: 'waiting_for_human' },
           { $set: { status: 'running', updatedAt: now } },
@@ -275,6 +276,7 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
         const report = await writeTaskNote(
           { ownerId: options.ownerId, taskId: ctx.taskId },
           {
+            id: stableId(`${id}:report`),
             runId: id,
             agent: agent.name,
             title: request.task,
@@ -289,15 +291,18 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
           message: `Saved sub-agent report ${report.path}`,
           data: report,
         });
+        const outcome = await runs.findOne({ _id: id });
         result = {
           subagent_id: id,
           task: request.task,
-          status: 'succeeded',
+          status: outcome?.summaryUnavailable ? 'failed' : 'succeeded',
+          ...(outcome?.summaryUnavailable ? { error: 'Sub-agent could not produce a final summary' } : {}),
           summary: output.slice(0, 1500),
           notes: ctx.notes,
           tokens_used: ctx.usage.tokens,
         };
       } catch (error) {
+        options.signal.throwIfAborted();
         if (error instanceof HumanPause) {
           await runs.updateOne(
             { _id: id, status: 'running' },
@@ -320,7 +325,8 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
         {
           $set: {
             status: result.status,
-            ...(result.status === 'succeeded' ? { output: result.summary } : { error: result.error }),
+            output: result.summary,
+            ...(result.error ? { error: result.error } : {}),
             tokensUsed: result.tokens_used,
             childNotes: result.notes,
             finishedAt: new Date(),
