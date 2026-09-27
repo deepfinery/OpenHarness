@@ -549,11 +549,13 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
       let toolCorrection: string | undefined;
       let checkpoint: ChatMessage | undefined;
       for (;;) {
-        const allowance = contextAllowance(
-          provider.contextWindow ?? 128000,
-          provider.maxOutputTokens,
-          Math.max(0, agent.tokenBudget - tokensUsed - (finalAnswer ? 0 : finalReserve)),
-        );
+        const remaining = Math.max(0, agent.tokenBudget - tokensUsed - (finalAnswer ? 0 : finalReserve));
+        // With a small remaining budget, protected synthesis instructions need more than
+        // half the call. Keep a short answer allowance instead of failing before dispatch.
+        const outputLimit = finalAnswer
+          ? Math.min(provider.maxOutputTokens, Math.max(128, Math.floor(remaining / 4)))
+          : provider.maxOutputTokens;
+        const allowance = contextAllowance(provider.contextWindow ?? 128000, outputLimit, remaining);
         const promptBudget = Math.min(allowance.promptTokens, learnedPromptBudget);
         const budget = Math.floor(promptBudget / estimateScale) - toolTokens;
         if (allowance.maxOutputTokens < 128 || budget < 64)
