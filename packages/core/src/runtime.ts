@@ -1916,7 +1916,7 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
   const workflow: Workflow | undefined = run.snapshot.workflow;
   if (!workflow) throw new Error('Workflow snapshot missing');
   const resuming = Boolean(run.resumeCount || run.resumeFromHuman) && Boolean(run.checkpoint?.cursor);
-  let continuingHuman = Boolean(run.resumeFromHuman || run.resumeCount);
+  let continuingStep = resuming;
   const checkpoint: RunCheckpoint = resuming
     ? { ...run.checkpoint!, nodeAttempts: { ...run.checkpoint!.nodeAttempts } }
     : { last: run.input, steps: 0, nodeAttempts: {} };
@@ -1930,13 +1930,13 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
   let current: string | undefined = resuming ? checkpoint.cursor : workflow.startAt;
   while (current) {
     signal.throwIfAborted();
-    if (!continuingHuman && ++checkpoint.steps > (workflow.maxSteps ?? 100))
+    if (!continuingStep && ++checkpoint.steps > (workflow.maxSteps ?? 100))
       throw new Error('Workflow step budget exceeded');
     const node = workflow.nodes.find((n) => n.id === current);
     if (!node) throw new Error(`Workflow node ${current} is missing`);
     const attempt = (checkpoint.nodeAttempts[node.id] =
-      (checkpoint.nodeAttempts[node.id] ?? 0) + (continuingHuman ? 0 : 1));
-    continuingHuman = false;
+      (checkpoint.nodeAttempts[node.id] ?? 0) + (continuingStep ? 0 : 1));
+    continuingStep = false;
     checkpoint.cursor = node.id;
     checkpoint.last = scope.last;
     // The checkpoint is written before the step runs so a replacement runner knows what was in flight.

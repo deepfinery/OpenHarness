@@ -17,7 +17,7 @@ retain that output.
 The latest user request defines the task. Historical messages are reference context;
 input guardrails do not re-evaluate them as new requests. Current input, retrieval,
 tool calls/results and generated output still receive their configured checks.
-Simple greetings return immediately without model calls, MCP connections, notebook
+Simple greetings return immediately without agent model calls, MCP connections, notebook
 recall or delegation. A follow-up in the same conversation can read the task notebooks
 from the last five completed turns, within their seven-day retention period. Writes
 belong to the new turn, so expanding a task can reuse earlier findings without
