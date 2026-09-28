@@ -59,6 +59,22 @@ services:
     restart: 'no'
     security_opt: ['no-new-privileges:true']
     cap_drop: [ALL]
+  # An OpenShell managed machine: the connector plus the CLI test double, no inbound ports; started by the test.
+  openshell-device:
+    image: openharness-connector-openshell-test:local
+    pull_policy: never
+    profiles: ['device']
+    environment:
+      GATEWAY_URL: ws://gateway:8090/connect
+      GATEWAY_ALLOW_INSECURE: 'true'
+      DEVICE_ID: ${TEST_DEVICE_ID:-test-openshell}
+      DEVICE_TOKEN: ${TEST_DEVICE_TOKEN:-unset}
+      OPENSHELL_ALLOWED_IMAGES: registry.example.com/agents/
+      OPENSHELL_MAX_SANDBOXES: '5'
+      LOG_LEVEL: debug
+    restart: 'no'
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
   fixtures:
     image: openharness:local
     pull_policy: never

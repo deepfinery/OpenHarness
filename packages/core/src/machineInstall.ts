@@ -1,7 +1,7 @@
 import { clusterGatewayUrl } from './clusterInstall.js';
 
 export function machineInstallSnippets(
-  device: { device_id: string; access_mode?: 'restricted' | 'host' },
+  device: { device_id: string; access_mode?: 'restricted' | 'host'; platform?: string },
   suppliedToken: string,
   gateway: string,
 ) {
@@ -21,6 +21,26 @@ export function machineInstallSnippets(
       : `${clone}\n# Node.js 22.13+ and npm must be installed.\nnpm --prefix connector-core ci && npm --prefix connector-core run build\nnpm --prefix connector-linux ci && npm --prefix connector-linux run build\nsudo GATEWAY_URL='${connectUrl}' DEVICE_ID='${device.device_id}' DEVICE_TOKEN='${token}' GATEWAY_ALLOW_INSECURE=${insecure} sh connector-linux/install.sh`,
     docker: `${clone}\n\n${saved}\n\ndocker build -f connector-linux/Dockerfile -t openharness-connector-linux .\n# For an existing installation, stop/remove its old connector first.\n# This replaces only the connector container; the work directory is on the host.\n# docker rm -f ${name}\nmkdir -p machine-work\n${host ? '' : 'sudo chown 1000:1000 machine-work\n'}docker run -d --name ${name} --restart unless-stopped \\\n  --env-file ./machine.env -e DEVICE_HOSTNAME="$(hostname)"${host ? ' \\\n  --privileged --pid=host --user 0 -e HOST_ACCESS=true -e MACHINE_ACCESS_MODE=host' : ' \\\n  --security-opt no-new-privileges:true --cap-drop ALL -e MACHINE_ACCESS_MODE=restricted'} \\\n  -v "$PWD/machine-work:/work" openharness-connector-linux\ndocker logs --tail 50 ${name}`,
     windows: `# PowerShell as Administrator, from a checkout of this repository (connector-windows ships in the next release):\n$env:GATEWAY_URL='${connectUrl}'; $env:DEVICE_ID='${device.device_id}'; $env:DEVICE_TOKEN='${token}'${insecure ? "; $env:GATEWAY_ALLOW_INSECURE='true'" : ''}\n.\\connector-windows\\install.ps1`,
+    openshell: `# Run as the OpenShell operator (the user that can run \`openshell status\`), on the OpenShell gateway host or a machine that reaches it.
+${clone}
+# Node.js 22.13+, npm and the OpenShell 0.1.2 CLI must be installed; the CLI's gateway registration is reused.
+npm --prefix connector-core ci && npm --prefix connector-core run build
+npm --prefix connector-openshell ci && npm --prefix connector-openshell run build
+GATEWAY_URL='${connectUrl}' DEVICE_ID='${device.device_id}' DEVICE_TOKEN='${token}' GATEWAY_ALLOW_INSECURE=${insecure} sh connector-openshell/install.sh
+# Optional: OPENSHELL_GATEWAY=<name> OPENSHELL_WORKSPACE=<workspace> before install.sh; edit ~/.config/openharness-openshell-connector/config.json to restrict images or policy changes.`,
+    'openshell-docker': `${clone}
+
+${saved}
+
+docker build -f connector-openshell/Dockerfile -t openharness-connector-openshell .
+# The container reuses the operator's OpenShell gateway registration and mTLS bundle read-only,
+# and shares the host network to reach the local OpenShell gateway on 127.0.0.1:17670.
+# docker rm -f ${name}
+docker run -d --name ${name} --restart unless-stopped \\
+  --env-file ./machine.env -e DEVICE_HOSTNAME="$(hostname)" --network host \\
+  --security-opt no-new-privileges:true --cap-drop ALL \\
+  -v "$HOME/.config/openshell:/home/node/.config/openshell:ro" openharness-connector-openshell
+docker logs --tail 50 ${name}`,
     chrome: `1. Load connector-chrome/dist as an unpacked extension (chrome://extensions, Developer mode).\n2. Open the extension options and enter:\n   Gateway: ${connectUrl}\n   Device ID: ${device.device_id}\n   Token: ${token}\n3. Allow the sites the agent may control. (The Chrome connector ships in the next release.)`,
   };
 }

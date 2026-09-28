@@ -1,7 +1,7 @@
 # Machines — installation guide
 
-How to let the orchestrator operate machines that have no public IP: Linux hosts, containers, and (in the
-next release) Windows hosts and Chrome browsers. Every machine runs a small **connector** that dials **out**
+How to let the orchestrator operate machines that have no public IP: Linux hosts, containers, OpenShell managed
+machines ([openshell.md](openshell.md)), and (in the next release) Windows hosts and Chrome browsers. Every machine runs a small **connector** that dials **out**
 to the **gateway** over WebSocket; the orchestrator never connects inbound to a machine.
 
 ```
@@ -68,7 +68,7 @@ docker compose exec gateway node gateway/dist/cli.js enroll --id box-1 --platfor
 docker compose exec gateway node gateway/dist/cli.js allow box-1 run_command,read_file,list_dir
 ```
 
-The studio's **Machines** page does the same through the admin API and is the normal way to enroll.
+The studio's **Inventory** page does the same through the admin API and is the normal way to enroll.
 
 ## 2. Enroll a machine
 
@@ -136,7 +136,7 @@ For a gateway without TLS (local development) add `-e GATEWAY_ALLOW_INSECURE=tru
 ## 5. Windows and Chrome
 
 `connector-windows` (PowerShell tools, optional UI Automation, Windows service or logon task) and
-`connector-chrome` (Manifest V3 extension) are the next release; the Machines page already accepts their
+`connector-chrome` (Manifest V3 extension) are the next release; the Inventory page already accepts their
 enrollment so the tokens and allow-lists are in place. Notes that apply when they ship:
 
 - A Windows **service** runs in Session 0 and cannot drive the interactive desktop; UI Automation tools need
@@ -144,6 +144,15 @@ enrollment so the tokens and allow-lists are in place. Notes that apply when the
   windows.
 - The Chrome connector should run in a dedicated Chrome profile with a per-site allow-list; `evaluate_js`
   stays off unless enabled in the extension options.
+
+## 5b. OpenShell managed machine
+
+An OpenShell managed machine is enrolled like a Linux machine (**Inventory → Add resource → OpenShell managed
+machine**) and installs `connector-openshell` beside the NVIDIA OpenShell gateway, as the OpenShell operator
+user, either as a systemd user service or as a container that mounts the operator's `~/.config/openshell`
+read-only. The connector wraps the pinned OpenShell 0.1.2 CLI and exposes sandboxes, execution inside them, logs
+and policies as MCP tools; the **OpenShell** page in the studio manages policies from the console. Settings,
+tools, constraints and the enforcement check are in [openshell.md](openshell.md).
 
 ## 6. Use a machine
 
@@ -158,7 +167,7 @@ enrollment so the tokens and allow-lists are in place. Notes that apply when the
 | Symptom                                 | Check                                                                                                                                                                                               |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Machine stays **offline** after install | `sudo journalctl -u openharness-connector -f` (or `docker logs`). Close code 4001 = wrong token or not enrolled; 4003 = disabled or platform mismatch; TLS errors = `GATEWAY_URL` must be `wss://`. |
-| Online but **no tools**                 | Click **Sync** on the Machines page; the connector's `ALLOW_COMMANDS` does not affect the tool list, the machine's allowed tools in the studio do.                                                  |
+| Online but **no tools**                 | Click **Sync tools** on the Inventory page; the connector's `ALLOW_COMMANDS` does not affect the tool list, the machine's allowed tools in the studio do.                                           |
 | `tool not allowed`                      | Add the tool in the machine's **Tools** dialog (gateway allow-list).                                                                                                                                |
 | `command is not on the allow-list`      | Add the program to `allow_commands` in the connector config (host) or `ALLOW_COMMANDS` (container).                                                                                                 |
 | `device timeout`                        | Raise `GATEWAY_TOOL_TIMEOUTS=run_command=600` or the connector's `command_timeout_seconds`.                                                                                                         |
@@ -166,7 +175,7 @@ enrollment so the tokens and allow-lists are in place. Notes that apply when the
 
 ## Restricted or privileged VM host access
 
-For a standalone Linux machine, **Machines & clusters → Add machine / Configure → Machine access** offers two modes:
+For a standalone Linux machine, **Inventory → Add resource / Configure → Machine access** offers two modes:
 
 - **Restricted connector** keeps the existing command allow-list and work-directory boundary. Commands run in the connector environment; seeing host kernel entries in `/proc` does not prove host userspace access.
 - **Privileged VM host (root)** is an administrator-only setting for the Linux Docker connector. Its generated command uses `--privileged --pid=host --user 0`, `HOST_ACCESS=true`, and `MACHINE_ACCESS_MODE=host`. `run_command` enters the VM host’s mount, PID, network, UTS and IPC namespaces with the host root and working directory. It can execute any host command as root, including disruptive operations; sudo is not needed. This is full administrator access, not read-only diagnostics.

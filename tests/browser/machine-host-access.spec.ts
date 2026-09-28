@@ -20,10 +20,10 @@ test('machine settings expose restricted and privileged host installation and re
   await api('/users', { ...user, name: 'Host admin', workspace: 'new', role: 'admin' });
   await api('/auth/login', user);
   await page.goto('/machines');
-  await page.getByRole('button', { name: 'Add machine', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Add resource', exact: true }).first().click();
   await page.getByRole('radio', { name: /Container/ }).click();
-  await page.getByLabel('Machine name').fill('VM2');
-  await page.getByLabel('Machine ID', { exact: true }).fill(`vm2-${Date.now()}`);
+  await page.getByLabel('Resource name').fill('VM2');
+  await page.getByLabel('Resource ID', { exact: true }).fill(`vm2-${Date.now()}`);
   await page.getByLabel('Machine access', { exact: true }).selectOption('host');
   await page.getByRole('button', { name: 'Create token', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('--privileged --pid=host --user 0');

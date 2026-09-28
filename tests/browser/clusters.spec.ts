@@ -62,16 +62,16 @@ test('cluster setup exposes shared installation, monitoring and remediation cont
   expect(result.clusters[0].remediation).toBe('approval');
   expect(result.clusters[0].actions).toEqual(['gpu_reset']);
   expect(result.clusters[0].monitor.enabled).toBe(false);
-  await page.getByRole('button', { name: /^Machines\s*0$/ }).click();
-  await page.getByRole('button', { name: 'Add machine', exact: true }).first().click();
-  await page.getByLabel('Machine name', { exact: true }).fill('Standalone diagnostics');
-  await page.getByLabel('Machine ID', { exact: true }).fill(`ui-node-${Date.now()}`);
+  await page.getByRole('button', { name: /^Resources\s*0$/ }).click();
+  await page.getByRole('button', { name: 'Add resource', exact: true }).first().click();
+  await page.getByLabel('Resource name', { exact: true }).fill('Standalone diagnostics');
+  await page.getByLabel('Resource ID', { exact: true }).fill(`ui-node-${Date.now()}`);
   await page.getByRole('button', { name: 'Read-only tools', exact: true }).click();
   await page.getByRole('button', { name: 'Create token', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Waiting for the machine to connect');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Configure Standalone diagnostics', exact: true }).click();
-  await page.getByLabel('Machine name', { exact: true }).fill('Standalone inspector');
+  await page.getByLabel('Resource name', { exact: true }).fill('Standalone inspector');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('.fleet-table')).toContainText('Standalone inspector');
@@ -154,19 +154,16 @@ test('unified inventory groups cluster nodes, filters large fleets, and preserve
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/clusters');
-  await expect(page.getByRole('heading', { name: 'Machines & clusters', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Inventory', exact: true })).toBeVisible();
   await expect(
-    page.locator('.sidebar nav').getByRole('button', { name: 'Machines & clusters', exact: true }),
+    page.locator('.sidebar nav').getByRole('button', { name: 'Inventory', exact: true }),
   ).toHaveCount(1);
   await expect(
     page.locator('.sidebar nav').getByRole('button', { name: 'Clusters', exact: true }),
   ).toHaveCount(0);
-  await expect(page).toHaveURL(/\/machines\?view=clusters$/);
-  await page
-    .locator('.sidebar nav')
-    .getByRole('button', { name: 'Machines & clusters', exact: true })
-    .click();
-  await expect(page).toHaveURL(/\/machines\?view=clusters$/);
+  await expect(page).toHaveURL(/\/inventory\?view=clusters$/);
+  await page.locator('.sidebar nav').getByRole('button', { name: 'Inventory', exact: true }).click();
+  await expect(page).toHaveURL(/\/inventory\?view=clusters$/);
   await expect(page.locator('.fleet-cluster-card')).toHaveCount(3);
   await page.screenshot({
     path: 'test-results/fleet-clusters-desktop.png',
@@ -182,9 +179,9 @@ test('unified inventory groups cluster nodes, filters large fleets, and preserve
   await expect(page.getByRole('dialog')).toContainText('cluster’s shared token');
   await expect(page.getByRole('button', { name: 'New token', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByLabel('Filter machines').fill('GPU worker 001');
+  await page.getByLabel('Filter resources').fill('GPU worker 001');
   await expect(page.locator('.fleet-table tbody tr')).toHaveCount(1);
-  await page.getByLabel('Filter machines').fill('');
+  await page.getByLabel('Filter resources').fill('');
   await page.getByLabel('Filter by status').selectOption('online');
   await expect(page.locator('.fleet-table tbody tr')).toHaveCount(20);
   await page.reload();
@@ -192,10 +189,10 @@ test('unified inventory groups cluster nodes, filters large fleets, and preserve
   await expect(page.locator('.fleet-table tbody tr')).toHaveCount(25);
   await page.getByLabel('Filter by cluster').selectOption('standalone');
   await expect(page.locator('.fleet-table tbody tr')).toHaveCount(2);
-  await page.getByLabel('Filter by platform').selectOption('windows');
+  await page.getByLabel('Filter by type').selectOption('windows');
   await expect(page.locator('.fleet-table tbody tr')).toHaveCount(1);
   await page.getByLabel('Filter by status').selectOption('online');
-  await expect(page.getByRole('heading', { name: 'No machines match these filters' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No resources match these filters' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters', exact: true }).first().click();
   await expect(page.locator('.fleet-table tbody tr')).toHaveCount(25);
   await page.screenshot({
@@ -219,7 +216,7 @@ test('unified inventory groups cluster nodes, filters large fleets, and preserve
     animations: 'disabled',
   });
   await page.goBack();
-  await expect(page.getByRole('heading', { name: 'Machine inventory' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Resources', exact: true })).toBeVisible();
   outage = true;
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByRole('alert').first()).toContainText('gateway unavailable');

@@ -1,0 +1,43 @@
+{
+  "name": "@openharness/connector-openshell",
+  "version": "0.1.0",
+  "description": "OpenHarness connector for NVIDIA OpenShell: exposes sandbox lifecycle and policy management as an MCP server that dials out to the device gateway.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "bin": {
+    "openharness-openshell-connector": "./dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "systemd",
+    "install.sh",
+    "install-config.mjs",
+    "config.example.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@openharness/connector-core": "file:../connector-core",
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  }
+}

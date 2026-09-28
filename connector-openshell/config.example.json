@@ -1,0 +1,21 @@
+{
+  "gateway_url": "wss://gateway.example.com/connect",
+  "device_id": "openshell-1",
+  "platform": "openshell",
+  "token_file": "/home/operator/.config/openharness-openshell-connector/token",
+  "max_output_bytes": 200000,
+  "audit_file": "/home/operator/.local/state/openharness-openshell-connector/audit.jsonl",
+  "log_level": "info",
+  "openshell": {
+    "bin": "openshell",
+    "workspace": "default",
+    "workspaces": [],
+    "allow_policy_changes": true,
+    "allow_sandbox_lifecycle": true,
+    "allow_exec": true,
+    "allowed_images": [],
+    "max_sandboxes": 20,
+    "manage_all_sandboxes": true,
+    "cli_timeout_seconds": 120
+  }
+}

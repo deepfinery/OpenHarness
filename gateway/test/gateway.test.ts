@@ -251,6 +251,44 @@ test('admin API enrolls devices with a one-time token, deny-by-default tools, an
   assert.equal((await admin('/admin/devices/box-2', 'DELETE')).status, 404);
 });
 
+test('the admin API calls a connector tool for the studio, audited, without the per-device allow-list', async () => {
+  device ??= await startDevice('dev-1');
+  await waitFor(() => gateway.hub.session('dev-1')?.online === true);
+  const call = (body: unknown, id = 'dev-1') => admin(`/admin/devices/${id}/call`, 'POST', body);
+  // `secret` is enrolled but approval-gated for agents; the console path reaches it under the admin token.
+  const ok = await call({ tool: 'echo', arguments: { text: 'from the console' } });
+  assert.equal(ok.status, 200);
+  const { result } = (await ok.json()) as {
+    result: { structuredContent: { text: string }; isError?: boolean };
+  };
+  assert.equal(result.structuredContent.text, 'from the console');
+  assert.equal((await call({ tool: 'secret' })).status, 200, 'no approval hook on the admin path');
+  assert.equal((await call({ tool: 'slow' })).status, 504, 'the per-tool timeout still applies');
+  assert.equal((await call({ tool: 'echo' }, 'nope')).status, 404);
+  assert.equal((await call({ arguments: {} })).status, 400, 'a tool name is required');
+  const unauthenticated = await fetch(`${base}/admin/devices/dev-1/call`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Authorization: `Bearer ${ORCH_TOKEN}` },
+    body: JSON.stringify({ tool: 'echo', arguments: { text: 'x' } }),
+  });
+  assert.equal(unauthenticated.status, 401, 'the orchestrator MCP token does not open the admin path');
+  const audit = (await readFile(join(dataDir, 'audit.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l) as { identity: string; tool: string; outcome: string });
+  const entry = audit.filter((a) => a.identity === 'admin' && a.tool === 'echo').at(-1);
+  assert.ok(entry, 'the console call is audited under the admin identity');
+  assert.equal(entry.outcome, 'ok');
+  assert.ok(audit.some((a) => a.identity === 'admin' && a.tool === 'slow' && a.outcome === 'timeout'));
+  await gateway.registry.update('dev-1', { disabled: true });
+  assert.equal(
+    (await call({ tool: 'echo', arguments: { text: 'x' } })).status,
+    409,
+    'a disabled machine is refused',
+  );
+  await gateway.registry.update('dev-1', { disabled: false });
+});
+
 test('privileged connector registration needs explicit machine permission and is revoked on restriction', async () => {
   await gateway.registry.create({
     device_id: 'host-access-test',

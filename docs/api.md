@@ -223,18 +223,43 @@ Requires a configured gateway (`GATEWAY_URL`, `GATEWAY_API_TOKEN`, `GATEWAY_ADMI
 scoped to the tenant; each has a mirrored `connections` record with `kind: "device"` that only this API
 manages.
 
-| Method | Path                        | Purpose                                                                                                                            |
-| ------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/devices`                  | `{ configured, publicUrl, machines[], catalog }` — live status from the gateway; tools are discovered when a machine comes online. |
-| POST   | `/devices`                  | Enroll `{ name, platform: linux                                                                                                    | windows | chrome, deviceId?, allowedTools[] }`→`{ machine, token, connectUrl, install }`. The token is shown once. |
-| PUT    | `/devices/:id`              | `{ name?, allowedTools?, disabled? }`; the allow-list is enforced by the gateway.                                                  |
-| POST   | `/devices/:id/rotate-token` | New one-time token; the connector is disconnected until reconfigured.                                                              |
-| POST   | `/devices/sync`             | Re-read the gateway and refresh tool lists.                                                                                        |
-| DELETE | `/devices/:id`              | Remove the machine (409 while a workflow references it).                                                                           |
+| Method | Path                        | Purpose                                                                                                                                                               |
+| ------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/devices`                  | `{ configured, publicUrl, machines[], catalog }` — live status from the gateway; tools are discovered when a machine comes online.                                    |
+| POST   | `/devices`                  | Enroll `{ name, platform: linux \| openshell \| windows \| chrome, deviceId?, allowedTools[] }` → `{ machine, token, connectUrl, install }`. The token is shown once. |
+| PUT    | `/devices/:id`              | `{ name?, allowedTools?, disabled? }`; the allow-list is enforced by the gateway.                                                                                     |
+| POST   | `/devices/:id/rotate-token` | New one-time token; the connector is disconnected until reconfigured.                                                                                                 |
+| POST   | `/devices/sync`             | Re-read the gateway and refresh tool lists.                                                                                                                           |
+| DELETE | `/devices/:id`              | Remove the machine (409 while a workflow references it).                                                                                                              |
 
 `POST /runs` and `POST /chat` accept `"deviceId"`: every agent in the run receives the machine's tools and an
 instruction naming it; the run records `device`, and a conversation remembers its machine (send `null` to drop it).
-The wire protocol between connectors and the gateway is in [PROTOCOL.md](PROTOCOL.md).
+The wire protocol between connectors and the gateway is in [PROTOCOL.md](PROTOCOL.md). `platform` also accepts
+`openshell` for an OpenShell managed machine ([openshell.md](openshell.md)).
+
+## OpenShell console
+
+Drives an OpenShell managed machine (`platform: "openshell"`) through its connector over the gateway's admin
+path. Reads need a session in the tenant that owns the machine; changes need an administrator. `?workspace=`
+selects another OpenShell workspace the connector allows. Connector policy refusals answer `403`; a failure on
+the machine answers `502`; an offline connector `503`.
+
+| Method     | Path                                                                  | Purpose                                                                                                                                                |
+| ---------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET        | `/openshell/machines`                                                 | OpenShell managed machines of the tenant.                                                                                                              |
+| GET        | `/openshell/:id/status`                                               | Gateway status, CLI version and the connector policy in force.                                                                                         |
+| GET        | `/openshell/:id/workspaces`                                           | OpenShell workspaces.                                                                                                                                  |
+| GET/POST   | `/openshell/:id/sandboxes`                                            | List sandboxes; create one `{ name?, image?, template?, command?, policy?, labels?, providers?, cpu?, memory?, no_keep? }`.                            |
+| GET/DELETE | `/openshell/:id/sandboxes/:name`                                      | Sandbox detail with its active policy; delete it.                                                                                                      |
+| POST       | `/openshell/:id/sandboxes/:name/start`, `…/stop`                      | Lifecycle.                                                                                                                                             |
+| POST       | `/openshell/:id/sandboxes/:name/exec`                                 | `{ argv[], workdir?, timeout_seconds? }` → exit code, output, `policy_denied`.                                                                         |
+| GET        | `/openshell/:id/sandboxes/:name/logs`                                 | `?since=10m&source=sandbox&lines=200`.                                                                                                                 |
+| GET/PUT    | `/openshell/:id/sandboxes/:name/policy`                               | `?view=base                                                                                                                                            | full&rev=N`; replace with `{ policy, wait?, timeout_seconds? }`. |
+| GET        | `/openshell/:id/sandboxes/:name/policy/revisions`                     | Revision history.                                                                                                                                      |
+| POST       | `/openshell/:id/sandboxes/:name/policy/rules`                         | Incremental network rules `{ add_endpoints?, remove_endpoints?, add_allow?, add_deny?, remove_rules?, binaries?, rule_name?, any_binary?, dry_run? }`. |
+| GET        | `/openshell/:id/sandboxes/:name/proposals`                            | Advisor proposals, `?status=pending`.                                                                                                                  |
+| POST       | `/openshell/:id/sandboxes/:name/proposals/:chunk/approve`, `…/reject` | Decide a proposal (`{ reason? }` on reject).                                                                                                           |
+| GET        | `/openshell/:id/policy/global`                                        | The gateway-global policy, when one is applied.                                                                                                        |
 
 ## Tenant membership
 

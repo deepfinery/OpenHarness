@@ -1,0 +1,26 @@
+[Unit]
+Description=OpenHarness OpenShell connector (MCP over outbound WebSocket)
+Documentation=https://github.com/deepfinery/OpenHarness/blob/main/docs/openshell.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node %h/.local/share/openharness-openshell-connector/connector-openshell/dist/main.js --config %h/.config/openharness-openshell-connector/config.json
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+# The connector runs as the OpenShell operator so it can use that user's gateway registration and mTLS bundle
+# (~/.config/openshell). It needs no privileges of its own.
+NoNewPrivileges=yes
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=default.target

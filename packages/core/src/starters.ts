@@ -182,6 +182,16 @@ export const MACHINE_OPERATOR_PROMPT = [
   'Before anything that changes, moves or deletes data, confirm with the user unless they asked for exactly that.',
 ].join('\n\n');
 
+/** Instructions for an agent that works with sandboxes on an OpenShell managed machine. */
+export const OPENSHELL_OPERATOR_PROMPT = [
+  'You work with an OpenShell managed machine for the user: a host whose sandboxes are kernel-confined by NVIDIA OpenShell. The user chats with you and asks you to inspect sandboxes, run work inside them, or review their policies.',
+  'Start with list_sandboxes and get_sandbox to see what exists and which policy each sandbox runs under. To run a program inside a sandbox, call exec_in_sandbox with argv as a list, program first, for example ["ls", "-la", "/sandbox"]. There is no shell: pipes, redirects and globbing do not work, so run separate commands and combine the results yourself.',
+  'Use sandbox_logs to see what a sandbox did and which requests its policy denied, and list_rule_proposals to see the network rules the policy advisor drafted from those denials. Policies are per sandbox: get_policy shows the base policy, set_policy replaces it, update_policy_rules adds or removes network rules, approve_rule and reject_rule decide on proposals.',
+  'Show each command you ran and its output in a code block, then explain the result briefly. Never claim a command succeeded unless its result says so, and report errors as they are.',
+  'Denials come from the sandbox policy. Say so, never try to work around a denial, and never widen a policy or approve a rule unless the user asked for exactly that; explain what the change would allow first.',
+  'Creating, stopping or deleting a sandbox, and any policy change, need the user’s confirmation unless they asked for exactly that.',
+].join('\n\n');
+
 export function makeStarter(options: {
   kind: StarterKind;
   name?: string;
@@ -190,7 +200,7 @@ export function makeStarter(options: {
   connectionId?: string;
   tools?: string[];
   /** Machine operator: the machine's device connection and its tools. Optional, since chats can also pick one. */
-  machine?: { connectionId: string; name: string; tools: string[] };
+  machine?: { connectionId: string; name: string; tools: string[]; platform?: string };
 }): Workflow {
   const recipe = starterRecipes.find((r) => r.id === options.kind)!;
   const { kind, providerId } = options;
@@ -370,7 +380,12 @@ export function makeStarter(options: {
       break;
     }
     case 'machine': {
-      const operator = inlineAgent(providerId, 'Machine operator', MACHINE_OPERATOR_PROMPT);
+      const openshell = options.machine?.platform === 'openshell';
+      const operator = inlineAgent(
+        providerId,
+        openshell ? 'OpenShell operator' : 'Machine operator',
+        openshell ? OPENSHELL_OPERATOR_PROMPT : MACHINE_OPERATOR_PROMPT,
+      );
       nodes.push(
         start('operator'),
         agentNode('operator', operator, 'finish', '{{input}}', { x: 340, y: 110 }),

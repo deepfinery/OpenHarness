@@ -1,6 +1,6 @@
 # GPU clusters
 
-Create a cluster in **Machines & clusters → Clusters**. The installation panel includes **Docker**, **Linux service**, and **Kubernetes** options, complete commands from a fresh clone, and downloadable Kubernetes YAML. Set **Harness gateway address** to a hostname or IP reachable by every node, for example `ws://192.0.2.10:8090`. This is the device gateway, not the studio's port 8088. All generated commands and YAML use this address. The gateway must publish that port and allow the selected transport.
+Create a cluster in **Inventory → Clusters**. The installation panel includes **Docker**, **Linux service**, and **Kubernetes** options, complete commands from a fresh clone, and downloadable Kubernetes YAML. Set **Harness gateway address** to a hostname or IP reachable by every node, for example `ws://192.0.2.10:8090`. This is the device gateway, not the studio's port 8088. All generated commands and YAML use this address. The gateway must publish that port and allow the selected transport.
 
 Save the shared token at creation. Reopen **Manage cluster → Installation instructions** to add nodes with the saved token; it is not recoverable from the server and reopening instructions does not rotate it. The same token enrolls every new node up to the cluster's capacity, without per-node enrollment. Legacy individual machine enrollment remains available.
 
@@ -80,4 +80,4 @@ For development, `ws://` needs both gateway `GATEWAY_ALLOW_INSECURE_WS=true` and
 
 ## Unified machine inventory
 
-The **Machines & clusters** menu contains the machine inventory and cluster overview. Filter machines by cluster, status, platform, name, or hostname. **View nodes** on a cluster card opens its filtered inventory; the cluster filter survives a page refresh and supports browser back/forward. Standalone machine enrollment, connector setup, tool permissions, and operator workflow creation remain available in the same page. **Manage cluster** contains shared enrollment, monitoring, remediation controls, and cycle history. Existing `/clusters` links open the cluster view at `/machines?view=clusters`.
+The **Inventory** menu contains the resource inventory and cluster overview. Filter resources by cluster, status, type, name, or hostname. **View nodes** on a cluster card opens its filtered inventory; the cluster filter survives a page refresh and supports browser back/forward. Standalone machine enrollment, connector setup, tool permissions, and operator workflow creation remain available in the same page. **Manage cluster** contains shared enrollment, monitoring, remediation controls, and cycle history. Existing `/clusters` and `/machines` links open the inventory at `/inventory`.

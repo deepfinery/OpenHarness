@@ -641,6 +641,40 @@ function answer(messages, tools) {
         ],
       };
   }
+  // OpenShell managed machine: work inside a named sandbox through exec_in_sandbox, or list sandboxes.
+  const sandboxRun = /run uname in the sandbox ([a-z0-9-]+)/.exec(String(input));
+  const sandboxFetch = /fetch (https?:\/\/\S+) from the sandbox ([a-z0-9-]+)/.exec(String(input));
+  if ((sandboxRun || sandboxFetch) && tools?.length) {
+    const exec = tools.find((t) => t.function.description.includes('/ exec_in_sandbox:'));
+    if (exec)
+      return {
+        content: '',
+        tool_calls: [
+          {
+            id: randomUUID(),
+            type: 'function',
+            function: {
+              name: exec.function.name,
+              arguments: JSON.stringify(
+                sandboxRun
+                  ? { name: sandboxRun[1], argv: ['uname', '-a'] }
+                  : { name: sandboxFetch[2], argv: ['curl', '-s', sandboxFetch[1]] },
+              ),
+            },
+          },
+        ],
+      };
+  }
+  if (String(input).includes('list the sandboxes') && tools?.length) {
+    const list = tools.find((t) => t.function.description.includes('/ list_sandboxes:'));
+    if (list)
+      return {
+        content: '',
+        tool_calls: [
+          { id: randomUUID(), type: 'function', function: { name: list.function.name, arguments: '{}' } },
+        ],
+      };
+  }
   // Open Harness conformance prompts (tests/conformance): deterministic stand-ins for what a real model would do.
   const toolNamed = (suffix) => tools?.find((t) => t.function.description.includes(`/ ${suffix}:`));
   const callTool = (tool, args) => ({

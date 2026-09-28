@@ -26,7 +26,7 @@ export const providerSchema = z.object({
   // Prompt + output budget in tokens. Learned automatically from the provider's first context-length error.
   contextWindow: z.number().int().min(2048).max(4000000).default(128000),
 });
-export const devicePlatforms = ['linux', 'windows', 'chrome'] as const;
+export const devicePlatforms = ['linux', 'windows', 'chrome', 'openshell'] as const;
 export const deviceIdPattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export const connectionSchema = z.object({
   name,

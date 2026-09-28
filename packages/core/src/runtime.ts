@@ -380,7 +380,9 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         ? await ownedProvider(ctx.ownerId, agent.patternConfig.judgeProviderId)
         : provider;
     const deviceNote = ctx.device
-      ? `\n\nYou are operating the machine "${ctx.device.name}" (${ctx.device.platform}${ctx.device.hostname ? `, ${ctx.device.hostname}` : ''}). Its tools are attached to you. Inspect before you act, prefer read-only commands when they answer the question, and report the exact commands you ran and their results. Never claim a command succeeded unless its result says so.`
+      ? ctx.device.platform === 'openshell'
+        ? `\n\nYou are working with the OpenShell managed machine "${ctx.device.name}"${ctx.device.hostname ? ` (${ctx.device.hostname})` : ''}. Its tools manage sandboxes on that host's OpenShell gateway: list and inspect sandboxes, run programs inside a sandbox with exec_in_sandbox (argv, no shell), read sandbox logs, and inspect or change sandbox policies where allowed. Work inside sandboxes, never on the host. Denials come from the sandbox policy: report them as they are, never try to work around them, and report the exact commands you ran and their results.`
+        : `\n\nYou are operating the machine "${ctx.device.name}" (${ctx.device.platform}${ctx.device.hostname ? `, ${ctx.device.hostname}` : ''}). Its tools are attached to you. Inspect before you act, prefer read-only commands when they answer the question, and report the exact commands you ran and their results. Never claim a command succeeded unless its result says so.`
       : '';
     const skills = (agent.skills ?? []).filter((s) => s.enabled !== false);
     const skillNote = skills.length

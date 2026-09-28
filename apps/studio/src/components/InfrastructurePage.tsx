@@ -19,7 +19,7 @@ export type FleetCluster = {
 function readView() {
   const params = new URLSearchParams(location.search);
   return {
-    tab: location.pathname === '/clusters' || params.get('view') === 'clusters' ? 'clusters' : 'machines',
+    tab: location.pathname === '/clusters' || params.get('view') === 'clusters' ? 'clusters' : 'resources',
     cluster: params.get('cluster') ?? '',
   };
 }
@@ -84,7 +84,9 @@ export function InfrastructurePage({
     };
   }, [load]);
   useEffect(() => {
-    if (location.pathname === '/clusters') history.replaceState({}, '', '/machines?view=clusters');
+    // Older links keep working: /clusters opens the cluster view, /machines the resource list.
+    if (location.pathname === '/clusters') history.replaceState({}, '', '/inventory?view=clusters');
+    else if (location.pathname === '/machines') history.replaceState({}, '', `/inventory${location.search}`);
     const pop = () => setView(readView());
     window.addEventListener('popstate', pop);
     return () => window.removeEventListener('popstate', pop);
@@ -93,7 +95,7 @@ export function InfrastructurePage({
     const params = new URLSearchParams();
     if (tab === 'clusters') params.set('view', 'clusters');
     if (cluster) params.set('cluster', cluster);
-    history.pushState({}, '', `/machines${params.size ? `?${params}` : ''}`);
+    history.pushState({}, '', `/inventory${params.size ? `?${params}` : ''}`);
     setView({ tab, cluster });
   };
   const refreshAll = async () => {
@@ -104,9 +106,9 @@ export function InfrastructurePage({
   return (
     <div className="fleet-page">
       <PageTitle
-        eyebrow="INFRASTRUCTURE"
-        title="Machines & clusters"
-        text="One place for your connected machines, GPU fleets, and monitoring agents."
+        eyebrow="INVENTORY"
+        title="Inventory"
+        text="Every resource your agents can operate: Linux machines, OpenShell managed machines, Chrome browsers and Windows hosts, plus GPU clusters and their monitors."
         action={
           <Button
             variant="secondary"
@@ -125,13 +127,13 @@ export function InfrastructurePage({
           </Button>
         }
       />
-      <div className="fleet-summary" aria-label="Infrastructure summary">
+      <div className="fleet-summary" aria-label="Inventory summary">
         {[
           {
-            label: 'Registered machines',
+            label: 'Registered resources',
             value: current.machines.length,
             icon: Server,
-            detail: 'Hosts, containers & browsers',
+            detail: `${current.machines.filter((m) => m.platform === 'linux').length} Linux · ${current.machines.filter((m) => m.platform === 'openshell').length} OpenShell · ${current.machines.filter((m) => m.platform === 'chrome' || m.platform === 'windows').length} Chrome & Windows`,
           },
           {
             label: 'Online',
@@ -165,14 +167,14 @@ export function InfrastructurePage({
           </div>
         ))}
       </div>
-      <div className="fleet-tabs" aria-label="Infrastructure views">
+      <div className="fleet-tabs" aria-label="Inventory views">
         <button
-          aria-pressed={view.tab === 'machines'}
-          className={view.tab === 'machines' ? 'active' : ''}
-          onClick={() => changeView('machines')}
+          aria-pressed={view.tab === 'resources'}
+          className={view.tab === 'resources' ? 'active' : ''}
+          onClick={() => changeView('resources')}
         >
           <Server size={16} />
-          Machines<span>{current.machines.length}</span>
+          Resources<span>{current.machines.length}</span>
         </button>
         <button
           aria-pressed={view.tab === 'clusters'}
@@ -184,13 +186,13 @@ export function InfrastructurePage({
         </button>
         <small>Updates every 10 seconds</small>
       </div>
-      <ErrorNotice error={nodeError ? `Could not refresh machines: ${nodeError}` : current.gateway.error} />
+      <ErrorNotice error={nodeError ? `Could not refresh resources: ${nodeError}` : current.gateway.error} />
       <ErrorNotice error={clusterError ? `Could not refresh clusters: ${clusterError}` : ''} />
       {!loaded ? (
         <div className="fleet-loading" role="status">
-          Loading infrastructure…
+          Loading inventory…
         </div>
-      ) : view.tab === 'machines' ? (
+      ) : view.tab === 'resources' ? (
         <MachinesPage
           isAdmin={isAdmin}
           data={current}
@@ -199,7 +201,7 @@ export function InfrastructurePage({
           onUseMachine={onUseMachine}
           clusters={clusters}
           clusterId={view.cluster}
-          onClusterChange={(id) => changeView('machines', id)}
+          onClusterChange={(id) => changeView('resources', id)}
         />
       ) : (
         <ClustersPage
@@ -208,7 +210,7 @@ export function InfrastructurePage({
           refreshData={refreshAll}
           clusters={clusters}
           refreshClusters={load}
-          onViewNodes={(id) => changeView('machines', id)}
+          onViewNodes={(id) => changeView('resources', id)}
         />
       )}
     </div>

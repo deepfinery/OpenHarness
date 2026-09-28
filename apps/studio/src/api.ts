@@ -32,7 +32,14 @@ export const collections = [
   'knowledge',
   'skills',
 ] as const;
-export type Platform = 'linux' | 'windows' | 'chrome';
+export type Platform = 'linux' | 'windows' | 'chrome' | 'openshell';
+/** Resource types in the inventory, in the order the studio offers them. */
+export const platformLabels: Record<Platform, string> = {
+  linux: 'Linux machine',
+  openshell: 'OpenShell managed machine',
+  chrome: 'Chrome',
+  windows: 'Windows',
+};
 /** A registered machine as reported by the device gateway, plus its mirrored connection. */
 export type Machine = {
   device_id: string;

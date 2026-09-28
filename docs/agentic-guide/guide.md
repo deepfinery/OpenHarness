@@ -589,7 +589,7 @@ Source basis: [S25], [S33], [S34].
 
 The harness library and canvas manage agent cards and attachments with popup configuration, drag-and-drop resources, branching, parallel groups and YAML. Starter recipes provide concrete starting shapes. Agent settings group general behavior, reasoning, knowledge and safety/human controls.
 
-Playground supports harness-specific saved conversations, live text, trace, Memory, history, machine selection and pending human requests. Reflection activity is inspectable without repeatedly replacing the visible answer with intermediate drafts. Knowledge pages edit notebook notes and inspect indexed passages; Skills manage reusable instructions; Guardrails manage policies and evaluations; Machines & clusters manage enrollment and monitoring. Settings include providers, workspace/team and SMTP. The API explorer makes supported operations and request/response behavior inspectable.
+Playground supports harness-specific saved conversations, live text, trace, Memory, history, machine selection and pending human requests. Reflection activity is inspectable without repeatedly replacing the visible answer with intermediate drafts. Knowledge pages edit notebook notes and inspect indexed passages; Skills manage reusable instructions; Guardrails manage policies and evaluations; Inventory manages resource enrollment and cluster monitoring; OpenShell manages sandbox policies on OpenShell managed machines. Settings include providers, workspace/team and SMTP. The API explorer makes supported operations and request/response behavior inspectable.
 
 ## 18.2 Conversations and sessions
 

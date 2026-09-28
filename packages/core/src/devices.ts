@@ -80,6 +80,26 @@ export const deviceToolCatalog: Record<Platform, { name: string; description: st
     { name: 'click_element', description: 'Click a UI element (UI Automation)', risky: true },
     { name: 'set_text', description: 'Type into a UI element (UI Automation)', risky: true },
   ],
+  openshell: [
+    { name: 'openshell_status', description: 'OpenShell gateway reachability, authentication and version' },
+    { name: 'list_workspaces', description: 'OpenShell workspaces' },
+    { name: 'list_sandboxes', description: 'Sandboxes with phase, labels and policy version' },
+    { name: 'get_sandbox', description: 'Sandbox detail, conditions and active policy' },
+    { name: 'create_sandbox', description: 'Create a sandbox from an image with a policy', risky: true },
+    { name: 'delete_sandbox', description: 'Delete a sandbox and its state', risky: true },
+    { name: 'start_sandbox', description: 'Start a stopped sandbox', risky: true },
+    { name: 'stop_sandbox', description: 'Stop a sandbox, keeping its workspace', risky: true },
+    { name: 'exec_in_sandbox', description: 'Run a program inside a sandbox (argv, no shell)', risky: true },
+    { name: 'sandbox_logs', description: 'Sandbox and gateway log lines, including policy denials' },
+    { name: 'list_policy_revisions', description: 'Policy revision history of a sandbox' },
+    { name: 'get_policy', description: 'Base or effective policy of a sandbox as JSON' },
+    { name: 'set_policy', description: 'Replace a sandbox policy and wait for it to load', risky: true },
+    { name: 'update_policy_rules', description: 'Add or remove network rules on a sandbox', risky: true },
+    { name: 'list_rule_proposals', description: 'Network rules the policy advisor drafted from denials' },
+    { name: 'approve_rule', description: 'Approve a drafted network rule', risky: true },
+    { name: 'reject_rule', description: 'Reject a drafted network rule', risky: true },
+    { name: 'get_global_policy', description: 'The gateway-global policy, when one is applied' },
+  ],
   chrome: [
     { name: 'list_tabs', description: 'Open tabs' },
     { name: 'navigate', description: 'Open a URL in a tab', risky: true },
@@ -96,7 +116,12 @@ export const gatewayConfigured = () =>
 export const gatewayPublicUrl = () => (config.GATEWAY_PUBLIC_URL || config.GATEWAY_URL).replace(/\/$/, '');
 const connections = () => collection<ConnectionRecord>('connections');
 
-export async function gatewayAdmin<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+export async function gatewayAdmin<T>(
+  path: string,
+  method = 'GET',
+  body?: unknown,
+  timeoutMs = 15000,
+): Promise<T> {
   if (!gatewayConfigured())
     throw new HttpError(
       501,
@@ -108,7 +133,7 @@ export async function gatewayAdmin<T>(path: string, method = 'GET', body?: unkno
       method,
       headers: { Authorization: `Bearer ${config.GATEWAY_ADMIN_TOKEN}`, 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     throw new HttpError(
@@ -245,6 +270,37 @@ async function owned(ownerId: string, deviceId: string) {
   const device = devices.find((d) => d.device_id === deviceId);
   if (!device) throw new HttpError(404, 'Machine not found');
   return device;
+}
+/** The tenant's own view of one enrolled resource, or 404. */
+export const ownedMachine = owned;
+export type DeviceToolResult = {
+  content: { type: string; text?: string }[];
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+};
+/**
+ * Calls one connector tool through the device gateway's admin API, for the studio's own consoles (for example
+ * the OpenShell page). This is not the agents' path: it bypasses the per-machine allow-list, so callers must be
+ * administrators of the tenant that owns the machine. The connector's local policy still applies.
+ */
+export async function callDeviceTool(
+  ownerId: string,
+  deviceId: string,
+  tool: string,
+  args: Record<string, unknown> = {},
+  timeoutSeconds?: number,
+): Promise<DeviceToolResult> {
+  const device = await owned(ownerId, deviceId);
+  if (device.disabled) throw new HttpError(409, `${device.name} is disabled`);
+  if (!device.online) throw new HttpError(503, `${device.name} is offline; its connector is not connected`);
+  // The gateway applies its own per-tool deadline; this request waits a little longer than that.
+  const { result } = await gatewayAdmin<{ result: DeviceToolResult }>(
+    `/devices/${deviceId}/call`,
+    'POST',
+    { tool, arguments: args, ...(timeoutSeconds ? { timeout_seconds: timeoutSeconds } : {}) },
+    ((timeoutSeconds ?? 120) + 10) * 1000,
+  );
+  return result;
 }
 export async function updateMachine(
   ownerId: string,
