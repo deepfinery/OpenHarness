@@ -99,6 +99,12 @@ export const deviceToolCatalog: Record<Platform, { name: string; description: st
     { name: 'approve_rule', description: 'Approve a drafted network rule', risky: true },
     { name: 'reject_rule', description: 'Reject a drafted network rule', risky: true },
     { name: 'get_global_policy', description: 'The gateway-global policy, when one is applied' },
+    {
+      name: 'launch_executor',
+      description:
+        'Start a sandbox that runs the OpenHarness connector under a policy (needs a device token)',
+      risky: true,
+    },
   ],
   chrome: [
     { name: 'list_tabs', description: 'Open tabs' },

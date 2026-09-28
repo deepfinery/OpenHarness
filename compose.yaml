@@ -150,6 +150,37 @@ services:
       retries: 10
       start_period: 20s
 
+  # TLS front (profile `tls`): HTTPS for the studio and WSS for the device gateway with your own certificate.
+  # scripts/enable-tls.sh creates a self-signed one and points .env at it; the plain ports then stay on loopback.
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: ['tls']
+    ports: ['${TLS_BIND:-0.0.0.0}:${TLS_PORT:-8443}:8443']
+    volumes:
+      - ./deploy/tls/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${TLS_DIR:-./data/tls}:/certs:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api: { condition: service_healthy }
+      gateway: { condition: service_healthy }
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '-q',
+          '--no-check-certificate',
+          '-O',
+          '/dev/null',
+          'https://127.0.0.1:8443/api/health',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   guardrail-evaluation:
     profiles: [safety-evaluation]
     build:
@@ -308,3 +339,5 @@ volumes:
   opensearch:
   elasticsearch:
   files:
+  caddy-data:
+  caddy-config:

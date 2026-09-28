@@ -1,0 +1,28 @@
+# TLS front for the studio and the device gateway with your own certificate (scripts/enable-tls.sh makes a
+# self-signed one). One origin serves both: https://<host>:8443 is the studio and API, wss://<host>:8443/connect is
+# where machines dial in, and https://<host>:8443/mcp/<machine> is the gateway's per-machine MCP endpoint.
+{
+	auto_https off
+	admin off
+}
+
+:8443 {
+	tls /certs/server.crt /certs/server.key
+	encode zstd gzip
+	# Only the device paths reach the gateway; its admin API stays internal.
+	@gateway path /connect /mcp/*
+	handle @gateway {
+		reverse_proxy gateway:8090 {
+			header_up X-Forwarded-Proto {scheme}
+			transport http {
+				read_timeout 0
+				write_timeout 0
+			}
+		}
+	}
+	handle {
+		reverse_proxy api:8088 {
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+}

@@ -1,0 +1,90 @@
+# OpenHarness on an OpenShell host. Deploy this folder on the client machine that runs the sandboxes:
+#   1. In the studio: Inventory → Add resource → OpenShell managed machine → Create token.
+#   2. Copy .env.example to .env and fill in the harness gateway URL, the machine id and that token.
+#      If the harness uses a self-signed certificate, copy its ca.crt into ./certs and set OPENHARNESS_CA_FILE.
+#   3. sh up.sh   (creates the OpenShell PKI once, then docker compose up -d)
+# The OpenShell gateway runs here with the Docker driver; the edge dials OUT to the harness (no inbound ports),
+# exposes OpenShell as MCP tools and launches executors: sandboxes that run the OpenHarness connector under a
+# policy and register in the inventory as machines. Sandbox containers are created by the OpenShell gateway.
+name: openharness-openshell
+
+services:
+  openshell-gateway:
+    image: ghcr.io/nvidia/openshell/gateway:${OPENSHELL_VERSION:-0.1.2}
+    restart: unless-stopped
+    # gateway.toml owns every setting; the image's default CMD would override the bind address.
+    command: []
+    # Root so the gateway can use the Docker socket and write the supervisor binary (see the reference deployment
+    # in the OpenShell repository, deploy/docker). Docker-outside-of-Docker: sandboxes are sibling containers.
+    user: '0'
+    ports:
+      - '127.0.0.1:${OPENSHELL_PORT:-8080}:8080'
+      - '127.0.0.1:${OPENSHELL_HEALTH_PORT:-8081}:8081'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Same path on the host and in the container: the supervisor binary extracted here is bind-mounted by the
+      # host Docker daemon into every sandbox.
+      - type: bind
+        source: ${OPENSHELL_STATE_DIR:-/var/lib/openshell}
+        target: /var/lib/openshell
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ./gateway.toml
+        target: /etc/openshell/gateway.toml
+        read_only: true
+    environment:
+      OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
+      OPENSHELL_DB_URL: 'sqlite:/var/lib/openshell/gateway.db?mode=rwc'
+      XDG_DATA_HOME: /var/lib/openshell
+      HOME: /var/lib/openshell
+      # The PKI created by up.sh: gateway and client certificates plus the sandbox JWT keys.
+      OPENSHELL_LOCAL_TLS_DIR: /var/lib/openshell/tls
+      # OpenShell telemetry is on by default; this deployment turns it off.
+      OPENSHELL_TELEMETRY_ENABLED: ${OPENSHELL_TELEMETRY_ENABLED:-false}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+      - 'host.openshell.internal:host-gateway'
+    # The gateway image is distroless (no shell), so there is no container healthcheck; check
+    # http://127.0.0.1:8081/readyz from the host or `docker compose logs openshell-gateway`.
+
+  openharness-edge:
+    image: ${EDGE_IMAGE:-openharness-edge:local}
+    restart: unless-stopped
+    depends_on:
+      openshell-gateway: { condition: service_started }
+    environment:
+      # Harness side: the machine created in the studio.
+      GATEWAY_URL: ${OPENHARNESS_GATEWAY_URL:?set the harness gateway, e.g. wss://harness.example.com:8443/connect}
+      DEVICE_ID: ${OPENHARNESS_DEVICE_ID:?set the machine id shown in the studio}
+      DEVICE_TOKEN: ${OPENHARNESS_TOKEN:?set the enrollment token shown once in the studio}
+      GATEWAY_ALLOW_INSECURE: ${OPENHARNESS_ALLOW_INSECURE:-false}
+      GATEWAY_CA_FILE: ${OPENHARNESS_CA_FILE:-}
+      DEVICE_HOSTNAME: ${OPENHARNESS_HOSTNAME:-}
+      # OpenShell side: mTLS with the client certificate from the PKI that up.sh created.
+      OPENSHELL_ADDRESS: openshell-gateway:8080
+      OPENSHELL_TLS: 'true'
+      OPENSHELL_TLS_CA: /openshell-tls/ca.crt
+      OPENSHELL_TLS_CERT: /openshell-tls/client/tls.crt
+      OPENSHELL_TLS_KEY: /openshell-tls/client/tls.key
+      OPENSHELL_WORKSPACE: ${OPENSHELL_WORKSPACE:-default}
+      OPENSHELL_WORKSPACES: ${OPENSHELL_WORKSPACES:-}
+      # Edge settings: what any caller may do through this edge.
+      OPENSHELL_ALLOW_POLICY_CHANGES: ${OPENSHELL_ALLOW_POLICY_CHANGES:-true}
+      OPENSHELL_ALLOW_SANDBOX_LIFECYCLE: ${OPENSHELL_ALLOW_SANDBOX_LIFECYCLE:-true}
+      OPENSHELL_ALLOW_EXEC: ${OPENSHELL_ALLOW_EXEC:-true}
+      OPENSHELL_ALLOWED_IMAGES: ${OPENSHELL_ALLOWED_IMAGES:-}
+      OPENSHELL_MAX_SANDBOXES: ${OPENSHELL_MAX_SANDBOXES:-20}
+      OPENSHELL_MANAGE_ALL_SANDBOXES: ${OPENSHELL_MANAGE_ALL_SANDBOXES:-true}
+      # Executors: sandboxes that run the OpenHarness connector under a policy.
+      EXECUTOR_IMAGE: ${EXECUTOR_IMAGE:-openharness-connector:local}
+      EXECUTOR_ALLOWED_HOSTS: ${EXECUTOR_ALLOWED_HOSTS:-}
+      EXECUTOR_GATEWAY_URL: ${OPENHARNESS_EXECUTOR_GATEWAY_URL:-}
+      EXECUTOR_DEVICE_ID: ${OPENHARNESS_EXECUTOR_DEVICE_ID:-}
+      EXECUTOR_TOKEN: ${OPENHARNESS_EXECUTOR_TOKEN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./certs:/certs:ro
+      - ${OPENSHELL_STATE_DIR:-/var/lib/openshell}/tls:/openshell-tls:ro
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]

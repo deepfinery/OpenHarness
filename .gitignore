@@ -25,3 +25,8 @@ design
 conformance/adapter/build/
 *.egg-info/
 __pycache__/
+
+# OpenShell deployment secrets and copied certificates
+deploy/openshell/.env
+deploy/openshell/certs/*
+!deploy/openshell/certs/.gitkeep

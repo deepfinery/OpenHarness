@@ -16,7 +16,12 @@ test('machine container instructions explicitly separate restricted and root hos
   );
   assert.match(restricted.docker, /git clone/);
   assert.match(restricted.docker, /GATEWAY_URL=ws:\/\/192.0.2.1:8090\/connect/);
-  assert.match(restricted.docker, /MACHINE_ACCESS_MODE=restricted/);
+  assert.match(
+    restricted.docker,
+    /connector-go\/Dockerfile/,
+    'restricted machines run the Go connector image',
+  );
+  assert.match(restricted.docker, /--cap-drop ALL/);
   assert.ok(!restricted.docker.includes('--privileged'));
   const privileged = machineInstallSnippets(
     { device_id: 'vm2', access_mode: 'host' },
@@ -31,31 +36,56 @@ test('machine container instructions explicitly separate restricted and root hos
   assert.throws(() => machineInstallSnippets({ device_id: 'vm2' }, "dv_foo'; exit", 'ws://server'));
 });
 
-test('OpenShell managed machines enroll like Linux machines, with their own installer and tool catalog', () => {
+test('OpenShell managed machines enroll like Linux machines, with a compose deployment and their own tool catalog', () => {
   const snippets = machineInstallSnippets(
     { device_id: 'openshell-1', platform: 'openshell' },
     'dv_test-token-123456',
-    'wss://gateway.example.com',
+    'wss://gateway.example.com:8443',
   );
-  assert.match(snippets.openshell, /connector-openshell\/install\.sh/);
-  assert.match(snippets.openshell, /GATEWAY_URL='wss:\/\/gateway.example.com\/connect'/);
-  assert.match(snippets.openshell, /DEVICE_ID='openshell-1'/);
-  assert.match(snippets.openshell, /OpenShell 0\.1\.2/);
-  assert.match(snippets['openshell-docker'], /connector-openshell\/Dockerfile/);
-  assert.match(snippets['openshell-docker'], /--network host/);
-  assert.match(snippets['openshell-docker'], /\.config\/openshell:\/home\/node\/\.config\/openshell:ro/);
-  assert.ok(
-    !snippets['openshell-docker'].includes('docker.sock'),
-    'the connector never gets the Docker socket',
+  assert.match(snippets.openshell, /deploy\/openshell\/build-images\.sh/);
+  assert.match(snippets.openshell, /OPENHARNESS_GATEWAY_URL=wss:\/\/gateway.example.com:8443\/connect/);
+  assert.match(snippets.openshell, /OPENHARNESS_DEVICE_ID=openshell-1/);
+  assert.match(snippets.openshell, /OPENHARNESS_TOKEN=dv_test-token-123456/);
+  assert.match(snippets.openshell, /OPENHARNESS_CA_FILE=\/certs\/ca\.crt/, 'a wss gateway gets the CA hint');
+  assert.match(snippets.openshell, /OPENSHELL_VERSION=0\.1\.2/);
+  assert.match(snippets.openshell, /docker compose up -d/);
+  assert.ok(!snippets.openshell.includes('docker.sock'), 'the snippet never mounts the Docker socket itself');
+  const plain = machineInstallSnippets(
+    { device_id: 'openshell-1', platform: 'openshell' },
+    'dv_test-token-123456',
+    'ws://192.0.2.10:8090',
+  );
+  assert.match(plain.openshell, /OPENHARNESS_ALLOW_INSECURE=true/);
+  assert.ok(!plain.openshell.includes('OPENHARNESS_CA_FILE'));
+  // Linux machines run the Go connector image; privileged hosts keep the Node image with host access.
+  const linuxContainer = machineInstallSnippets(
+    { device_id: 'box-1' },
+    'dv_test-token-123456',
+    'wss://gateway.example.com:8443',
+  );
+  assert.match(linuxContainer.docker, /connector-go\/Dockerfile/);
+  assert.match(linuxContainer.docker, /GATEWAY_CA_FILE/);
+  assert.ok(!linuxContainer.docker.includes('--privileged'));
+  assert.match(
+    machineInstallSnippets({ device_id: 'vm2', access_mode: 'host' }, '', 'wss://gpu.example.com').docker,
+    /connector-linux\/Dockerfile/,
   );
   assert.ok(devicePlatforms.includes('openshell'));
   const names = deviceToolCatalog.openshell.map((t) => t.name);
-  for (const tool of ['exec_in_sandbox', 'get_policy', 'set_policy', 'approve_rule', 'sandbox_logs'])
+  for (const tool of [
+    'exec_in_sandbox',
+    'get_policy',
+    'set_policy',
+    'approve_rule',
+    'sandbox_logs',
+    'launch_executor',
+  ])
     assert.ok(names.includes(tool), `${tool} is offered in the allow-list`);
   assert.ok(
     deviceToolCatalog.openshell.find((t) => t.name === 'set_policy')?.risky,
     'policy changes are marked as acting',
   );
+  assert.ok(deviceToolCatalog.openshell.find((t) => t.name === 'launch_executor')?.risky);
   assert.ok(!deviceToolCatalog.openshell.find((t) => t.name === 'get_policy')?.risky);
   const providerId = randomUUID();
   const connectionId = randomUUID();

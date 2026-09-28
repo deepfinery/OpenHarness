@@ -57,9 +57,13 @@ export type Machine = {
   tool_count: number | null;
   connectionId?: string;
   tools: { name: string; description?: string }[];
+  /** What the connector announced; `openshell_sandbox` marks an executor confined by OpenShell. */
+  capabilities?: string[];
   created_at: string;
   endpoint: string;
 };
+export const isSandboxed = (m: Pick<Machine, 'capabilities'>) =>
+  Boolean(m.capabilities?.includes('openshell_sandbox'));
 export type ToolCatalog = Record<Platform, { name: string; description: string; risky?: boolean }[]>;
 export type Data = Record<(typeof collections)[number], Entity[]> & {
   /** Workspace defaults, such as the model provider new agents start with. */

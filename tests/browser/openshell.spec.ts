@@ -121,6 +121,30 @@ function scriptedOpenShell(page: Page) {
         if (path === '/policy/global') return json({ error: 'no global policy is set' }, 502);
         if (path === '/sandboxes' && method === 'GET')
           return json({ sandboxes: state.sandboxes, next_page_token: '' });
+        if (path === '/executors' && method === 'POST') {
+          const body = route.request().postDataJSON();
+          state.sandboxes.push({
+            name: body.name,
+            id: 'sb-exec',
+            workspace: 'default',
+            phase: 'Ready',
+            created_at: new Date().toISOString(),
+            labels: { 'openharness.device': 'os-lab', 'openharness.executor': body.name },
+            current_policy_version: 1,
+            policy_source: 'sandbox',
+            managed: true,
+            executor: body.name,
+          });
+          return json(
+            {
+              machine: { device_id: body.name, platform: 'linux' },
+              sandbox: state.sandboxes.at(-1),
+              policy: { version: 1 },
+              output: 'ready',
+            },
+            201,
+          );
+        }
         if (path === '/sandboxes' && method === 'POST') {
           const body = route.request().postDataJSON();
           state.sandboxes.push({
@@ -278,6 +302,13 @@ test('the OpenShell console shows sandboxes and lets an administrator edit polic
   await page.getByRole('button', { name: 'Run in sandbox', exact: true }).click();
   await expect(page.locator('.run-output')).toContainText('denied by policy');
   await expect(page.getByLabel('Command output')).toContainText('policy_denied');
+  await page.getByRole('button', { name: 'Launch executor', exact: true }).click();
+  await page.getByLabel('Executor name').fill('worker-1');
+  await page.getByLabel('Executor allowed hosts').fill('pypi.org:443:read-only:rest:enforce');
+  await page.getByRole('dialog').getByRole('button', { name: 'Launch executor', exact: true }).click();
+  await expect(page.locator('.notice')).toContainText('Executor worker-1 launched');
+  await expect(table).toContainText('executor worker-1');
+  expect(scripted.state.calls).toContain('POST /executors');
   await page.getByRole('button', { name: 'Create sandbox', exact: true }).click();
   await page.getByLabel('Sandbox name').fill('agent-two');
   await page.getByLabel('Sandbox image').fill('registry.example.com/agents/worker:1.0');

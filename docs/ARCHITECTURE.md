@@ -74,7 +74,8 @@ orchestrator is untouched. Root scripts wire them into `npm run typecheck` / `np
 gateway/             service (Node 22 + TypeScript, Express 5, ws, MCP SDK 1.30.1)
 connector-core/      shared TypeScript library: WS transports, framing, auth, reconnect, policy, audit
 connector-linux/     Node CLI daemon + systemd unit + install.sh
-connector-openshell/ Node CLI daemon wrapping the pinned OpenShell CLI as MCP tools (docs/openshell.md)
+connector-go/        Go connector (Linux machines, containers, OpenShell executors) and the OpenShell edge (docs/openshell.md)
+deploy/openshell/    Compose deployment of the OpenShell gateway plus the edge for the private host
 connector-windows/   Node CLI daemon + service wrapper + install.ps1
 connector-chrome/    Manifest V3 extension (esbuild bundle of connector-core + MCP SDK)
 docs/                ARCHITECTURE.md · PROTOCOL.md · SECURITY.md · INSTALL.md

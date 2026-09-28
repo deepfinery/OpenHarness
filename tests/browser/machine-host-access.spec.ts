@@ -43,7 +43,7 @@ test('machine settings expose restricted and privileged host installation and re
   await page.getByLabel('Machine access', { exact: true }).selectOption('restricted');
   await page.getByRole('button', { name: 'Installation instructions', exact: true }).click();
   await page.getByRole('button', { name: 'Container', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('MACHINE_ACCESS_MODE=restricted');
+  await expect(page.getByRole('dialog')).toContainText('connector-go/Dockerfile');
   await expect(page.getByRole('dialog')).not.toContainText('--privileged');
   expect((await api('/devices')).machines[0].access_mode).toBe('restricted');
 });

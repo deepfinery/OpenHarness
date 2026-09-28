@@ -69,39 +69,16 @@ async function waitRun(id: string) {
     'run to finish',
   );
 }
-/** Builds the connector image with the CLI test double once per machine; the stack script also prebuilds it. */
+/** Builds the edge image once per machine; the stack script also prebuilds it. */
 async function ensureImages() {
-  const missing = async (image: string) =>
-    exec('docker', ['image', 'inspect', image]).then(
-      () => false,
-      () => true,
-    );
-  if (await missing('openharness-connector-openshell-base:local'))
+  const missing = await exec('docker', ['image', 'inspect', 'openharness-edge:local']).then(
+    () => false,
+    () => true,
+  );
+  if (missing)
     await exec(
       'docker',
-      [
-        'build',
-        '-f',
-        'connector-openshell/Dockerfile',
-        '--build-arg',
-        'OPENSHELL_CLI_SOURCE=none',
-        '-t',
-        'openharness-connector-openshell-base:local',
-        '.',
-      ],
-      { maxBuffer: 50_000_000 },
-    );
-  if (await missing('openharness-connector-openshell-test:local'))
-    await exec(
-      'docker',
-      [
-        'build',
-        '-f',
-        'tests/fixtures/openshell-device.Dockerfile',
-        '-t',
-        'openharness-connector-openshell-test:local',
-        '.',
-      ],
+      ['build', '-f', 'connector-go/Dockerfile', '--target', 'edge', '-t', 'openharness-edge:local', '.'],
       { maxBuffer: 50_000_000 },
     );
 }
@@ -164,9 +141,9 @@ test(
     });
     assert.match(enrolled.token, /^dv_/);
     assert.equal(enrolled.machine.platform, 'openshell');
-    assert.match(enrolled.install.openshell, new RegExp(`DEVICE_ID='${deviceId}'`));
-    assert.match(enrolled.install.openshell, /connector-openshell\/install\.sh/);
-    assert.match(enrolled.install['openshell-docker'], /--network host/);
+    assert.match(enrolled.install.openshell, new RegExp(`OPENHARNESS_DEVICE_ID=${deviceId}`));
+    assert.match(enrolled.install.openshell, /deploy\/openshell/);
+    assert.match(enrolled.install.openshell, /OPENHARNESS_TOKEN=dv_/);
     assert.ok(enrolled.machine.connectionId, 'a device connection mirrors the machine');
     assert.equal(
       (
@@ -217,7 +194,8 @@ test(
     const status = await ok(`/openshell/${deviceId}/status`);
     assert.equal(status.status.status, 'connected');
     assert.equal(status.status.authentication.status, 'authenticated');
-    assert.equal(status.cli_version, '0.1.2');
+    assert.ok(status.edge_version, 'the edge reports its version');
+    assert.equal(status.gateway_info.version, '0.1.2');
     assert.deepEqual(status.connector_policy.allowed_images, ['registry.example.com/agents/']);
     assert.equal((await ok(`/openshell/${deviceId}/workspaces`)).workspaces[0].name, 'default');
 
@@ -248,7 +226,7 @@ test(
       image: 'docker.io/library/alpine:3',
     });
     assert.equal(refused.status, 403, JSON.stringify(refused.data));
-    assert.match(refused.data.error, /not on the connector allow-list/);
+    assert.match(refused.data.error, /not on the (connector|edge) allow-list/);
     const listed = await ok(`/openshell/${deviceId}/sandboxes`);
     assert.equal(listed.sandboxes.filter((s: any) => s.name === sandbox).length, 1);
     assert.equal(listed.sandboxes[0].phase, 'Ready');
@@ -268,7 +246,9 @@ test(
     assert.equal(denied.exit_code, 7);
     assert.equal(denied.policy_denied, true);
     const logs = await ok(`/openshell/${deviceId}/sandboxes/${sandbox}/logs?since=10m&source=sandbox`);
-    assert.match(logs.text, /policy_denied dest=api\.github\.com:443 binary=\/usr\/bin\/curl/);
+    assert.match(logs.text, /policy_denied/);
+    assert.match(logs.text, /dest=api\.github\.com:443/);
+    assert.match(logs.text, /binary=\/usr\/bin\/curl/);
     const proposals = await ok(`/openshell/${deviceId}/sandboxes/${sandbox}/proposals?status=pending`);
     assert.equal(proposals.proposals.length, 1);
     assert.equal(proposals.proposals[0].endpoints, 'api.github.com:443');
@@ -311,9 +291,17 @@ test(
     });
     const revisions = (await ok(`/openshell/${deviceId}/sandboxes/${sandbox}/policy/revisions`)).revisions;
     assert.equal(revisions.length, 4);
-    assert.ok(revisions.every((r: any) => r.status === 'loaded'));
+    assert.equal(revisions.at(-1).status, 'loaded', 'the newest revision is the loaded one');
+    assert.ok(
+      revisions.every((r: any) => r.status === 'loaded' || r.status === 'superseded'),
+      'earlier revisions are superseded, none failed',
+    );
+    // The stand-in treats a rule named reject_on_load as a revision the sandbox refuses to load.
     const rejectedPolicy = await request(`/openshell/${deviceId}/sandboxes/${sandbox}/policy`, 'PUT', {
-      policy: JSON.stringify({ version: 1, reject_on_load: true }),
+      policy: JSON.stringify({
+        version: 1,
+        network_policies: { reject_on_load: { endpoints: [], binaries: [] } },
+      }),
     });
     assert.equal(rejectedPolicy.status, 502, 'a revision the sandbox refuses is reported, not swallowed');
     assert.match(rejectedPolicy.data.error, /failed to load/);
@@ -378,6 +366,54 @@ test(
       proposalsAfter.proposals.some((p: any) => p.endpoints === 'example.org:443'),
       'the denial produced a proposal the console can decide',
     );
+    // An executor: the console enrolls a Linux machine and the edge launches a confined sandbox that runs the
+    // connector with that machine's token. Here the OpenShell stand-in only records the launch, so the machine
+    // stays offline; on a real host it dials in and turns online.
+    const executorName = `exec-${suffix}`;
+    const launched = await ok(`/openshell/${deviceId}/executors`, {
+      name: executorName,
+      allowed_hosts: ['pypi.org:443:read-only:rest:enforce'],
+    });
+    assert.equal(launched.machine.device_id, executorName);
+    assert.equal(launched.machine.platform, 'linux');
+    assert.equal(launched.sandbox.executor, executorName);
+    assert.ok(launched.policy.network_policies.openharness, 'the executor policy admits the harness gateway');
+    assert.equal(launched.policy.landlock.compatibility, 'hard_requirement');
+    assert.ok(
+      Object.keys(launched.policy.network_policies).some((k) => k.startsWith('allowed_pypi_org')),
+      'extra destinations become rules',
+    );
+    assert.ok(
+      (await ok('/devices')).machines.some(
+        (m: any) => m.device_id === executorName && m.platform === 'linux',
+      ),
+      'the executor is a machine in the inventory',
+    );
+    assert.equal(
+      (await ok(`/openshell/${deviceId}/sandboxes`)).sandboxes.find((s: any) => s.name === executorName)
+        ?.executor,
+      executorName,
+    );
+    assert.equal(
+      (await request(`/openshell/${deviceId}/executors`, 'POST', { name: executorName })).status,
+      409,
+      'an executor name is a machine id and must be unique',
+    );
+    const refusedExecutor = await request(`/openshell/${deviceId}/executors`, 'POST', {
+      name: `${executorName}-b`,
+      image: 'docker.io/library/alpine:3',
+    });
+    assert.equal(refusedExecutor.status, 403, JSON.stringify(refusedExecutor.data));
+    assert.ok(
+      !(await ok('/devices')).machines.some((m: any) => m.device_id === `${executorName}-b`),
+      'a refused launch leaves no phantom machine',
+    );
+    await ok(`/openshell/${deviceId}/executors/${executorName}`, undefined, 'DELETE');
+    assert.ok(!(await ok('/devices')).machines.some((m: any) => m.device_id === executorName));
+    assert.ok(
+      !(await ok(`/openshell/${deviceId}/sandboxes`)).sandboxes.some((s: any) => s.name === executorName),
+    );
+
     // Tenant isolation and roles: another workspace cannot see the machine; a member can read but not change.
     const outsider = {
       email: `openshell-outsider-${suffix}@openharness.test`,

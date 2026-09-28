@@ -4,7 +4,15 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdmin } from './auth.js';
 import { HttpError } from '../../../packages/core/src/security.js';
-import { callDeviceTool, listMachines, ownedMachine } from '../../../packages/core/src/devices.js';
+import {
+  callDeviceTool,
+  deviceToolCatalog,
+  enrollMachine,
+  gatewayPublicUrl,
+  listMachines,
+  ownedMachine,
+  removeMachine,
+} from '../../../packages/core/src/devices.js';
 
 export const openshell = Router();
 const name = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
@@ -239,6 +247,76 @@ for (const decision of ['approve', 'reject'] as const)
       );
     },
   );
+// Executors: a sandbox on the OpenShell host that runs the OpenHarness connector under a policy. The studio
+// enrolls it as a Linux machine and hands the edge its token; the token never returns to the browser.
+openshell.post('/:deviceId/executors', requireAdmin, async (req, res) => {
+  const body = z
+    .object({
+      name,
+      image: z.string().max(500).optional(),
+      allowed_hosts: z.array(z.string().max(300)).max(50).default([]),
+      allowedTools: z
+        .array(z.string().min(1).max(200))
+        .max(200)
+        .default(deviceToolCatalog.linux.map((t) => t.name)),
+      workspace: workspaceQuery.shape.workspace,
+    })
+    .parse(req.body);
+  const tenantId = req.principal!.tenantId;
+  const edge = await ownedMachine(tenantId, String(req.params.deviceId));
+  if (edge.platform !== 'openshell')
+    throw new HttpError(400, `${edge.name} is not an OpenShell managed machine`);
+  const enrolled = await enrollMachine(
+    tenantId,
+    { deviceId: body.name, name: body.name, platform: 'linux', allowedTools: body.allowedTools },
+    req.principal!.user._id,
+  );
+  try {
+    const result = await call(
+      tenantId,
+      edge.device_id,
+      'launch_executor',
+      {
+        name: body.name,
+        device_id: body.name,
+        token: enrolled.token,
+        gateway_url: `${gatewayPublicUrl()}/connect`,
+        ...(body.image ? { image: body.image } : {}),
+        allowed_hosts: body.allowed_hosts,
+        workspace: body.workspace,
+      },
+      240,
+    );
+    res
+      .status(201)
+      .json({
+        machine: enrolled.machine,
+        sandbox: result.sandbox,
+        policy: result.policy,
+        output: result.output,
+      });
+  } catch (error) {
+    // A sandbox that never started must not leave a phantom machine behind.
+    await removeMachine(tenantId, body.name).catch(() => undefined);
+    throw error;
+  }
+});
+openshell.delete('/:deviceId/executors/:name', requireAdmin, async (req, res) => {
+  const tenantId = req.principal!.tenantId;
+  const executor = name.parse(req.params.name);
+  const result = await call(tenantId, String(req.params.deviceId), 'delete_sandbox', {
+    name: executor,
+    workspace: ws(req),
+  }).catch((error: unknown) => {
+    if (error instanceof HttpError && /not found/i.test(error.message)) return { output: 'already_absent' };
+    throw error;
+  });
+  await removeMachine(tenantId, executor).catch((error: unknown) => {
+    if (error instanceof HttpError && error.status === 404) return;
+    throw error;
+  });
+  res.json({ name: executor, sandbox: result.output ?? 'deleted', machine: 'removed' });
+});
 openshell.get('/:deviceId/policy/global', async (req, res) => {
   const query = z.object({ view: z.enum(['base', 'full']).default('full') }).parse(req.query);
   res.json(await call(req.principal!.tenantId, String(req.params.deviceId), 'get_global_policy', query));

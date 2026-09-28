@@ -1,3 +1,0 @@
-#!/bin/sh
-# Test double for the OpenShell 0.1.2 CLI. See openshell.mjs.
-exec node "$(dirname "$0")/openshell.mjs" "$@"

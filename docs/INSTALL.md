@@ -148,11 +148,20 @@ enrollment so the tokens and allow-lists are in place. Notes that apply when the
 ## 5b. OpenShell managed machine
 
 An OpenShell managed machine is enrolled like a Linux machine (**Inventory → Add resource → OpenShell managed
-machine**) and installs `connector-openshell` beside the NVIDIA OpenShell gateway, as the OpenShell operator
-user, either as a systemd user service or as a container that mounts the operator's `~/.config/openshell`
-read-only. The connector wraps the pinned OpenShell 0.1.2 CLI and exposes sandboxes, execution inside them, logs
-and policies as MCP tools; the **OpenShell** page in the studio manages policies from the console. Settings,
-tools, constraints and the enforcement check are in [openshell.md](openshell.md).
+machine**) and deploys `deploy/openshell/compose.yaml` on the private host: the NVIDIA OpenShell 0.1.2 gateway
+(Docker driver) and the OpenHarness edge, a Go service that talks to that gateway over its gRPC API and dials out
+to the device gateway. The edge exposes sandboxes, execution inside them, logs and policies as MCP tools and
+launches executors: sandboxes that run the Go connector under a policy and register as sandboxed Linux machines.
+Settings, tools, constraints and the enforcement check are in [openshell.md](openshell.md).
+
+## 5c. TLS with a self-signed certificate
+
+`./scripts/enable-tls.sh <public-host-or-ip>` creates a local certificate authority and a server certificate under
+`data/tls/`, and switches `.env` so `./start.sh` runs Caddy on `TLS_PORT` (8443): `https://<host>:8443` is the
+studio and API, `wss://<host>:8443/connect` is where machines dial in, and the plain ports stay on loopback. Give
+connectors the CA: `GATEWAY_CA_FILE=/etc/openharness/ca.crt` (mounted) for the Go connector and edge,
+`OPENHARNESS_CA_FILE=/certs/ca.crt` in the OpenShell deployment, `NODE_EXTRA_CA_CERTS` for the Node connector.
+Import `data/tls/ca.crt` into your browser to avoid the warning.
 
 ## 6. Use a machine
 

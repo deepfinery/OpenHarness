@@ -1,0 +1,52 @@
+# OpenShell gateway configuration for the OpenHarness deployment (Docker compute driver). Mounted read-only at
+# /etc/openshell/gateway.toml; compose.yaml clears the image CMD so this file owns every setting. The PKI under
+# /var/lib/openshell/tls is created once by up.sh with the gateway's own generate-certs.
+[openshell]
+version = 2
+
+[openshell.gateway]
+# Listen on the compose network so the OpenHarness edge reaches the gateway by service name (the server
+# certificate carries that name); the host port is published on loopback only, for the openshell CLI.
+bind_address        = "0.0.0.0:8080"
+health_bind_address = "0.0.0.0:8081"
+log_level           = "info"
+compute_driver      = "docker"
+disable_tls         = false
+# Guest TLS: the bundle sandboxes use to call the gateway back.
+guest_tls_ca        = "/var/lib/openshell/tls/ca.crt"
+guest_tls_cert      = "/var/lib/openshell/tls/client/tls.crt"
+guest_tls_key       = "/var/lib/openshell/tls/client/tls.key"
+# Reject invalid policy generations securely.
+policy_validation_failure_mode = "fail_closed"
+
+# The gateway listener: TLS with client certificates required.
+[openshell.gateway.tls]
+cert_path      = "/var/lib/openshell/tls/server/tls.crt"
+key_path       = "/var/lib/openshell/tls/server/tls.key"
+client_ca_path = "/var/lib/openshell/tls/ca.crt"
+
+# Launch-scoped sandbox credentials (required by the Docker driver). Omitting ttl_secs keeps local sandbox
+# session credentials non-expiring, as documented for single-host Docker gateways.
+[openshell.gateway.gateway_jwt]
+signing_key_path = "/var/lib/openshell/tls/jwt/signing.pem"
+public_key_path  = "/var/lib/openshell/tls/jwt/public.pem"
+kid_path         = "/var/lib/openshell/tls/jwt/kid"
+gateway_id       = "openshell"
+
+[openshell.gateway.auth]
+allow_unauthenticated_users = false
+
+# The edge and the CLI authenticate with the client certificate from the same PKI.
+[openshell.gateway.mtls_auth]
+enabled = true
+
+[openshell.drivers.docker]
+default_image         = "nvcr.io/nvidia/base/ubuntu:24.04"
+sandbox_runtime_image = "ghcr.io/nvidia/openshell/sandbox:0.1.2"
+supervisor_image      = "ghcr.io/nvidia/openshell/supervisor:0.1.2"
+# Local images (the executor image built on this host) are used as they are; registry images are pulled once.
+image_pull_policy     = "if_not_present"
+sandbox_label         = "openshell"
+# Sandbox containers call the gateway back here; the driver substitutes the host and keeps the scheme.
+grpc_endpoint         = "https://host.openshell.internal:8080"
+app_armor_profile     = "Unconfined"

@@ -44,10 +44,10 @@ services:
     environment:
       GATEWAY_HEARTBEAT_SECONDS: 5
       GATEWAY_PUBLIC_URL: ws://gateway:8090
-  # A machine with no inbound ports; the integration test starts it after enrolling the device.
+  # A Linux machine (the Go connector) with no inbound ports; the integration test starts it after enrolling it.
   device:
-    build: { context: ., dockerfile: connector-linux/Dockerfile }
-    image: openharness-connector-linux:local
+    build: { context: ., dockerfile: connector-go/Dockerfile }
+    image: openharness-connector:local
     profiles: ['device']
     environment:
       GATEWAY_URL: ws://gateway:8090/connect
@@ -59,18 +59,21 @@ services:
     restart: 'no'
     security_opt: ['no-new-privileges:true']
     cap_drop: [ALL]
-  # An OpenShell managed machine: the connector plus the CLI test double, no inbound ports; started by the test.
+  # An OpenShell managed machine: the edge against its in-memory OpenShell stand-in, no inbound ports; started by
+  # the test. A real deployment runs the edge beside the OpenShell gateway (deploy/openshell).
   openshell-device:
-    image: openharness-connector-openshell-test:local
-    pull_policy: never
+    build: { context: ., dockerfile: connector-go/Dockerfile, target: edge }
+    image: openharness-edge:local
     profiles: ['device']
     environment:
       GATEWAY_URL: ws://gateway:8090/connect
       GATEWAY_ALLOW_INSECURE: 'true'
       DEVICE_ID: ${TEST_DEVICE_ID:-test-openshell}
       DEVICE_TOKEN: ${TEST_DEVICE_TOKEN:-unset}
+      OPENSHELL_FAKE: 'true'
       OPENSHELL_ALLOWED_IMAGES: registry.example.com/agents/
       OPENSHELL_MAX_SANDBOXES: '5'
+      EXECUTOR_IMAGE: registry.example.com/agents/executor:1.0
       LOG_LEVEL: debug
     restart: 'no'
     security_opt: ['no-new-privileges:true']

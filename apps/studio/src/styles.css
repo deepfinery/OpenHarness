@@ -7275,3 +7275,13 @@ details.advanced summary {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.sandboxed-tag {
+  display: inline-block;
+  font-style: normal;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--green-bg, #e2faef);
+  color: var(--green-ink, #316d4b);
+  vertical-align: 1px;
+}

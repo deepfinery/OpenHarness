@@ -17,6 +17,7 @@ import {
 import {
   api,
   errorMessage,
+  isSandboxed,
   platformLabels,
   send,
   timestamp,
@@ -239,6 +240,14 @@ export function MachinesPage({
                           </button>
                           <small title={m.hostname ?? m.device_id}>
                             {platformLabel[m.platform]} · {m.hostname ?? m.device_id}
+                            {isSandboxed(m) && (
+                              <>
+                                {' · '}
+                                <em className="sandboxed-tag" title="Runs inside an OpenShell sandbox">
+                                  sandboxed
+                                </em>
+                              </>
+                            )}
                           </small>
                         </div>
                       </div>
@@ -518,9 +527,10 @@ function AddMachineModal({
         )}
         {platform === 'openshell' && (
           <p className="field-help">
-            The connector runs beside your OpenShell gateway on its private network and dials out to the
-            harness gateway; the harness never connects in. Agents get the tools ticked below, and the
-            OpenShell console manages sandboxes and policies through the trusted administrator path.
+            One compose file deploys the OpenShell gateway and the OpenHarness edge on the private host; the
+            edge dials out to the harness gateway, so the harness never connects in. Agents get the tools
+            ticked below, the OpenShell console manages sandboxes and policies through the trusted
+            administrator path, and executors launched from it appear here as sandboxed Linux machines.
           </p>
         )}
         <div className="two-columns">
@@ -622,9 +632,7 @@ function ConnectModal({
       ? enrollment.machine.access_mode === 'host'
         ? (['docker'] as const)
         : (['linux', 'docker'] as const)
-      : enrollment.machine.platform === 'openshell'
-        ? (['openshell', 'openshell-docker'] as const)
-        : ([enrollment.machine.platform] as const);
+      : ([enrollment.machine.platform] as const);
   const [tab, setTab] = useState<string>(
     enrollment.install.preferred && tabs.includes(enrollment.install.preferred as never)
       ? enrollment.install.preferred
@@ -644,8 +652,7 @@ function ConnectModal({
     docker: 'Container',
     windows: 'Windows',
     chrome: 'Chrome',
-    openshell: 'OpenShell host',
-    'openshell-docker': 'Container',
+    openshell: 'OpenShell host (compose)',
   };
   return (
     <Modal title={`Connect ${enrollment.machine.name}`} onClose={onClose} wide>
@@ -688,10 +695,10 @@ function ConnectModal({
         <ErrorNotice error={setupError} />
         {enrollment.machine.platform === 'openshell' && (
           <p className="field-help">
-            Run this as the OpenShell operator user, on the OpenShell gateway host or a machine that reaches
-            it. The connector reuses that user's <code>openshell</code> gateway registration and mTLS bundle,
-            and only needs outbound access to the harness gateway. Pin OpenShell {'0.1.2'}; the connector
-            warns on drift.
+            Run this on the OpenShell host. The compose file starts the OpenShell {'0.1.2'} gateway (Docker
+            driver) and the OpenHarness edge beside it; the edge only needs outbound access to the harness
+            gateway. With a self-signed harness certificate, copy the server's <code>data/tls/ca.crt</code>{' '}
+            into <code>deploy/openshell/certs</code> before starting.
           </p>
         )}
         {enrollment.machine.access_mode === 'host' && (

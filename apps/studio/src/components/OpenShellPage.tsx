@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Boxes,
   CheckCircle2,
+  Cpu,
   FileJson,
   ListChecks,
   Play,
@@ -30,6 +31,7 @@ type Sandbox = {
   policy_source?: string;
   exit_code?: number | null;
   managed?: boolean;
+  executor?: string;
 };
 type Revision = {
   version: number;
@@ -106,6 +108,7 @@ export function OpenShellPage({
   const [busy, setBusy] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [launching, setLaunching] = useState(false);
   const [globalPolicy, setGlobalPolicy] = useState<any>(null);
   useEffect(() => {
     if (machine && machine.device_id !== deviceId) setDeviceId(machine.device_id);
@@ -279,10 +282,16 @@ export function OpenShellPage({
               <p>Workloads confined by OpenShell on this machine.</p>
             </div>
             {isAdmin && machine?.online && (
-              <Button onClick={() => setCreating(true)}>
-                <Plus size={16} />
-                Create sandbox
-              </Button>
+              <div className="row-actions">
+                <Button variant="secondary" onClick={() => setCreating(true)}>
+                  <Plus size={16} />
+                  Create sandbox
+                </Button>
+                <Button onClick={() => setLaunching(true)}>
+                  <Cpu size={16} />
+                  Launch executor
+                </Button>
+              </div>
             )}
           </div>
           {!loaded ? (
@@ -295,7 +304,7 @@ export function OpenShellPage({
               title="No sandboxes"
               text={
                 machine?.online
-                  ? 'Create one here, or let a harness create sandboxes through this machine’s tools.'
+                  ? 'Launch an executor (a confined machine for your harnesses) or create a sandbox; harnesses can also create sandboxes through this machine’s tools.'
                   : 'The connector is offline; start it on the OpenShell host to see its sandboxes.'
               }
             />
@@ -327,8 +336,20 @@ export function OpenShellPage({
                               {s.name}
                             </button>
                             <small title={s.id}>
-                              {s.workspace ?? 'default'} · {s.managed ? 'created here' : 'operator sandbox'} ·{' '}
-                              {timestamp(s.created_at)}
+                              {s.workspace ?? 'default'} ·{' '}
+                              {s.executor ? (
+                                <em
+                                  className="sandboxed-tag"
+                                  title="Runs the OpenHarness connector under this policy"
+                                >
+                                  executor {s.executor}
+                                </em>
+                              ) : s.managed ? (
+                                'created here'
+                              ) : (
+                                'operator sandbox'
+                              )}{' '}
+                              · {timestamp(s.created_at)}
                             </small>
                           </div>
                         </div>
@@ -439,6 +460,18 @@ export function OpenShellPage({
           )}
         </section>
       </div>
+      {launching && machine && (
+        <LaunchExecutorModal
+          base={base}
+          onClose={() => setLaunching(false)}
+          onLaunched={async (name) => {
+            setLaunching(false);
+            setNotice(`Executor ${name} launched; it registers as machine ${name} in the inventory`);
+            await loadSandboxes();
+            setSelected(name);
+          }}
+        />
+      )}
       {creating && machine && (
         <CreateSandboxModal
           base={base}
@@ -1006,6 +1039,93 @@ function CreateSandboxModal({
           <Button type="submit" disabled={busy}>
             <Plus size={15} />
             Create sandbox
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function LaunchExecutorModal({
+  base,
+  onClose,
+  onLaunched,
+}: {
+  base: string;
+  onClose: () => void;
+  onLaunched: (name: string) => Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [image, setImage] = useState('');
+  const [hosts, setHosts] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal title="Launch an executor" onClose={onClose} wide>
+      <form
+        className="form-content"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError('');
+          void send(`${base}/executors`, {
+            name,
+            image: image || undefined,
+            allowed_hosts: hosts
+              .split(/[\s,]+/)
+              .map((h) => h.trim())
+              .filter(Boolean),
+          })
+            .then((result) => onLaunched(result.machine?.device_id ?? name))
+            .catch((err) => setError(errorMessage(err)))
+            .finally(() => setBusy(false));
+        }}
+      >
+        <p className="field-help">
+          An executor is a sandbox on this OpenShell host that runs the OpenHarness connector under a policy.
+          The studio enrolls it as a Linux machine and hands the edge its token; the sandbox may reach only
+          the harness gateway and the hosts you list. Pick it in the playground like any machine: every
+          command a harness runs on it is confined by OpenShell.
+        </p>
+        <div className="two-columns">
+          <Field label="Machine name" hint="Lowercase letters, digits and dashes; also the sandbox name.">
+            <input
+              aria-label="Executor name"
+              required
+              autoFocus
+              pattern="[a-z0-9][a-z0-9\-]{0,62}"
+              placeholder="worker-1"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </Field>
+          <Field
+            label="Image"
+            hint="Defaults to the edge's executor image; it must contain openharness-connector."
+          >
+            <input aria-label="Executor image" value={image} onChange={(e) => setImage(e.target.value)} />
+          </Field>
+        </div>
+        <Field
+          label="Extra destinations"
+          hint="host:port[:access[:protocol[:enforcement]]], one per line. The harness gateway is always allowed."
+        >
+          <textarea
+            aria-label="Executor allowed hosts"
+            rows={3}
+            placeholder={'pypi.org:443:read-only:rest:enforce\napi.github.com:443'}
+            value={hosts}
+            onChange={(e) => setHosts(e.target.value)}
+          />
+        </Field>
+        <ErrorNotice error={error} />
+        <div className="form-actions">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy || !name.trim()}>
+            <Cpu size={15} />
+            {busy ? 'Launching…' : 'Launch executor'}
           </Button>
         </div>
       </form>
