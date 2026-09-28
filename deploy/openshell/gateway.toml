@@ -47,6 +47,9 @@ supervisor_image      = "ghcr.io/nvidia/openshell/supervisor:0.1.2"
 # Local images (the executor image built on this host) are used as they are; registry images are pulled once.
 image_pull_policy     = "if_not_present"
 sandbox_label         = "openshell"
-# Sandbox containers call the gateway back here; the driver substitutes the host and keeps the scheme.
-grpc_endpoint         = "https://host.openshell.internal:8080"
+# Sandbox supervisors run with host networking on the Docker host and dial this address verbatim, so it must be
+# the gateway port as published on the host's loopback interface (compose publishes 127.0.0.1:8080). The
+# generated server certificate carries 127.0.0.1 and localhost; a hostname such as host.openshell.internal is
+# not resolvable from a host-networked supervisor.
+grpc_endpoint         = "https://127.0.0.1:8080"
 app_armor_profile     = "Unconfined"

@@ -50,10 +50,17 @@ func ExecutorPolicy(gatewayURL string, allowedHosts []string) (*v1.SandboxPolicy
 		return nil, fmt.Errorf("invalid harness gateway port %q", port)
 	}
 	doc := &PolicyDoc{
-		Version:    1,
-		Filesystem: &FilesystemDoc{IncludeWorkdir: boolPtr(true), ReadWrite: []string{"/sandbox", "/tmp"}},
-		Landlock:   &LandlockDoc{Compatibility: "hard_requirement"},
-		Process:    &ProcessDoc{RunAsUser: "1000", RunAsGroup: "1000"},
+		Version: 1,
+		// System paths stay read-only so the connector and the commands it runs can execute (OpenShell's baseline
+		// adds /usr, /lib, /etc, /proc, /dev/urandom, /dev/null and /tmp, but not /bin or /sbin, which images such
+		// as Alpine use for their shell and core utilities). Paths missing from an image are skipped by Landlock.
+		Filesystem: &FilesystemDoc{
+			IncludeWorkdir: boolPtr(true),
+			ReadOnly:       []string{"/bin", "/sbin", "/lib", "/lib64", "/usr", "/etc", "/proc", "/dev/urandom"},
+			ReadWrite:      []string{"/sandbox", "/tmp", "/dev/null"},
+		},
+		Landlock: &LandlockDoc{Compatibility: "hard_requirement"},
+		Process:  &ProcessDoc{RunAsUser: "1000", RunAsGroup: "1000"},
 		NetworkPolicies: map[string]RuleDoc{
 			"openharness": {
 				Name:      "openharness",

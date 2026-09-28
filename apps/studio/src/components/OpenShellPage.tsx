@@ -242,7 +242,12 @@ export function OpenShellPage({
             label: 'OpenShell',
             value: status?.status?.version ?? '—',
             icon: Boxes,
-            detail: `CLI ${status?.cli_version ?? '—'} · ${status?.gateway_info?.compute_drivers?.map((d: any) => d.name).join(', ') || 'driver unknown'}`,
+            detail: `edge ${status?.edge_version ?? status?.cli_version ?? '—'} · ${
+              status?.gateway_info?.compute_drivers
+                ?.map((d: any) => (typeof d === 'string' ? d : d?.name))
+                .filter(Boolean)
+                .join(', ') || 'driver unknown'
+            } driver`,
           },
           {
             label: 'Sandboxes',

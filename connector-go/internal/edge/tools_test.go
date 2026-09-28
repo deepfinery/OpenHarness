@@ -107,6 +107,9 @@ func TestToolSurfaceAndPolicyWorkflow(t *testing.T) {
 	if denied["exit_code"].(float64) != 7 || denied["policy_denied"] != true {
 		t.Fatalf("denied curl: %v", denied)
 	}
+	if events, _ := denied["denials"].([]any); len(events) != 1 || !strings.Contains(events[0].(string), "dest=api.github.com:443") {
+		t.Fatalf("denial events should name the refused destination: %v", denied["denials"])
+	}
 	if fs, _, _ := h.call("exec_in_sandbox", map[string]any{"name": "agent-one", "argv": []string{"touch", "/etc/passwd"}}); fs["policy_denied"] != true {
 		t.Fatalf("filesystem denial: %v", fs)
 	}

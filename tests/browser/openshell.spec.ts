@@ -108,14 +108,14 @@ function scriptedOpenShell(page: Page) {
         const json = (body: unknown, status = 200) => route.fulfill({ status, json: body });
         if (path === '/status')
           return json({
-            cli_version: '0.1.2',
+            edge_version: '0.1.0',
             status: {
               status: 'connected',
               server: 'https://127.0.0.1:17670',
               version: '0.1.2',
               authentication: { status: 'authenticated', provider: 'mtls' },
             },
-            gateway_info: { compute_drivers: [{ name: 'docker' }] },
+            gateway_info: { version: '0.1.2', compute_drivers: ['docker'], healthy: true },
             connector_policy: { allow_policy_changes: true },
           });
         if (path === '/policy/global') return json({ error: 'no global policy is set' }, 502);
@@ -266,7 +266,7 @@ test('the OpenShell console shows sandboxes and lets an administrator edit polic
   const summary = page.getByLabel('OpenShell summary');
   await expect(summary).toContainText('connected');
   await expect(summary).toContainText('authenticated');
-  await expect(summary).toContainText('CLI 0.1.2');
+  await expect(summary).toContainText('edge 0.1.0 · docker driver');
   const table = page.locator('.openshell-table');
   await expect(table).toContainText('agent-one');
   await expect(table).toContainText('operator-box');

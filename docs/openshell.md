@@ -56,10 +56,11 @@ gateway_ and _OpenShell gateway_.
    edge. The machine turns online in the inventory; the **OpenShell** page shows the gateway.
 
 3. **Launch executors** from the OpenShell page. The studio enrolls a Linux machine, hands the edge its token
-   through the trusted admin path, and the edge creates a sandbox from `EXECUTOR_IMAGE` with this policy:
-   `/sandbox` and `/tmp` writable, `landlock.compatibility: hard_requirement`, `run_as_user: 1000`, and a network
-   rule that admits only the harness gateway (relayed with `tls: skip`, so the connector verifies the harness
-   certificate itself) plus the extra `host:port` destinations you list. The executor dials in and shows up as a
+   through the trusted admin path, and the edge creates a sandbox from `EXECUTOR_IMAGE` with this policy: the
+   system paths (`/bin`, `/sbin`, `/lib`, `/usr`, `/etc`, `/proc`) read-only, `/sandbox` and `/tmp` writable,
+   `landlock.compatibility: hard_requirement`, `run_as_user: 1000`, and a network rule that admits only the
+   harness gateway (relayed with `tls: skip`, so the connector verifies the harness certificate itself) plus the
+   extra `host:port` destinations you list. The executor dials in and shows up as a
    Linux machine with the _sandboxed_ badge. `OPENHARNESS_EXECUTOR_DEVICE_ID` and `OPENHARNESS_EXECUTOR_TOKEN`
    in `.env` launch one executor at start without the console.
 
@@ -132,7 +133,9 @@ audit trail.
 Policies travel as JSON in the documented OpenShell shape (`version`, `filesystem_policy`, `landlock`, `process`,
 `network_policies` with `endpoints` and `binaries`); the edge converts them to the SDK's typed policy and back.
 `exec_in_sandbox` returns the exit code, output and `policy_denied: true` when the sandbox policy refused a
-connection or a write, so a denial shows up in the run trace as a policy decision rather than a vague failure.
+connection or a write, plus `denials`: the supervisor's denial events recorded while the command ran (binary,
+destination or path, reason). A denial therefore shows up in the run trace as a policy decision rather than as the
+vague connection or permission error the command itself saw.
 
 ## The OpenShell console
 

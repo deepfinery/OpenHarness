@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -145,6 +146,66 @@ type call struct {
 }
 
 // run wraps a tool body with argument decoding, audit logging and error mapping.
+// deniedStderr recognises the error text of a command that the sandbox policy stopped: the stand-in's explicit
+// marker, Landlock and seccomp refusals, and the EACCES a Landlock-jailed process gets on a path outside its policy.
+var deniedStderr = regexp.MustCompile(`(?i)policy_denied|blocked by (the )?(sandbox )?policy|Landlock|Operation not permitted|Permission denied`)
+
+// deniedEvent matches the supervisor's OCSF denial events and the stand-in's policy_denied lines.
+var deniedEvent = regexp.MustCompile(`(?i)\bDENIED\b|policy_denied`)
+
+// formatLogLine renders one sandbox log line the way sandbox_logs and the console show it.
+func formatLogLine(l v1.LogLine) string {
+	var fields []string
+	for k, v := range l.Fields {
+		fields = append(fields, k+"="+v)
+	}
+	sort.Strings(fields)
+	return strings.TrimSpace(fmt.Sprintf("%s %s %s %s", l.Timestamp.UTC().Format(time.RFC3339), l.Level, l.Message, strings.Join(fields, " ")))
+}
+
+// denialsSince returns the policy denial events the sandbox recorded since a command started (at most ten), so an
+// exec result can say what the policy refused even when the command itself only saw a failed connection or an
+// EACCES. The supervisor forwards its events to the gateway a moment after the fact (well under a second in
+// practice), so when the command failed the lookup is repeated for up to two seconds before giving up.
+// Connection resets caused by a policy reload are not denials of the command and are left out. Log retrieval
+// failures are not the caller's problem: the result then relies on the command's own error text.
+func (r *Registrar) denialsSince(ctx context.Context, workspace, name string, started time.Time, wait bool) []string {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		denials := r.denialsOnce(ctx, workspace, name, started)
+		if len(denials) > 0 || !wait || time.Now().After(deadline) {
+			return denials
+		}
+		select {
+		case <-ctx.Done():
+			return denials
+		case <-time.After(400 * time.Millisecond):
+		}
+	}
+}
+
+func (r *Registrar) denialsOnce(ctx context.Context, workspace, name string, started time.Time) []string {
+	denials := []string{}
+	lines, err := r.Backend.Logs(ctx, workspace, name, LogOptions{Since: time.Since(started) + 5*time.Second, Lines: 500})
+	if err != nil {
+		return denials
+	}
+	for _, l := range lines {
+		if l.Timestamp.Before(started.Add(-time.Second)) {
+			continue
+		}
+		formatted := formatLogLine(l)
+		if !deniedEvent.MatchString(formatted) || strings.Contains(formatted, "policy generation is stale") {
+			continue
+		}
+		denials = append(denials, formatted)
+		if len(denials) == 10 {
+			break
+		}
+	}
+	return denials
+}
+
 func (r *Registrar) run(name string, body func(ctx context.Context, args json.RawMessage) (any, error)) mcp.ToolHandler {
 	return func(ctx context.Context, args json.RawMessage, meta mcp.Meta) (*mcp.Result, error) {
 		started := time.Now()
@@ -449,12 +510,20 @@ func (r *Registrar) Register(server *mcp.Server) {
 			if a.TimeoutSeconds > 0 {
 				timeout = time.Duration(a.TimeoutSeconds) * time.Second
 			}
+			started := time.Now()
 			result, err := r.Backend.Exec(ctx, ws, a.Name, a.Argv, ExecOptions{WorkDir: a.WorkDir, Env: a.Env, Timeout: timeout})
 			if err != nil {
 				return nil, err
 			}
-			deniedByPolicy := regexp.MustCompile(`(?i)policy_denied|blocked by (the )?(sandbox )?policy|Landlock|Operation not permitted`).MatchString(result.Stderr)
-			view := map[string]any{"name": a.Name, "argv": a.Argv, "exit_code": result.ExitCode, "stdout": result.Stdout, "stderr": result.Stderr, "policy_denied": deniedByPolicy, "timed_out": false, "truncated": false}
+			deniedByPolicy := deniedStderr.MatchString(result.Stderr)
+			// The kernel and the egress proxy refuse silently as far as the command is concerned (curl reports a
+			// connection failure, touch a permission error), so attach the supervisor's denial events recorded while
+			// the command ran: they name the binary, the destination or path and the reason.
+			denials := r.denialsSince(ctx, ws, a.Name, started, result.ExitCode != 0 || deniedByPolicy)
+			if len(denials) > 0 {
+				deniedByPolicy = true
+			}
+			view := map[string]any{"name": a.Name, "argv": a.Argv, "exit_code": result.ExitCode, "stdout": result.Stdout, "stderr": result.Stderr, "policy_denied": deniedByPolicy, "denials": denials, "timed_out": false, "truncated": false}
 			res := mcp.Text(view)
 			return res, nil
 		})})
@@ -503,11 +572,7 @@ func (r *Registrar) Register(server *mcp.Server) {
 			var text []string
 			structured := []map[string]any{}
 			for _, l := range lines {
-				var fields []string
-				for k, v := range l.Fields {
-					fields = append(fields, k+"="+v)
-				}
-				text = append(text, strings.TrimSpace(fmt.Sprintf("%s %s %s %s", l.Timestamp.UTC().Format(time.RFC3339), l.Level, l.Message, strings.Join(fields, " "))))
+				text = append(text, formatLogLine(l))
 				structured = append(structured, map[string]any{"timestamp": l.Timestamp.UTC().Format(time.RFC3339), "level": l.Level, "source": l.Source, "message": l.Message, "fields": l.Fields})
 			}
 			return map[string]any{"name": a.Name, "text": strings.Join(text, "\n"), "lines": structured, "truncated": false}, nil
