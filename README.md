@@ -69,7 +69,7 @@ cd OpenHarness
 ./start.sh
 ```
 
-Open **http://localhost:8088** and create the first administrator account with the `SETUP_TOKEN` written to `.env`. There is no default account or password. Later starts reuse the same configuration and persistent volumes:
+Open the address printed by `./start.sh` (**http://localhost:8088** by default) and create the first administrator account with the `SETUP_TOKEN` written to `.env`. On an existing installation, this is the configured `PUBLIC_URL`, including its scheme and port. There is no default account or password. Later starts reuse the same configuration and persistent volumes:
 
 ```sh
 docker compose up --build -d --wait      # rebuild and restart after pulling changes
