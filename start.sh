@@ -51,5 +51,6 @@ if [ "${1:-}" = '--configure-only' ]; then
   exit 0
 fi
 docker compose up --build -d --wait --wait-timeout 240
-echo 'OpenHarness is ready at the PUBLIC_URL in .env (default http://localhost:8088).'
+public_url="$(docker compose exec -T api node -p 'process.env.PUBLIC_URL')"
+printf 'OpenHarness is ready at %s\n' "$public_url"
 echo 'For first-time setup, copy SETUP_TOKEN from .env into the account creation form.'
