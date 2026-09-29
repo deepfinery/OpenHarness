@@ -184,6 +184,27 @@ test(
     assert.ok(toolEvent, 'trace records the tool call');
     assert.match(toolEvent.message, /run_command/);
     assert.match(String(toolEvent.data?.result ?? ''), /Linux/);
+    // A command that outlives the connector's timeout comes back as a tool error carrying its partial output;
+    // the run continues instead of failing with an unknown outcome (#104).
+    const slow = await waitRun(
+      (
+        await ok('/runs', {
+          workflowId: workflow.id,
+          input: 'Please run a slow command on the machine',
+          deviceId,
+        })
+      ).id,
+    );
+    assert.equal(slow.status, 'succeeded', slow.error);
+    const cut = slow.events.find((e: any) => e.type === 'tool_error');
+    assert.ok(cut, 'the timeout is a tool error in the trace');
+    assert.match(String(cut.data?.result ?? ''), /timed out after 5 s/);
+    assert.match(String(cut.data?.result ?? ''), /partial-result/, 'output before the deadline survives');
+    assert.ok(
+      !slow.events.some((e: any) => e.type === 'tool_uncertain'),
+      'a connector timeout is a definite outcome',
+    );
+    assert.match(slow.output, /partial-result/);
     // The chat API remembers the machine for the conversation.
     const chat = await ok('/chat', {
       workflowId: workflow.id,
@@ -282,6 +303,9 @@ test(
           `DEVICE_TOKEN=${second.token}`,
           '-e',
           `DEVICE_ID=${secondId}`,
+          // Longer than the gateway's 30 s test timeout, so a hanging command is a gateway timeout, not a connector one.
+          '-e',
+          'COMMAND_TIMEOUT_SECONDS=120',
           'device',
         ],
         { env: { ...process.env, TEST_DEVICE_ID: secondId }, maxBuffer: 10_000_000 },

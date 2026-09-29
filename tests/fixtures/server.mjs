@@ -586,6 +586,25 @@ function answer(messages, tools) {
           ],
         };
     }
+    // The hanging-command scenario repeats the identical call once: the runtime must refuse it, not run it again.
+    if (
+      String(input).includes('run a hanging command twice on the machine') &&
+      messages.filter((m) => m.role === 'tool').length === 1 &&
+      tools?.length
+    ) {
+      const cmd = tools.find((t) => t.function.description.includes('/ run_command:'));
+      if (cmd)
+        return {
+          content: '',
+          tool_calls: [
+            {
+              id: randomUUID(),
+              type: 'function',
+              function: { name: cmd.function.name, arguments: JSON.stringify({ argv: ['sleep', '45'] }) },
+            },
+          ],
+        };
+    }
     return { content: `Tool completed: ${last.content}` };
   }
   if (String(input).includes('use strict tool') && tools?.length) {
@@ -626,7 +645,11 @@ function answer(messages, tools) {
     ? ['uname', '-a']
     : String(input).includes('run ls on the machine')
       ? ['ls', '-la']
-      : undefined;
+      : String(input).includes('run a slow command on the machine')
+        ? ['sh', '-c', 'echo partial-result; sleep 30']
+        : String(input).includes('run a hanging command twice on the machine')
+          ? ['sleep', '45']
+          : undefined;
   if (machineCommand && tools?.length) {
     const cmd = tools.find((t) => t.function.description.includes('/ run_command:'));
     if (cmd)

@@ -46,11 +46,28 @@ Workflow resume policies and the maximum automatic recovery count still apply.
 
 Completed external calls return their journaled result on replay. A missing result
 for a potentially mutating call is **ambiguous**, even when an idempotency key was
-sent to the MCP server. The system stops automatic recovery for the parent and its
-children until the outcome can be reviewed. It never assumes an arbitrary MCP server
-supports exactly-once execution or invents a compensating action. Read-only calls
-may be retried. Explicit workflow tool/email steps retain their conservative existing
-resume policy.
+sent to the MCP server. After a crash, the system stops automatic recovery for the
+parent and its children until the outcome can be reviewed. It never assumes an
+arbitrary MCP server supports exactly-once execution or invents a compensating action.
+Read-only calls may be retried. Explicit workflow tool/email steps retain their
+conservative existing resume policy.
+
+While a run is live, a failed tool call is a result, not the end of the run. A tool
+that answers with an error (a refused command, a non-zero exit, a command the
+connector killed at its timeout, with the output it produced so far) is returned to the
+model as an error result. A call whose effect cannot be confirmed (the runtime stopped
+waiting, the device reconnected or timed out at the gateway, or the run resumed over an
+unfinished call) is returned as an **outcome unknown** result: the model is told to
+verify the effect with a read-only tool before continuing, and an identical call is
+refused for the rest of the run. Only the crash-resume path above fails closed.
+
+The runtime waits for a tool call as long as the tool's own `timeout_seconds` plus a
+margin (150 s when none is given), so a connector's definitive timeout arrives first;
+the gateway honors `timeout_seconds` up to any operator override. Model requests are
+retried with backoff on connection errors and on 408, 409, 425, 429 and 5xx responses;
+malformed or truncated streams and empty replies are retried without streaming; the
+final answer is retried with more output room when a reply is empty or cut off before
+the answer, which is what reasoning models do when their output limit is small.
 
 ## Configuration and human work
 

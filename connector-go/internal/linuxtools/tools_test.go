@@ -108,8 +108,12 @@ func TestToolsApplyPolicyAndReportStructuredResults(t *testing.T) {
 	if s, _, isError := h.call("run_command", map[string]any{"argv": []string{"sh", "-c", "exit 3"}}, ""); !isError || s["exit_code"].(float64) != 3 {
 		t.Fatalf("non-zero exit is an error result with the code: %v", s)
 	}
-	if _, text, isError := h.call("run_command", map[string]any{"argv": []string{"sleep", "5"}, "timeout_seconds": 1}, ""); !isError || !strings.Contains(text, "timed out") {
-		t.Fatalf("timeout: %q", text)
+	if s, text, isError := h.call("run_command", map[string]any{"argv": []string{"sleep", "5"}, "timeout_seconds": 1}, ""); !isError || !strings.Contains(text, "timed out") || s["timed_out"] != true {
+		t.Fatalf("timeout: %q %v", text, s)
+	}
+	// Output produced before the deadline survives: a long scan that is cut short still yields evidence.
+	if s, text, isError := h.call("run_command", map[string]any{"argv": []string{"sh", "-c", "echo partial-result; sleep 5"}, "timeout_seconds": 1}, ""); !isError || s["timed_out"] != true || !strings.Contains(s["stdout"].(string), "partial-result") || !strings.Contains(text, "timed out after 1 s") {
+		t.Fatalf("partial output on timeout: %q %v", text, s)
 	}
 	if s, _, _ := h.call("run_command", map[string]any{"argv": []string{"cat"}, "stdin": "from stdin"}, ""); s["stdout"] != "from stdin" {
 		t.Fatalf("stdin: %v", s)

@@ -56,7 +56,11 @@ function guarded<A>(
       cache?.set(key, result);
       await ctx.audit.write({
         tool,
-        outcome: result.isError ? 'error' : 'ok',
+        outcome: result.isError
+          ? (result.structuredContent as { timed_out?: unknown } | undefined)?.timed_out === true
+            ? 'timeout'
+            : 'error'
+          : 'ok',
         duration_ms: Date.now() - started,
         arguments: args,
         idempotency_key: key,
@@ -204,7 +208,6 @@ export function registerLinuxTools(server: McpServer, ctx: ToolContext) {
             : safeEnv,
         });
         const duration_ms = Date.now() - started;
-        if (result.timed_out) throw new Error(`command timed out after ${Math.round(timeoutMs / 1000)} s`);
         const summary = {
           ...result,
           duration_ms,
@@ -212,24 +215,28 @@ export function registerLinuxTools(server: McpServer, ctx: ToolContext) {
           execution_scope: ctx.hostCommands ? 'host' : 'connector',
           effective_access: ctx.hostCommands ? 'root' : 'restricted',
         };
+        const scope = ctx.hostCommands
+          ? '[execution scope: VM host, root]'
+          : '[execution scope: connector, restricted]';
+        // A timed-out command is a definite outcome: the process was killed. Its partial output is still evidence.
         return {
           content: [
             {
               type: 'text',
               text: [
-                ctx.hostCommands
-                  ? '[execution scope: VM host, root]'
-                  : '[execution scope: connector, restricted]',
+                scope,
+                result.timed_out &&
+                  `[timed out after ${Math.round(timeoutMs / 1000)} s; the command was killed. Partial output follows. A larger timeout_seconds works up to the connector's COMMAND_TIMEOUT_SECONDS.]`,
                 result.stdout,
                 result.stderr && `[stderr]\n${result.stderr}`,
-                `[exit ${result.exit_code ?? result.signal}]`,
+                result.timed_out ? '' : `[exit ${result.exit_code ?? result.signal}]`,
               ]
                 .filter(Boolean)
                 .join('\n'),
             },
           ],
           structuredContent: summary,
-          isError: result.exit_code !== 0,
+          isError: result.timed_out || result.exit_code !== 0,
         };
       },
       commandCache,
