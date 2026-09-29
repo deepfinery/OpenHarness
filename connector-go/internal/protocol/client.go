@@ -113,7 +113,7 @@ func httpClientFor(opts Options) (*http.Client, error) {
 	if opts.CAFile != "" {
 		data, err := os.ReadFile(opts.CAFile)
 		if err != nil {
-			return nil, fmt.Errorf("cannot read the gateway CA file: %w", err)
+			return nil, fmt.Errorf("cannot read the gateway CA file (the path is read inside the connector's container; mount the certificate, for example -v \"$PWD/ca.crt:/certs/ca.crt:ro\" with GATEWAY_CA_FILE=/certs/ca.crt): %w", err)
 		}
 		pem = append(pem, '\n')
 		pem = append(pem, data...)

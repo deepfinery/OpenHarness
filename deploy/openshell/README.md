@@ -22,7 +22,9 @@ OpenHarness server (public)                       OpenShell host (private)
    because the OpenShell gateway creates sandboxes through the Docker socket.
 3. **Configure.** `cp .env.example .env` and fill in `OPENHARNESS_GATEWAY_URL`, `OPENHARNESS_DEVICE_ID`,
    `OPENHARNESS_TOKEN`. If the harness uses the self-signed TLS front (`scripts/enable-tls.sh` on the server),
-   copy the server's `data/tls/ca.crt` into `./certs/` and keep `OPENHARNESS_CA_FILE=/certs/ca.crt`.
+   copy the server's `data/tls/ca.crt` into `./certs/` and keep `OPENHARNESS_CA_FILE=/certs/ca.crt`. That value is a
+   path inside the edge container, where `./certs` is mounted as `/certs`; if you give a path on this host instead,
+   `up.sh` copies the file into `./certs` and updates `.env`.
 4. **Start.** `sh up.sh` (the first run creates the OpenShell PKI under `/var/lib/openshell/tls` with the
    gateway's own `generate-certs`; the gateway then requires client certificates and mints the launch-scoped
    credentials the Docker driver needs), then `docker compose logs -f openharness-edge` until it reports
