@@ -50,12 +50,12 @@ OpenHarness server (public)                       OpenShell host (private)
 
 ## Operations
 
-| Task                               | Command                                                                                                            |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Follow the edge                    | `docker compose logs -f openharness-edge`                                                                          |
-| Follow the OpenShell gateway       | `docker compose logs -f openshell-gateway`                                                                         |
-| Use the OpenShell CLI on this host | `openshell gateway add http://127.0.0.1:8080 --local --name openharness`                                           |
-| Upgrade                            | edit `OPENSHELL_VERSION` / image tags in `.env` and `gateway.toml`, then `docker compose up -d`                    |
-| Stop                               | `docker compose down` (sandboxes created by OpenShell are separate containers; delete them from the console first) |
+| Task                               | Command                                                                                                                 |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Follow the edge                    | `docker compose logs -f openharness-edge`                                                                               |
+| Follow the OpenShell gateway       | `docker compose logs -f openshell-gateway`                                                                              |
+| Use the OpenShell CLI on this host | copy the `mtls` bundle as described above, then `openshell gateway add https://127.0.0.1:8080 --local --name openshell` |
+| Upgrade                            | edit `OPENSHELL_VERSION` / image tags in `.env` and `gateway.toml`, then `docker compose up -d`                         |
+| Stop                               | `docker compose down` (sandboxes created by OpenShell are separate containers; delete them from the console first)      |
 
 See `docs/openshell.md` in the repository for the tool list, the edge settings and how to verify enforcement.
