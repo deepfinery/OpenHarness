@@ -35,6 +35,23 @@ test('a failed tool call is sorted by what is known about its effect', () => {
   for (const error of notExecuted)
     assert.equal(classifyToolFailure(error).outcome, 'not_executed', error.message);
   assert.equal(classifyToolFailure('plain string').message, 'plain string');
+  // The durable-call journal wraps the real error; the classification and message follow the cause.
+  const wrappedTimeout = new AmbiguousToolCall('The external action was interrupted.', {
+    cause: new McpError(-32013, 'device did not answer run_command in time'),
+  });
+  assert.deepEqual(classifyToolFailure(wrappedTimeout), {
+    outcome: 'unknown',
+    message: 'MCP error -32013: device did not answer run_command in time',
+  });
+  const wrappedOffline = new AmbiguousToolCall('The external action was interrupted.', {
+    cause: new McpError(-32010, 'device offline'),
+  });
+  assert.equal(
+    classifyToolFailure(wrappedOffline).outcome,
+    'not_executed',
+    'the server said it did not run it',
+  );
+  assert.equal(classifyToolFailure(new AmbiguousToolCall('journal only')).outcome, 'unknown');
 });
 
 test('an uncertain result tells the model to verify and never to repeat the call', () => {

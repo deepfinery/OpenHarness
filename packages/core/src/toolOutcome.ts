@@ -25,7 +25,11 @@ export type ToolFailure = {
  */
 export function classifyToolFailure(error: unknown): ToolFailure {
   const message = (error instanceof Error ? error.message : String(error)).slice(0, 1500);
-  if (error instanceof AmbiguousToolCall) return { outcome: 'unknown', message };
+  if (error instanceof AmbiguousToolCall) {
+    // The durable-call journal wraps whatever the call threw. Classify the real failure when it is known.
+    const cause = (error as Error & { cause?: unknown }).cause;
+    return cause instanceof Error ? classifyToolFailure(cause) : { outcome: 'unknown', message };
+  }
   if (error instanceof McpError) {
     switch (error.code) {
       case ErrorCode.RequestTimeout:

@@ -338,6 +338,37 @@ test(
     assert.ok(!switched.output.includes(online.hostname), 'not on the workflow’s own machine');
     const offered = switched.events.find((e: any) => e.type === 'tool_completed');
     assert.match(offered.message, /run_command/);
+    // A call the gateway gives up on before this connector (120 s timeout) answers is an unknown outcome: the
+    // model is told to verify, the run continues, and the identical call is refused instead of re-run (#104).
+    const hanging = await waitRun(
+      (
+        await ok('/runs', {
+          workflowId: workflow.id,
+          input: 'Please run a hanging command twice on the machine',
+          deviceId: secondId,
+        })
+      ).id,
+    );
+    assert.equal(hanging.status, 'succeeded', hanging.error);
+    assert.ok(
+      hanging.events.some((e: any) => e.type === 'tool_uncertain'),
+      'the gateway timeout is recorded as an unknown outcome',
+    );
+    const outcomes = hanging.events
+      .filter((e: any) => e.type === 'tool_error')
+      .map((e: any) => String(e.data?.result ?? ''));
+    assert.equal(outcomes.length, 2, `two tool results, got ${outcomes.length}`);
+    assert.match(
+      outcomes[0],
+      /\[machine [^\]]+\]\nOutcome unknown:/,
+      'the first attempt is uncertain, and tagged',
+    );
+    assert.match(
+      outcomes[1],
+      /Not executed: an identical run_command call earlier in this run has an unknown outcome/,
+      'the identical repeat is refused',
+    );
+    assert.match(hanging.output, /Not executed/, 'the answer carries the refusal, not a second execution');
     assert.equal((await request(`/devices/${secondId}`, 'DELETE')).status, 204);
     // A machine that a workflow still uses cannot be removed.
     assert.equal((await request(`/devices/${deviceId}`, 'DELETE')).status, 409);
