@@ -1,7 +1,7 @@
 # Machines — installation guide
 
-How to let the orchestrator operate machines that have no public IP: Linux hosts, containers, and (in the
-next release) Windows hosts and Chrome browsers. Every machine runs a small **connector** that dials **out**
+How to let the orchestrator operate machines that have no public IP: Linux hosts, containers, OpenShell managed
+machines ([openshell.md](openshell.md)), and (in the next release) Windows hosts and Chrome browsers. Every machine runs a small **connector** that dials **out**
 to the **gateway** over WebSocket; the orchestrator never connects inbound to a machine.
 
 ```
@@ -68,7 +68,7 @@ docker compose exec gateway node gateway/dist/cli.js enroll --id box-1 --platfor
 docker compose exec gateway node gateway/dist/cli.js allow box-1 run_command,read_file,list_dir
 ```
 
-The studio's **Machines** page does the same through the admin API and is the normal way to enroll.
+The studio's **Inventory** page does the same through the admin API and is the normal way to enroll.
 
 ## 2. Enroll a machine
 
@@ -136,7 +136,7 @@ For a gateway without TLS (local development) add `-e GATEWAY_ALLOW_INSECURE=tru
 ## 5. Windows and Chrome
 
 `connector-windows` (PowerShell tools, optional UI Automation, Windows service or logon task) and
-`connector-chrome` (Manifest V3 extension) are the next release; the Machines page already accepts their
+`connector-chrome` (Manifest V3 extension) are the next release; the Inventory page already accepts their
 enrollment so the tokens and allow-lists are in place. Notes that apply when they ship:
 
 - A Windows **service** runs in Session 0 and cannot drive the interactive desktop; UI Automation tools need
@@ -144,6 +144,26 @@ enrollment so the tokens and allow-lists are in place. Notes that apply when the
   windows.
 - The Chrome connector should run in a dedicated Chrome profile with a per-site allow-list; `evaluate_js`
   stays off unless enabled in the extension options.
+
+## 5b. OpenShell managed machine
+
+An OpenShell managed machine is enrolled like a Linux machine (**Inventory → Add resource → OpenShell managed
+machine**) and deploys `deploy/openshell/compose.yaml` on the private host: the NVIDIA OpenShell 0.1.2 gateway
+(Docker driver) and the OpenHarness edge, a Go service that talks to that gateway over its gRPC API and dials out
+to the device gateway. The edge exposes sandboxes, execution inside them, logs and policies as MCP tools and
+launches executors: sandboxes that run the Go connector under a policy and register as sandboxed Linux machines.
+Settings, tools, constraints and the enforcement check are in [openshell.md](openshell.md).
+
+## 5c. TLS with a self-signed certificate
+
+`./scripts/enable-tls.sh <public-host-or-ip>` creates a local certificate authority and a server certificate under
+`data/tls/`, and switches `.env` so `./start.sh` runs Caddy on `TLS_PORT` (8443): `https://<host>:8443` is the
+studio and API, `wss://<host>:8443/connect` is where machines dial in, and the plain ports stay on loopback. The
+script also writes the CA into `.env` as `PUBLIC_CA_PEM_BASE64`, and the install commands the studio shows embed it,
+so a copy-paste enrollment trusts the server (`NODE_EXTRA_CA_CERTS` for the Node connector, `GATEWAY_CA_FILE` for
+the Go connector and edge, `certs/ca.crt` for the OpenShell deployment). Connectors set up by hand need the same;
+`connector-linux/install.sh` takes `GATEWAY_CA_FILE=<ca.crt>`. Import `data/tls/ca.crt` into your browser to avoid
+the warning. Servers that enabled TLS before this option existed: run the script again to add the key.
 
 ## 6. Use a machine
 
@@ -155,18 +175,19 @@ enrollment so the tokens and allow-lists are in place. Notes that apply when the
 
 ## 7. Troubleshooting
 
-| Symptom                                 | Check                                                                                                                                                                                               |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Machine stays **offline** after install | `sudo journalctl -u openharness-connector -f` (or `docker logs`). Close code 4001 = wrong token or not enrolled; 4003 = disabled or platform mismatch; TLS errors = `GATEWAY_URL` must be `wss://`. |
-| Online but **no tools**                 | Click **Sync** on the Machines page; the connector's `ALLOW_COMMANDS` does not affect the tool list, the machine's allowed tools in the studio do.                                                  |
-| `tool not allowed`                      | Add the tool in the machine's **Tools** dialog (gateway allow-list).                                                                                                                                |
-| `command is not on the allow-list`      | Add the program to `allow_commands` in the connector config (host) or `ALLOW_COMMANDS` (container).                                                                                                 |
-| `device timeout`                        | Raise `GATEWAY_TOOL_TIMEOUTS=run_command=600` or the connector's `command_timeout_seconds`.                                                                                                         |
-| Studio says the gateway is unreachable  | `docker compose ps gateway`, `GATEWAY_URL` from the api container, `GATEWAY_ADMIN_TOKEN` matches.                                                                                                   |
+| Symptom                                                            | Check                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Machine stays **offline** after install                            | `sudo journalctl -u openharness-connector -f` (or `docker logs`). Close code 4001 = wrong token or not enrolled; 4003 = disabled or platform mismatch; TLS errors = `GATEWAY_URL` must be `wss://`.                                                                                           |
+| **wss** connector loops on close code **1006** within milliseconds | The connector does not trust the server certificate. Re-copy the install command from the studio (it embeds the CA) or give the connector the CA: `NODE_EXTRA_CA_CERTS` (Node), `GATEWAY_CA_FILE` (Go). The connector log names the TLS error, for example `UNABLE_TO_VERIFY_LEAF_SIGNATURE`. |
+| Online but **no tools**                                            | Click **Sync tools** on the Inventory page; the connector's `ALLOW_COMMANDS` does not affect the tool list, the machine's allowed tools in the studio do.                                                                                                                                     |
+| `tool not allowed`                                                 | Add the tool in the machine's **Tools** dialog (gateway allow-list).                                                                                                                                                                                                                          |
+| `command is not on the allow-list`                                 | Add the program to `allow_commands` in the connector config (host) or `ALLOW_COMMANDS` (container).                                                                                                                                                                                           |
+| `device timeout`                                                   | Raise `GATEWAY_TOOL_TIMEOUTS=run_command=600` or the connector's `command_timeout_seconds`.                                                                                                                                                                                                   |
+| Studio says the gateway is unreachable                             | `docker compose ps gateway`, `GATEWAY_URL` from the api container, `GATEWAY_ADMIN_TOKEN` matches.                                                                                                                                                                                             |
 
 ## Restricted or privileged VM host access
 
-For a standalone Linux machine, **Machines & clusters → Add machine / Configure → Machine access** offers two modes:
+For a standalone Linux machine, **Inventory → Add resource / Configure → Machine access** offers two modes:
 
 - **Restricted connector** keeps the existing command allow-list and work-directory boundary. Commands run in the connector environment; seeing host kernel entries in `/proc` does not prove host userspace access.
 - **Privileged VM host (root)** is an administrator-only setting for the Linux Docker connector. Its generated command uses `--privileged --pid=host --user 0`, `HOST_ACCESS=true`, and `MACHINE_ACCESS_MODE=host`. `run_command` enters the VM host’s mount, PID, network, UTS and IPC namespaces with the host root and working directory. It can execute any host command as root, including disruptive operations; sudo is not needed. This is full administrator access, not read-only diagnostics.

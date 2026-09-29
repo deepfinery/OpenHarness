@@ -22,6 +22,8 @@
     "devices:build": "npm --prefix connector-core run build && npm --prefix connector-linux run build && npm --prefix gateway run build",
     "devices:typecheck": "npm --prefix connector-core run build && npm --prefix connector-core run typecheck && npm --prefix connector-linux run typecheck && npm --prefix gateway run typecheck",
     "devices:test": "npm --prefix connector-core run build && npm --prefix connector-core test && npm --prefix connector-linux test && npm --prefix gateway test",
+    "connector-go:test": "cd connector-go && go vet ./... && go test ./...",
+    "connector-go:build": "docker build -f connector-go/Dockerfile -t openharness-connector . && docker build -f connector-go/Dockerfile --target edge -t openharness-edge .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "generate:guardrail-templates": "node --import tsx scripts/generate-guardrail-templates.ts",

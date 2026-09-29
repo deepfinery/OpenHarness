@@ -3,11 +3,11 @@ import { clusterSchema, clusterView, type ClusterStore } from './clusters.js';
 import { randomUUID } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode, McpError, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { deviceIdPattern, platforms, type Logger } from '@openharness/connector-core';
 import { approvalTools, toolTimeouts, type GatewayConfig } from './config.js';
-import type { DeviceHub } from './hub.js';
+import { HubError, type DeviceHub } from './hub.js';
 import { DuplicateDeviceError, type Registry } from './registry.js';
 import type { GatewayAudit } from './audit.js';
 import type { ApprovalProvider } from './approval.js';
@@ -282,6 +282,58 @@ export function createHttpApp(deps: HttpDeps) {
         throw new HttpError(404, 'unknown device');
       hub.disconnect(String(req.params.id));
       res.json({ token, connect_url: `${publicUrl.replace(/\/$/, '')}/connect` });
+    }),
+  );
+  // The studio's own consoles (for example the OpenShell page) call a connector tool through the trusted admin
+  // API. This path is not for agents: it bypasses the per-device allow-list and the approval hook, so it stays
+  // behind the admin token, is audited under the `admin` identity, and the connector's local policy still applies.
+  app.post(
+    '/admin/devices/:id/call',
+    requireAdmin,
+    wrap(async (req, res) => {
+      const body = z
+        .object({
+          tool: z.string().min(1).max(200),
+          arguments: z.record(z.unknown()).default({}),
+          timeout_seconds: z.coerce.number().int().min(1).max(3600).optional(),
+        })
+        .parse(req.body);
+      const deviceId = String(req.params.id);
+      const record = await registry.get(deviceId);
+      if (!record) throw new HttpError(404, 'unknown device');
+      if (record.disabled) throw new HttpError(409, 'device disabled');
+      const started = Date.now();
+      const finish = (outcome: 'ok' | 'error' | 'timeout' | 'offline', error?: string) =>
+        audit.record({
+          identity: 'admin',
+          device_id: deviceId,
+          tool: body.tool,
+          arguments: body.arguments,
+          duration_ms: Date.now() - started,
+          outcome,
+          error,
+        });
+      try {
+        const result = await hub.callTool(
+          deviceId,
+          { name: body.tool, arguments: body.arguments },
+          { timeoutMs: body.timeout_seconds ? body.timeout_seconds * 1000 : timeoutFor(body.tool) },
+        );
+        await finish(result.isError ? 'error' : 'ok', result.isError ? 'tool reported an error' : undefined);
+        res.json({ result });
+      } catch (error) {
+        if (error instanceof HubError) {
+          await finish('offline', error.message);
+          throw new HttpError(503, error.message);
+        }
+        if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) {
+          await finish('timeout', 'device timeout');
+          throw new HttpError(504, `device did not answer ${body.tool} in time`);
+        }
+        await finish('error', error instanceof Error ? error.message : String(error));
+        if (error instanceof McpError) throw new HttpError(502, error.message);
+        throw error;
+      }
     }),
   );
   app.delete(

@@ -9,7 +9,7 @@ export const LEGACY_SUBPROTOCOLS = ['agentic-mcp.v1'];
 export const MAX_FRAME_BYTES = 4 * 1024 * 1024;
 export const HANDSHAKE_TIMEOUT_MS = 10_000;
 export const DEFAULT_HEARTBEAT_SECONDS = 30;
-export const platforms = ['linux', 'windows', 'chrome'] as const;
+export const platforms = ['linux', 'windows', 'chrome', 'openshell'] as const;
 export type Platform = (typeof platforms)[number];
 export const deviceIdPattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 

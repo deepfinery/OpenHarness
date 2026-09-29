@@ -32,7 +32,14 @@ export const collections = [
   'knowledge',
   'skills',
 ] as const;
-export type Platform = 'linux' | 'windows' | 'chrome';
+export type Platform = 'linux' | 'windows' | 'chrome' | 'openshell';
+/** Resource types in the inventory, in the order the studio offers them. */
+export const platformLabels: Record<Platform, string> = {
+  linux: 'Linux machine',
+  openshell: 'OpenShell managed machine',
+  chrome: 'Chrome',
+  windows: 'Windows',
+};
 /** A registered machine as reported by the device gateway, plus its mirrored connection. */
 export type Machine = {
   device_id: string;
@@ -50,9 +57,13 @@ export type Machine = {
   tool_count: number | null;
   connectionId?: string;
   tools: { name: string; description?: string }[];
+  /** What the connector announced; `openshell_sandbox` marks an executor confined by OpenShell. */
+  capabilities?: string[];
   created_at: string;
   endpoint: string;
 };
+export const isSandboxed = (m: Pick<Machine, 'capabilities'>) =>
+  Boolean(m.capabilities?.includes('openshell_sandbox'));
 export type ToolCatalog = Record<Platform, { name: string; description: string; risky?: boolean }[]>;
 export type Data = Record<(typeof collections)[number], Entity[]> & {
   /** Workspace defaults, such as the model provider new agents start with. */

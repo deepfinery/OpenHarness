@@ -23,6 +23,9 @@ compose build installer
 docker build -f connector-linux/Dockerfile \
   -t openharness-connector-cluster-test:local -t openharness-connector-host-access-test:local .
 docker build -f tests/fixtures/host-target.Dockerfile -t openharness-host-target-test:local .
+# The Go connector (Linux machines and executors) and the OpenShell edge.
+docker build -f connector-go/Dockerfile -t openharness-connector:local .
+docker build -f connector-go/Dockerfile --target edge -t openharness-edge:local .
 npm test
 npm run test:integration
 # The Open Harness conformance suite, pinned upstream, through the adapter in conformance/.

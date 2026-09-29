@@ -1,6 +1,7 @@
 import { InfrastructurePage } from './components/InfrastructurePage';
 import { GuardrailsPage } from './components/GuardrailsPage';
 import { HumanInbox } from './components/HumanInbox';
+import { OpenShellPage } from './components/OpenShellPage';
 import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -8,6 +9,7 @@ import {
   ArrowRight,
   BookOpen,
   Bot,
+  Boxes,
   ChevronRight,
   CircleHelp,
   Code2,
@@ -19,11 +21,11 @@ import {
   Plus,
   Plug,
   Search,
+  Server,
   Settings2,
   ShieldCheck,
   Sparkles,
   X,
-  Laptop,
 } from 'lucide-react';
 import {
   api,
@@ -53,7 +55,8 @@ import './refresh.css';
 const nav = [
   { id: 'workflows', label: 'Harnesses', icon: GitBranch },
   { id: 'playground', label: 'Playground', icon: MessageSquare },
-  { id: 'machines', label: 'Machines & clusters', icon: Laptop },
+  { id: 'inventory', label: 'Inventory', icon: Server },
+  { id: 'openshell', label: 'OpenShell', icon: Boxes },
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'connections', label: 'MCP connections', icon: Plug },
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
@@ -205,12 +208,12 @@ function Auth({ needsSetup, onLogin }: { needsSetup: boolean; onLogin: (u: User)
     </div>
   );
 }
-const currentPage = () =>
-  location.pathname.split('/')[1] === 'clusters'
-    ? 'machines'
-    : location.pathname.split('/')[1] === 'harnesses'
-      ? 'workflows'
-      : location.pathname.split('/')[1] || 'workflows';
+const currentPage = () => {
+  const first = location.pathname.split('/')[1];
+  // Older links to the machine and cluster pages open the inventory.
+  if (first === 'clusters' || first === 'machines') return 'inventory';
+  return first === 'harnesses' ? 'workflows' : first || 'workflows';
+};
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checking, setChecking] = useState(true);
@@ -326,8 +329,8 @@ function App() {
     return () => removeEventListener('popstate', handler);
   }, []);
   const navigate = (next: string, newTarget = '') => {
-    // Keep the selected fleet view and its URL when reselecting the active menu.
-    if (next === 'machines' && page === 'machines') {
+    // Keep the selected inventory view and its URL when reselecting the active menu.
+    if (next === 'inventory' && page === 'inventory') {
       setSidebar(false);
       return;
     }
@@ -507,12 +510,12 @@ function App() {
           <main className="page-content">
             {page === 'skills' ? (
               <SkillsPage data={data} refresh={refresh} act={act} />
-            ) : page === 'machines' ? (
+            ) : page === 'inventory' ? (
               <InfrastructurePage
                 {...props}
                 isAdmin={user.role === 'admin'}
                 onUseMachine={(m) => {
-                  // Machines are workflow tools: start a Machine operator workflow bound to this one.
+                  // Resources are workflow tools: start an operator workflow bound to this one.
                   if (!m?.connectionId) return;
                   setEditor({
                     type: 'workflows',
@@ -524,11 +527,14 @@ function App() {
                         connectionId: m.connectionId,
                         name: m.name,
                         tools: m.tools.map((t) => t.name),
+                        platform: m.platform,
                       },
                     }),
                   });
                 }}
               />
+            ) : page === 'openshell' ? (
+              <OpenShellPage data={data} isAdmin={user.role === 'admin'} navigate={navigate} />
             ) : page === 'connections' ? (
               <ConnectionsPage {...props} />
             ) : page === 'guardrails' ? (

@@ -2,6 +2,7 @@ import { machineInstallSnippets } from '../../../../packages/core/src/machineIns
 import { useEffect, useState } from 'react';
 import type { FleetCluster } from './InfrastructurePage';
 import {
+  Boxes,
   Chrome,
   Container,
   KeyRound,
@@ -13,7 +14,17 @@ import {
   Settings2,
   Trash2,
 } from 'lucide-react';
-import { api, errorMessage, send, timestamp, type Data, type Machine, type Platform } from '../api';
+import {
+  api,
+  errorMessage,
+  isSandboxed,
+  platformLabels,
+  send,
+  timestamp,
+  type Data,
+  type Machine,
+  type Platform,
+} from '../api';
 import { Button, CopyButton, Empty, ErrorNotice, Field, IconButton, Modal } from './ui';
 
 type PageProps = {
@@ -27,12 +38,19 @@ type PageProps = {
   onClusterChange: (id: string) => void;
 };
 type Enrollment = { machine: Machine; token: string; connectUrl: string; install: Record<string, string> };
-const platformLabel: Record<Platform, string> = { linux: 'Linux', windows: 'Windows', chrome: 'Chrome' };
-const PlatformIcon = ({ platform, size = 20 }: { platform: Platform; size?: number }) =>
+const platformLabel: Record<Platform, string> = {
+  linux: 'Linux',
+  windows: 'Windows',
+  chrome: 'Chrome',
+  openshell: 'OpenShell',
+};
+export const PlatformIcon = ({ platform, size = 20 }: { platform: Platform; size?: number }) =>
   platform === 'windows' ? (
     <MonitorCog size={size} />
   ) : platform === 'chrome' ? (
     <Chrome size={size} />
+  ) : platform === 'openshell' ? (
+    <Boxes size={size} />
   ) : (
     <Laptop size={size} />
   );
@@ -43,7 +61,7 @@ const slug = (name: string) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 40);
 
-/** The unified inventory includes standalone machines and cluster-enrolled nodes. */
+/** The unified inventory: standalone resources of every type and cluster-enrolled nodes. */
 export function MachinesPage({
   isAdmin,
   data,
@@ -99,8 +117,11 @@ export function MachinesPage({
     <>
       <div className="fleet-section-heading">
         <div>
-          <h2>Machine inventory</h2>
-          <p>Manage individual machines and the nodes enrolled in your clusters.</p>
+          <h2>Resources</h2>
+          <p>
+            Linux machines, OpenShell managed machines, Chrome browsers and Windows hosts, plus the nodes
+            enrolled in your clusters.
+          </p>
         </div>
         {data.gateway.configured && (
           <div className="row-actions">
@@ -117,14 +138,14 @@ export function MachinesPage({
             </Button>
             <Button onClick={() => setAdding(true)}>
               <Plus size={16} />
-              Add machine
+              Add resource
             </Button>
           </div>
         )}
       </div>
       <div className="fleet-filters">
         <input
-          aria-label="Filter machines"
+          aria-label="Filter resources"
           placeholder="Search name, hostname, or ID…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -135,7 +156,7 @@ export function MachinesPage({
           onChange={(e) => onClusterChange(e.target.value)}
         >
           <option value="">All clusters & standalone</option>
-          <option value="standalone">Standalone machines</option>
+          <option value="standalone">Standalone resources</option>
           {clusters.map((c) => (
             <option key={c._id} value={c._id}>
               {c.name}
@@ -151,15 +172,12 @@ export function MachinesPage({
           <option value="offline">Offline</option>
           <option value="disabled">Disabled</option>
         </select>
-        <select
-          aria-label="Filter by platform"
-          value={platform}
-          onChange={(e) => setPlatform(e.target.value)}
-        >
-          <option value="all">All platforms</option>
-          <option value="linux">Linux</option>
-          <option value="windows">Windows</option>
+        <select aria-label="Filter by type" value={platform} onChange={(e) => setPlatform(e.target.value)}>
+          <option value="all">All types</option>
+          <option value="linux">Linux machines</option>
+          <option value="openshell">OpenShell managed machines</option>
           <option value="chrome">Chrome</option>
+          <option value="windows">Windows</option>
         </select>
         {filteredView && (
           <Button variant="ghost" onClick={reset}>
@@ -171,16 +189,16 @@ export function MachinesPage({
         <Empty
           icon={<Laptop size={30} />}
           title="Connect your infrastructure"
-          text="Configure the device gateway in your installation to connect machines and enroll cluster nodes."
+          text="Configure the device gateway in your installation to connect resources and enroll cluster nodes."
         />
       ) : !machines.length ? (
         <Empty
           icon={<Laptop size={30} />}
-          title={filteredView ? 'No machines match these filters' : 'Connect your first machine'}
+          title={filteredView ? 'No resources match these filters' : 'Connect your first resource'}
           text={
             filteredView
               ? 'Try another search or clear the filters. Cluster nodes appear automatically when their connectors register.'
-              : 'Add a standalone host, container, or browser. For a fleet of nodes, create a cluster and reuse its shared enrollment configuration.'
+              : 'Add a Linux machine, an OpenShell managed machine, a Chrome browser or a Windows host. For a fleet of nodes, create a cluster and reuse its shared enrollment configuration.'
           }
           action={
             filteredView ? (
@@ -190,7 +208,7 @@ export function MachinesPage({
             ) : (
               <Button onClick={() => setAdding(true)}>
                 <Plus size={16} />
-                Add machine
+                Add resource
               </Button>
             )
           }
@@ -201,7 +219,7 @@ export function MachinesPage({
             <table className="fleet-table">
               <thead>
                 <tr>
-                  <th>Machine</th>
+                  <th>Resource</th>
                   <th>Cluster</th>
                   <th>Status</th>
                   <th>Tools</th>
@@ -211,7 +229,7 @@ export function MachinesPage({
               <tbody>
                 {machines.map((m) => (
                   <tr key={m.device_id}>
-                    <td data-label="Machine">
+                    <td data-label="Resource">
                       <div className="fleet-machine-name">
                         <span className="fleet-platform-icon">
                           <PlatformIcon platform={m.platform} />
@@ -222,6 +240,14 @@ export function MachinesPage({
                           </button>
                           <small title={m.hostname ?? m.device_id}>
                             {platformLabel[m.platform]} · {m.hostname ?? m.device_id}
+                            {isSandboxed(m) && (
+                              <>
+                                {' · '}
+                                <em className="sandboxed-tag" title="Runs inside an OpenShell sandbox">
+                                  sandboxed
+                                </em>
+                              </>
+                            )}
                           </small>
                         </div>
                       </div>
@@ -289,7 +315,7 @@ export function MachinesPage({
           <div className="fleet-pagination">
             <span>
               {activePage * pageSize + 1}–{Math.min((activePage + 1) * pageSize, filtered.length)} of{' '}
-              {filtered.length} machines
+              {filtered.length} resources
             </span>
             <div className="row-actions">
               <Button variant="secondary" disabled={activePage === 0} onClick={() => setPage(activePage - 1)}>
@@ -415,9 +441,13 @@ function AddMachineModal({
   const choosePlatform = (p: Platform) => {
     setPlatform(p);
     setTools((data.gateway.catalog[p] ?? []).map((t) => t.name));
+    if (p !== 'linux') {
+      setKind('host');
+      setAccessMode('restricted');
+    }
   };
   return (
-    <Modal title="Add a machine" onClose={onClose} wide>
+    <Modal title="Add a resource" onClose={onClose} wide>
       <form
         className="form-content"
         onSubmit={(e) => {
@@ -434,32 +464,37 @@ function AddMachineModal({
             .then((result: Enrollment) =>
               onEnrolled({
                 ...result,
-                install: { ...result.install, preferred: kind === 'container' ? 'docker' : platform },
+                install: {
+                  ...result.install,
+                  preferred: platform === 'linux' && kind === 'container' ? 'docker' : platform,
+                },
               }),
             )
             .catch((err) => setError(errorMessage(err)))
             .finally(() => setBusy(false));
         }}
       >
-        <div className="platform-picker" role="radiogroup" aria-label="Machine type">
+        <div className="platform-picker" role="radiogroup" aria-label="Resource type">
           {(
             [
-              ['linux', 'host', 'Linux host', 'systemd service', <Laptop size={20} key="l" />],
-              ['linux', 'container', 'Container', 'Docker image', <Container size={20} key="c" />],
-              ['windows', 'host', 'Windows', 'service or logon task', <MonitorCog size={20} key="w" />],
-              ['chrome', 'host', 'Chrome', 'browser extension', <Chrome size={20} key="b" />],
+              ['linux', 'Linux machine', 'systemd service or container', <Laptop size={20} key="l" />],
+              [
+                'openshell',
+                'OpenShell managed machine',
+                'sandboxes confined by NVIDIA OpenShell',
+                <Boxes size={20} key="o" />,
+              ],
+              ['chrome', 'Chrome', 'browser extension', <Chrome size={20} key="b" />],
+              ['windows', 'Windows', 'service or logon task', <MonitorCog size={20} key="w" />],
             ] as const
-          ).map(([p, k, label, hint, icon]) => (
+          ).map(([p, label, hint, icon]) => (
             <button
               type="button"
-              key={label}
+              key={p}
               role="radio"
-              aria-checked={platform === p && kind === k}
-              className={`platform-option ${platform === p && kind === k ? 'selected' : ''}`}
-              onClick={() => {
-                choosePlatform(p);
-                setKind(k);
-              }}
+              aria-checked={platform === p}
+              className={`platform-option ${platform === p ? 'selected' : ''}`}
+              onClick={() => choosePlatform(p)}
             >
               {icon}
               <strong>{label}</strong>
@@ -467,14 +502,51 @@ function AddMachineModal({
             </button>
           ))}
         </div>
+        {platform === 'linux' && (
+          <div className="platform-picker deployment" role="radiogroup" aria-label="Linux deployment">
+            {(
+              [
+                ['host', 'Linux service', 'systemd unit on the host', <Laptop size={18} key="h" />],
+                ['container', 'Container', 'Docker image, no host install', <Container size={18} key="c" />],
+              ] as const
+            ).map(([k, label, hint, icon]) => (
+              <button
+                type="button"
+                key={k}
+                role="radio"
+                aria-checked={kind === k}
+                className={`platform-option ${kind === k ? 'selected' : ''}`}
+                onClick={() => setKind(k)}
+              >
+                {icon}
+                <strong>{label}</strong>
+                <small>{hint}</small>
+              </button>
+            ))}
+          </div>
+        )}
+        {platform === 'openshell' && (
+          <p className="field-help">
+            One compose file deploys the OpenShell gateway and the OpenHarness edge on the private host; the
+            edge dials out to the harness gateway, so the harness never connects in. Agents get the tools
+            ticked below, the OpenShell console manages sandboxes and policies through the trusted
+            administrator path, and executors launched from it appear here as sandboxed Linux machines.
+          </p>
+        )}
         <div className="two-columns">
           <Field label="Name">
             <input
-              aria-label="Machine name"
+              aria-label="Resource name"
               required
               autoFocus
               placeholder={
-                kind === 'container' ? 'Build box' : platform === 'chrome' ? 'Ben’s Chrome' : 'Office server'
+                platform === 'openshell'
+                  ? 'Lab OpenShell gateway'
+                  : kind === 'container'
+                    ? 'Build box'
+                    : platform === 'chrome'
+                      ? 'Ben’s Chrome'
+                      : 'Office server'
               }
               value={name}
               onChange={(e) => {
@@ -484,11 +556,11 @@ function AddMachineModal({
             />
           </Field>
           <Field
-            label="Machine ID"
+            label="Resource ID"
             hint="Lowercase letters, digits and dashes. Used in the connector settings."
           >
             <input
-              aria-label="Machine ID"
+              aria-label="Resource ID"
               pattern="[a-z0-9][a-z0-9\-]{0,62}"
               value={deviceId}
               onChange={(e) => {
@@ -519,6 +591,12 @@ function AddMachineModal({
         )}
         <div className="form-section">
           <h3>Tools the agent may use</h3>
+          {platform === 'openshell' && (
+            <p className="field-help">
+              Tools that change sandboxes or policies are marked <em className="risky">acts</em>. Leave them
+              off for agents that should only observe; the connector's own settings can forbid them entirely.
+            </p>
+          )}
           <ToolChecklist
             platform={platform}
             catalog={data.gateway.catalog}
@@ -574,6 +652,7 @@ function ConnectModal({
     docker: 'Container',
     windows: 'Windows',
     chrome: 'Chrome',
+    openshell: 'OpenShell host (compose)',
   };
   return (
     <Modal title={`Connect ${enrollment.machine.name}`} onClose={onClose} wide>
@@ -614,6 +693,14 @@ function ConnectModal({
           <input value={gateway} onChange={(e) => setGateway(e.target.value)} />
         </Field>
         <ErrorNotice error={setupError} />
+        {enrollment.machine.platform === 'openshell' && (
+          <p className="field-help">
+            Run this on the OpenShell host. The compose file starts the OpenShell {'0.1.2'} gateway (Docker
+            driver) and the OpenHarness edge beside it; the edge only needs outbound access to the harness
+            gateway. With a self-signed harness certificate, copy the server's <code>data/tls/ca.crt</code>{' '}
+            into <code>deploy/openshell/certs</code> before starting.
+          </p>
+        )}
         {enrollment.machine.access_mode === 'host' && (
           <p className="field-help">
             Commands run as root on the VM host; sudo is unnecessary. Host NVIDIA/DCGM tools must be installed
@@ -700,7 +787,7 @@ function MachineSettingsModal({
         <div className="two-columns">
           <Field label="Name">
             <input
-              aria-label="Machine name"
+              aria-label="Resource name"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -713,7 +800,7 @@ function MachineSettingsModal({
                 {machine.online ? 'online' : 'offline'}
               </span>
               <small>
-                {platformLabel[machine.platform]} · <span className="mono">{machine.device_id}</span>
+                {platformLabels[machine.platform]} · <span className="mono">{machine.device_id}</span>
                 {machine.hostname ? ` · ${machine.hostname}` : ''}
               </small>
             </div>
@@ -770,7 +857,7 @@ function MachineSettingsModal({
             </small>
           ) : (
             <div className="row-actions">
-              {machine.platform === 'linux' && (
+              {(machine.platform === 'linux' || machine.platform === 'openshell') && (
                 <Button
                   type="button"
                   variant="secondary"

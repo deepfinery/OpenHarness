@@ -36,7 +36,7 @@ handshake is plain MCP (JSON-RPC 2.0); the protocol adds only connection setup, 
 | ------------------- | -------------------------------------------------------------------------------------------------------- |
 | `protocol_version`  | Integer, currently `1`. Unsupported → close `4013`.                                                      |
 | `device_id`         | `^[a-z0-9][a-z0-9-]{0,62}$`; must exist in the registry and not be disabled.                             |
-| `platform`          | `linux` \| `windows` \| `chrome`; must match the enrolled platform.                                      |
+| `platform`          | `linux` \| `windows` \| `chrome` \| `openshell`; must match the enrolled platform.                       |
 | `hostname`          | ≤ 253 chars, informational.                                                                              |
 | `token`             | The one-time enrollment token; verified against the argon2id hash. Never logged.                         |
 | `connector_version` | Semver string, informational (surfaced by `device_status`).                                              |

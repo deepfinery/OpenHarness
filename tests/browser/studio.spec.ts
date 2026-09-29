@@ -115,7 +115,8 @@ test('navigation shows every studio page without browser exceptions', async ({ p
   for (const [nav, landmark] of [
     ['Harnesses', page.getByRole('heading', { name: 'Harnesses', exact: true })],
     ['Playground', page.getByLabel('Message your agent')],
-    ['Machines & clusters', page.getByRole('heading', { name: 'Machines & clusters', exact: true })],
+    ['Inventory', page.getByRole('heading', { name: 'Inventory', exact: true })],
+    ['OpenShell', page.getByRole('heading', { name: 'OpenShell', exact: true })],
     ['Skills', page.getByRole('heading', { name: 'Skills', exact: true })],
     ['MCP connections', page.getByRole('heading', { name: 'MCP connections', exact: true })],
     ['Knowledge', page.locator('.topbar button[aria-label="New knowledge base"]')],

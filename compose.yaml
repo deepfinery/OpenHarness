@@ -5,6 +5,10 @@ x-app-environment: &app-environment
   NODE_ENV: production
   PORT: 8088
   PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8088}
+  # The CA connectors must trust when the public endpoints use a private certificate (scripts/enable-tls.sh writes
+  # PUBLIC_CA_PEM_BASE64); install commands in the studio embed it.
+  PUBLIC_CA_PEM_BASE64: ${PUBLIC_CA_PEM_BASE64:-}
+  PUBLIC_CA_FILE: ${PUBLIC_CA_FILE:-}
   MONGODB_URI: mongodb://agentic:${MONGO_PASSWORD:?Run ./start.sh first}@mongo:27017/agentic?authSource=admin
   MONGODB_DATABASE: agentic
   RABBITMQ_URL: amqp://agentic:${RABBITMQ_PASSWORD:?Run ./start.sh first}@rabbitmq:5672
@@ -149,6 +153,37 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  # TLS front (profile `tls`): HTTPS for the studio and WSS for the device gateway with your own certificate.
+  # scripts/enable-tls.sh creates a self-signed one and points .env at it; the plain ports then stay on loopback.
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: ['tls']
+    ports: ['${TLS_BIND:-0.0.0.0}:${TLS_PORT:-8443}:8443']
+    volumes:
+      - ./deploy/tls/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${TLS_DIR:-./data/tls}:/certs:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api: { condition: service_healthy }
+      gateway: { condition: service_healthy }
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '-q',
+          '--no-check-certificate',
+          '-O',
+          '/dev/null',
+          'https://127.0.0.1:8443/api/health',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   guardrail-evaluation:
     profiles: [safety-evaluation]
@@ -308,3 +343,5 @@ volumes:
   opensearch:
   elasticsearch:
   files:
+  caddy-data:
+  caddy-config:

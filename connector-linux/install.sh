@@ -1,6 +1,7 @@
 #!/bin/sh
 # Installs the OpenHarness Linux connector as a hardened systemd service running as a dedicated non-root user.
 # Usage (run as root):  GATEWAY_URL=wss://gateway.example.com/connect DEVICE_ID=laptop-1 DEVICE_TOKEN=dv_... sh install.sh
+# Optional: GATEWAY_CA_FILE=<ca.crt> when the gateway uses a private certificate authority (GATEWAY_CA_FILE= removes it).
 set -eu
 : "${GATEWAY_URL:?set GATEWAY_URL (wss://<gateway>/connect)}"
 : "${DEVICE_ID:?set DEVICE_ID}"
@@ -43,6 +44,17 @@ const unit = fs.readFileSync(process.argv[2], 'utf8');
 process.stdout.write(unit.replace('ExecStart=/usr/bin/node ', `ExecStart=${JSON.stringify(process.argv[3])} `));
 NODE
 chmod 644 /etc/systemd/system/openharness-connector.service
+# A private certificate authority for the gateway (GATEWAY_CA_FILE): installed next to the config and handed to
+# Node through a unit drop-in, so the hardened unit itself stays unchanged.
+dropin=/etc/systemd/system/openharness-connector.service.d
+if [ -n "${GATEWAY_CA_FILE:-}" ]; then
+  install -m 644 -o root -g openharness-connector "$GATEWAY_CA_FILE" "$CONF/ca.crt"
+  mkdir -p "$dropin"
+  printf '[Service]\nEnvironment=NODE_EXTRA_CA_CERTS=%s\n' "$CONF/ca.crt" > "$dropin/ca.conf"
+  chmod 644 "$dropin/ca.conf"
+elif [ "${GATEWAY_CA_FILE+set}" = set ]; then
+  rm -f "$dropin/ca.conf" "$CONF/ca.crt"
+fi
 systemctl daemon-reload
 systemctl enable openharness-connector
 systemctl restart openharness-connector
