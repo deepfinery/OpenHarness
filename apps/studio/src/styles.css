@@ -271,6 +271,11 @@ strong {
   display: flex;
   flex-direction: column;
   padding: 31px 18px 15px;
+  /* The menu is taller than a short viewport: scroll it instead of clipping the lower entries and the profile. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #ffffff2e transparent;
 }
 .brand {
   display: flex;
@@ -4121,6 +4126,7 @@ th,
 /* Sidebar: white, navy brand, slate items, blue active bar. */
 .sidebar {
   background: var(--sidebar);
+  scrollbar-color: #0000002e transparent;
   color: var(--muted);
   border-right: 1px solid var(--border-soft);
 }
