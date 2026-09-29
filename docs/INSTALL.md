@@ -185,6 +185,14 @@ the warning. Servers that enabled TLS before this option existed: run the script
 - **Workflows:** machines also appear in the designer's toolbox under **Machines**; drag one onto an agent to
   bind it permanently to that agent.
 - **API:** `POST /api/runs` or `/api/chat` with `"deviceId": "box-1"`; a conversation remembers its machine.
+- **Several machines on one agent:** every result a machine tool returns starts with a `[machine <name> · <hostname>]`
+  tag, in the trace and in what the model reads, and the prompt lists the reachable machines with their tool names.
+  When the request names one machine and the agent calls a tool of another, that call is refused once with the
+  right machine's tools; a repeated call runs, so a task that spans machines is not blocked. A request that names a
+  machine the agent cannot reach is reported, not redirected.
+- **Slow commands:** a command that outlives the connector's `COMMAND_TIMEOUT_SECONDS` (60 s by default) comes back
+  as a timed-out tool result with the output produced so far, and the run continues. Pass `timeout_seconds` for a
+  longer command; the runtime and gateway wait accordingly, up to the connector's limit.
 
 ## 7. Troubleshooting
 

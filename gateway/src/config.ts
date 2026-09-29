@@ -62,6 +62,15 @@ export function toolTimeouts(config: GatewayConfig) {
     const [tool, seconds] = entry.split('=');
     if (tool && Number(seconds) > 0) overrides.set(tool.trim(), Number(seconds) * 1000);
   }
-  return (tool: string) => overrides.get(tool) ?? config.GATEWAY_TOOL_TIMEOUT_SECONDS * 1000;
+  const fallback = config.GATEWAY_TOOL_TIMEOUT_SECONDS * 1000;
+  // An operator's per-tool override is a cap. Otherwise a caller's own timeout_seconds may extend the default, with
+  // a margin so the connector's definitive timeout result arrives before the gateway gives up on the call.
+  return (tool: string, requestedSeconds?: number) => {
+    const override = overrides.get(tool);
+    if (override !== undefined) return override;
+    return Number.isFinite(requestedSeconds) && requestedSeconds! > 0
+      ? Math.max(fallback, Math.min(requestedSeconds!, 3600) * 1000 + 10_000)
+      : fallback;
+  };
 }
 export const approvalTools = (config: GatewayConfig) => new Set(list(config.GATEWAY_APPROVAL_TOOLS));

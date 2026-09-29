@@ -53,6 +53,13 @@ test('the Linux connector exposes its tools and enforces the command allow-list,
   const slow = await call(client, 'run_command', { argv: ['sleep', '5'] });
   assert.equal(slow.isError, true);
   assert.match(slow.content[0].text, /timed out/);
+  assert.equal(slow.structuredContent.timed_out, true);
+  // Output produced before the deadline survives: a long scan that is cut short still yields evidence.
+  const partial = await call(client, 'run_command', { argv: ['sh', '-c', 'echo partial-result; sleep 5'] });
+  assert.equal(partial.isError, true);
+  assert.equal(partial.structuredContent.timed_out, true);
+  assert.match(partial.structuredContent.stdout, /partial-result/);
+  assert.match(partial.content[0].text, /timed out after 1 s[\s\S]*partial-result/);
   const big = await call(client, 'run_command', {
     argv: ['sh', '-c', 'head -c 10000 /dev/zero | tr "\\0" x'],
   });

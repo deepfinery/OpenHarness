@@ -115,3 +115,55 @@ test('provider stream errors surface instead of returning a partial tool call', 
   );
   await assert.rejects(request(), /provider reported an error/);
 });
+
+test('transient provider failures are retried with backoff, rejected requests are not', async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++;
+    if (calls === 1)
+      return new Response('{"error":{"message":"busy"}}', { status: 503, headers: { 'retry-after': '0' } });
+    if (calls === 2) throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } });
+    return stream(frame({ content: 'ready' }) + frame({}, 'stop') + 'data: [DONE]\n\n');
+  });
+  const result = await request();
+  assert.equal(result.text, 'ready');
+  assert.equal(calls, 3, 'a 503 and a reset connection are each retried once');
+
+  calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++;
+    return new Response('{"error":{"message":"bad key"}}', { status: 401 });
+  });
+  await assert.rejects(request(), /HTTP 401/);
+  assert.equal(calls, 1, 'a rejected request is not retried');
+
+  calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++;
+    throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+  });
+  await assert.rejects(request(), /model\.test is unreachable: ECONNREFUSED \(4 attempts\)/);
+  assert.equal(calls, 4, 'connection errors are retried up to four attempts');
+
+  calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++;
+    return new Response('{"error":{"message":"overloaded"}}', { status: 503 });
+  });
+  await assert.rejects(request(), /HTTP 503.*after 4 attempts/);
+  assert.equal(calls, 4);
+});
+
+test('a provider error inside the stream is a retryable model response error', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => stream('data: {"error":{"message":"overloaded"}}\n\n'));
+  await assert.rejects(
+    request(),
+    (e: unknown) =>
+      e instanceof ModelResponseError && e.details.reason === 'stream_error' && /overloaded/.test(e.message),
+  );
+  t.mock.method(globalThis, 'fetch', async () => stream(': keep-alive\n\n'));
+  await assert.rejects(
+    request(),
+    (e: unknown) => e instanceof ModelResponseError && e.details.reason === 'incomplete_stream',
+  );
+});

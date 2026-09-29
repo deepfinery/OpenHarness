@@ -317,7 +317,7 @@ export function createHttpApp(deps: HttpDeps) {
         const result = await hub.callTool(
           deviceId,
           { name: body.tool, arguments: body.arguments },
-          { timeoutMs: body.timeout_seconds ? body.timeout_seconds * 1000 : timeoutFor(body.tool) },
+          { timeoutMs: timeoutFor(body.tool, body.timeout_seconds) },
         );
         await finish(result.isError ? 'error' : 'ok', result.isError ? 'tool reported an error' : undefined);
         res.json({ result });

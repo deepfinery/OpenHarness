@@ -119,6 +119,9 @@ func guarded[A any](ctx *Context, tool string, body func(context.Context, A) (*m
 		}
 		if result.IsError {
 			entry["outcome"] = "error"
+			if structured, ok := result.StructuredContent.(map[string]any); ok && structured["timed_out"] == true {
+				entry["outcome"] = "timeout"
+			}
 		} else {
 			entry["outcome"] = "ok"
 		}
@@ -172,27 +175,30 @@ func Register(server *mcp.Server, ctx *Context) {
 			if err != nil {
 				return nil, err
 			}
-			if run.TimedOut {
-				return nil, fmt.Errorf("command timed out after %d s", int(timeout.Seconds()))
-			}
 			structured := map[string]any{
 				"exit_code": run.ExitCode, "signal": run.Signal, "stdout": run.Stdout, "stderr": run.Stderr,
-				"truncated": run.Truncated, "timed_out": false, "duration_ms": time.Since(started).Milliseconds(),
+				"truncated": run.Truncated, "timed_out": run.TimedOut, "duration_ms": time.Since(started).Milliseconds(),
 				"argv": a.Argv, "execution_scope": scope, "effective_access": "restricted",
 			}
 			parts := []string{fmt.Sprintf("[execution scope: %s, restricted]", scope)}
+			// A timed-out command is a definite outcome: the process was killed. Its partial output is still evidence.
+			if run.TimedOut {
+				parts = append(parts, fmt.Sprintf("[timed out after %d s; the command was killed. Partial output follows. A larger timeout_seconds works up to the connector's COMMAND_TIMEOUT_SECONDS.]", int(timeout.Seconds())))
+			}
 			if run.Stdout != "" {
 				parts = append(parts, run.Stdout)
 			}
 			if run.Stderr != "" {
 				parts = append(parts, "[stderr]\n"+run.Stderr)
 			}
-			exit := fmt.Sprintf("[exit %d]", run.ExitCode)
-			if run.Signal != nil {
-				exit = fmt.Sprintf("[exit %s]", *run.Signal)
+			if !run.TimedOut {
+				exit := fmt.Sprintf("[exit %d]", run.ExitCode)
+				if run.Signal != nil {
+					exit = fmt.Sprintf("[exit %s]", *run.Signal)
+				}
+				parts = append(parts, exit)
 			}
-			parts = append(parts, exit)
-			return &mcp.Result{Content: []mcp.Content{{Type: "text", Text: strings.Join(parts, "\n")}}, StructuredContent: structured, IsError: run.ExitCode != 0}, nil
+			return &mcp.Result{Content: []mcp.Content{{Type: "text", Text: strings.Join(parts, "\n")}}, StructuredContent: structured, IsError: run.TimedOut || run.ExitCode != 0}, nil
 		}, commandCache, func(a struct {
 			Argv           []string `json:"argv"`
 			Cwd            string   `json:"cwd"`

@@ -44,6 +44,8 @@ services:
     environment:
       GATEWAY_HEARTBEAT_SECONDS: 5
       GATEWAY_PUBLIC_URL: ws://gateway:8090
+      # Short enough for the machines test to exercise a call the gateway gives up on before the connector answers.
+      GATEWAY_TOOL_TIMEOUT_SECONDS: 30
   # A Linux machine (the Go connector) with no inbound ports; the integration test starts it after enrolling it.
   device:
     build: { context: ., dockerfile: connector-go/Dockerfile }
@@ -54,7 +56,9 @@ services:
       GATEWAY_ALLOW_INSECURE: 'true'
       DEVICE_ID: ${TEST_DEVICE_ID:-test-box}
       DEVICE_TOKEN: ${TEST_DEVICE_TOKEN:-unset}
-      ALLOW_COMMANDS: uname,echo,ls,cat
+      ALLOW_COMMANDS: uname,echo,ls,cat,sh,sleep
+      # A command that outlives this limit comes back as a timed-out result with its partial output.
+      COMMAND_TIMEOUT_SECONDS: ${TEST_COMMAND_TIMEOUT_SECONDS:-5}
       LOG_LEVEL: debug
     restart: 'no'
     security_opt: ['no-new-privileges:true']

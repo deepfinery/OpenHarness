@@ -1,4 +1,13 @@
-import { durableToolCall, AmbiguousToolCall } from './executionRecovery.js';
+import { durableToolCall } from './executionRecovery.js';
+import { callSignature, classifyToolFailure, toolCallTimeoutMs, uncertainToolResult } from './toolOutcome.js';
+import { gatewayAdmin, type DeviceView } from './devices.js';
+import {
+  machineTag,
+  machinesNote,
+  requestedMachines,
+  wrongMachineNotice,
+  type MachineRef,
+} from './machineContext.js';
 import { isGreeting } from './requestScope.js';
 import { startAgentActivity, completeAgentActivity } from './agentActivity.js';
 import { getHarnessFile, readHarnessFile, writeHarnessFile, harnessFiles, fileInfo } from './harnessFiles.js';
@@ -133,6 +142,8 @@ type Handler = {
   connectionId: string;
   name: string;
   label: string;
+  /** The connection's display name: the machine's name for device tools. */
+  connectionName: string;
   inputSchema: Record<string, unknown>;
   annotations?: Record<string, unknown>;
   machine?: boolean;
@@ -361,6 +372,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           connectionId: connection._id,
           name,
           label: `${connection.name} / ${name}`,
+          connectionName: connection.name,
           inputSchema: tool.inputSchema as Record<string, unknown>,
           annotations: tool.annotations,
           requiresApproval: tool._meta?.['openharness/approvalRequired'] === true,
@@ -373,6 +385,30 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
       }
     }
     if (tools.length > 120) throw new Error('An agent can expose at most 120 tools per run');
+    // The machines behind the attached tools, so results can be tagged with their origin and a request that names
+    // one machine is not carried out on another. Hostnames come from the gateway when it answers.
+    const machineRoster = new Map<string, MachineRef>();
+    for (const handler of handlers.values())
+      if (handler.machine && !machineRoster.has(handler.connectionId))
+        machineRoster.set(handler.connectionId, {
+          connectionId: handler.connectionId,
+          name: handler.connectionName,
+          deviceId: handler.deviceId,
+        });
+    if (machineRoster.size) {
+      const devices = await gatewayAdmin<{ devices: DeviceView[] }>(
+        `/devices?owner=${encodeURIComponent(ctx.ownerId)}`,
+      ).catch(() => ({ devices: [] as DeviceView[] }));
+      for (const machine of machineRoster.values()) {
+        const device = devices.devices.find((d) => d.device_id === machine.deviceId);
+        if (device) {
+          machine.hostname = device.hostname ?? undefined;
+          machine.platform = device.platform;
+        }
+      }
+    }
+    const machineTools = (connectionId: string) =>
+      [...handlers.entries()].filter(([, h]) => h.connectionId === connectionId).map(([alias]) => alias);
     let provider = await ownedProvider(ctx.ownerId, agent.providerId);
     const workerProvider = provider;
     const judgeProvider =
@@ -381,8 +417,8 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         : provider;
     const deviceNote = ctx.device
       ? ctx.device.platform === 'openshell'
-        ? `\n\nYou are working with the OpenShell managed machine "${ctx.device.name}"${ctx.device.hostname ? ` (${ctx.device.hostname})` : ''}. Its tools manage sandboxes on that host's OpenShell gateway: list and inspect sandboxes, run programs inside a sandbox with exec_in_sandbox (argv, no shell), read sandbox logs, and inspect or change sandbox policies where allowed. Work inside sandboxes, never on the host. Denials come from the sandbox policy: report them as they are, never try to work around them, and report the exact commands you ran and their results. The current state of sandboxes, policies and the host comes only from tool results you get for this request. Past experience, notebook notes and your own earlier answers describe the past: use them to decide what to check, re-check with tools before stating anything as current, and when tool results disagree with them, the tool results are correct.`
-        : `\n\nYou are operating the machine "${ctx.device.name}" (${ctx.device.platform}${ctx.device.hostname ? `, ${ctx.device.hostname}` : ''}). Its tools are attached to you. Inspect before you act, prefer read-only commands when they answer the question, and report the exact commands you ran and their results. Never claim a command succeeded unless its result says so. The machine's current state (what is running, resource and GPU usage, health, configuration) comes only from tool results you get for this request. Past experience, notebook notes and your own earlier answers describe the past: use them to decide what to check, re-check with tools before stating anything as current, and when tool results disagree with them, the tool results are correct.`
+        ? `\n\nYou are working with the OpenShell managed machine "${ctx.device.name}"${ctx.device.hostname ? ` (${ctx.device.hostname})` : ''}. Its tools manage sandboxes on that host's OpenShell gateway: list and inspect sandboxes, run programs inside a sandbox with exec_in_sandbox (argv, no shell), read sandbox logs, and inspect or change sandbox policies where allowed. Work inside sandboxes, never on the host. Denials come from the sandbox policy: report them as they are, never try to work around them, and report the exact commands you ran and their results. The current state of sandboxes, policies and the host comes only from tool results you get for this request. Past experience, notebook notes and your own earlier answers describe the past: use them to decide what to check, re-check with tools before stating anything as current, and when tool results disagree with them, the tool results are correct. If the request names a machine other than "${ctx.device.name}", say so before doing anything else: this run is bound to "${ctx.device.name}" and cannot reach another machine, so do not carry out the request here as if it were that machine.`
+        : `\n\nYou are operating the machine "${ctx.device.name}" (${ctx.device.platform}${ctx.device.hostname ? `, ${ctx.device.hostname}` : ''}). Its tools are attached to you. Inspect before you act, prefer read-only commands when they answer the question, and report the exact commands you ran and their results. Never claim a command succeeded unless its result says so. The machine's current state (what is running, resource and GPU usage, health, configuration) comes only from tool results you get for this request. Past experience, notebook notes and your own earlier answers describe the past: use them to decide what to check, re-check with tools before stating anything as current, and when tool results disagree with them, the tool results are correct. If the request names a machine other than "${ctx.device.name}", say so before doing anything else: this run is bound to "${ctx.device.name}" and cannot reach another machine, so do not carry out the request here as if it were that machine.`
       : '';
     const skills = (agent.skills ?? []).filter((s) => s.enabled !== false);
     const skillNote = skills.length
@@ -508,6 +544,9 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
       clockNote +
       skillNote +
       deviceNote +
+      (machineRoster.size > 1 || (machineRoster.size === 1 && !ctx.device)
+        ? machinesNote([...machineRoster.values()], machineTools)
+        : '') +
       taskMemoryPrompt +
       '\nCall only exact function names from the current tool definitions. Match MCP names mentioned in skills or notes to the attached tool descriptions; never guess aliases.' +
       (workspace
@@ -556,6 +595,10 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
     );
     let terminalAnswer: string | undefined = progress?.terminalAnswer;
     let rejectedToolBatches = progress?.rejectedToolBatches ?? 0;
+    // Calls whose effect could not be confirmed in this run; an identical call is refused, never repeated blindly.
+    const uncertainCalls = new Set<string>();
+    // Machines the model was already told it is not the one the request named; a second call there is honored.
+    const warnedMachines = new Set<string>();
     let estimateScale = Math.max(1, provider.contextTokenScale ?? 1, progress?.estimateScale ?? 1);
     let learnedPromptBudget = progress?.learnedPromptBudget ?? Infinity;
     const usage = (spent: number) => {
@@ -570,7 +613,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         .catch(() => {});
     }
     /** Every attempt budgets instructions, tool schemas, output, wire overhead and final synthesis. */
-    async function model(dialog: ChatMessage[], offered: ToolDefinition[], finalAnswer = false) {
+    async function model(dialog: ChatMessage[], offered: ToolDefinition[], finalAnswer = false, nudges = 0) {
       // The provider wraps tool definitions; leave room for that wrapper as well as their text.
       const toolTokens = offered.length ? estimateTokens(JSON.stringify(offered)) + offered.length * 16 : 0;
       let responseRetries = 0;
@@ -583,9 +626,10 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         // half the call. Account for learned tokenizer density, a short language reference
         // and message framing before choosing the answer allowance (at least 128 tokens).
         const synthesisPromptFloor = dialogTokens(dialog.filter((message) => message.role === 'system')) + 64;
+        // A retried final answer gets more room: reasoning models can spend the limit before writing the answer.
         const outputLimit = finalAnswer
           ? Math.min(
-              provider.maxOutputTokens,
+              Math.min(32768, provider.maxOutputTokens * (1 + Math.max(responseRetries, nudges))),
               Math.max(
                 128,
                 Math.min(
@@ -606,9 +650,12 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           content: `Job budget (all agents): ${tokensUsed}/${agent.tokenBudget} tokens used; reserve ${finalReserve} for the answer. Plan remaining work accordingly. Per-call context: ${provider.contextWindow ?? 128000}, compact independently.`,
         };
         if (!finalAnswer) retryMessages.splice(retryMessages[0]?.role === 'system' ? 1 : 0, 0, budgetMessage);
-        if (responseRetries) {
-          const guidance =
-            '\n\nYour previous response could not be decoded and none of its tool calls ran. Return complete JSON objects for tool arguments. Keep arguments short, request one tool at a time, and do not copy large listings or reports into arguments.';
+        if (responseRetries || nudges) {
+          const guidance = finalAnswer
+            ? '\n\nYour previous reply contained no answer text: it was empty, or its output limit was reached before the answer. Write the final answer now, directly and concisely, without preliminary reasoning or a restatement of the evidence.'
+            : responseRetries
+              ? '\n\nYour previous response could not be decoded and none of its tool calls ran. Return complete JSON objects for tool arguments. Keep arguments short, request one tool at a time, and do not copy large listings or reports into arguments.'
+              : '\n\nYour previous reply was empty: no text and no tool call. Continue the task now: call the next tool you need, or write your answer.';
           if (retryMessages[0]?.role === 'system')
             retryMessages[0] = { ...retryMessages[0], content: retryMessages[0].content + guidance };
           else retryMessages.unshift({ role: 'system', content: guidance.trim() });
@@ -617,9 +664,10 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           ? { role: 'system', content: toolCorrection }
           : undefined;
         if (correctionMessage) retryMessages.unshift(correctionMessage);
-        const originalRequest = retryMessages.filter((m) => m.role === 'user').at(-1);
+        const originalRequest = retryMessages.filter((m) => m.role === 'user' && !m.reference).at(-1);
         const keepsRequest = (messages: ChatMessage[]) =>
-          messages.filter((m) => m.role === 'user').at(-1)?.content === originalRequest?.content;
+          messages.filter((m) => m.role === 'user' && !m.reference).at(-1)?.content ===
+          originalRequest?.content;
         const proactive = agent.contextCompaction !== false && dialogTokens(retryMessages) > budget * 0.8;
         const target = proactive ? Math.floor(budget * 0.65) : budget;
         let fitted = compactDialog(retryMessages, target);
@@ -675,7 +723,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
             fitted = { ...withRoom, tokens: dialogTokens(withRoom.messages) };
           }
         }
-        const retainedRequest = fitted.messages.filter((m) => m.role === 'user').at(-1);
+        const retainedRequest = fitted.messages.filter((m) => m.role === 'user' && !m.reference).at(-1);
         // A shortened request may omit operating restrictions. Do not authorize tools from that fragment.
         if (!finalAnswer && offered.length && originalRequest?.content !== retainedRequest?.content)
           throw new ContextCapacityError('The current request cannot fit intact; continuing without tools');
@@ -782,8 +830,9 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           signal.throwIfAborted();
           if (error instanceof ModelResponseError) {
             // The failed in-flight attempt was already reserved before sending.
-            if (finalAnswer) throw error;
-            const retry = responseRetries < 2 && tokensUsed < agent.tokenBudget - finalReserve;
+            // The final answer is retried too: an output limit hit by reasoning gets more room next time.
+            const retry =
+              responseRetries < 2 && (finalAnswer || tokensUsed < agent.tokenBudget - finalReserve);
             await ctx.event({
               type: retry ? 'model_retry' : 'model_error',
               message: `${error.message}${retry ? ' Retrying this model turn without streaming.' : ' Model response recovery exhausted.'}`,
@@ -933,6 +982,13 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
       ];
       let finalizing = active?.finalizing ?? false;
       let stopPatterns = active?.stopPatterns ?? false;
+      let emptyReplies = 0;
+      // When the request names exactly one reachable machine, the machine a tool of another connection belongs to.
+      const namedMachines = requestedMachines(input, [...machineRoster.values()]);
+      const wrongMachine = (connectionId: string) =>
+        namedMachines.length === 1 && namedMachines[0].connectionId !== connectionId
+          ? namedMachines[0]
+          : undefined;
       let pending = active?.response;
       ctx.onDelta?.('', true);
       for (let turn = active?.turn ?? 0; turn <= agent.maxTurns; turn++) {
@@ -998,6 +1054,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                 : dialog,
               finalizing ? [] : offered,
               finalizing,
+              emptyReplies,
             );
           } catch (error) {
             signal.throwIfAborted();
@@ -1033,7 +1090,31 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           });
           if (!response.toolCalls.length || finalizing) {
             if (!response.text.trim() || (finalizing && response.toolCalls.length)) {
-              if (!finalizing) throw new Error('The model returned an empty answer');
+              // Retry an empty or tool-only reply with a nudge (and more output room for the final answer)
+              // before giving up: reasoning models can spend the output limit before writing anything.
+              if (emptyReplies < 2) {
+                emptyReplies++;
+                await ctx.event({
+                  type: 'model_retry',
+                  message: finalizing
+                    ? 'The model did not write a final answer; asking again with more output room'
+                    : 'The model returned an empty reply; asking it to continue',
+                  data: {
+                    reason: response.toolCalls.length ? 'tool_call' : 'empty_answer',
+                    attempt: emptyReplies,
+                    tokensUsed,
+                  },
+                });
+                ctx.onDelta?.('', true);
+                pending = undefined;
+                continue;
+              }
+              if (!finalizing) {
+                finalizing = true;
+                stopPatterns = true;
+                pending = undefined;
+                continue;
+              }
               await ctx.event({
                 type: 'summary_unavailable',
                 message: 'The model did not provide a final summary; evidence is saved in task memory',
@@ -1556,6 +1637,9 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
               message: handler.label,
               data: { callId: call.id, tool: handler.name, arguments: asText(call.arguments).slice(0, 6000) },
             });
+            const readOnlyCall =
+              handler.annotations?.readOnlyHint === true && handler.annotations?.destructiveHint !== true;
+            const signature = callSignature(handler.name, call.arguments);
             let text: string;
             let isError: boolean;
             if (approval && approval.decision !== 'approve') {
@@ -1566,6 +1650,25 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
               isError = true;
             } else if (validationError) {
               text = validationError;
+              isError = true;
+            } else if (!readOnlyCall && uncertainCalls.has(signature)) {
+              text = `Not executed: an identical ${handler.name} call earlier in this run has an unknown outcome. Verify its effect with a read-only tool before repeating it, or change the call.`;
+              isError = true;
+            } else if (
+              handler.machine &&
+              machineRoster.size > 1 &&
+              !warnedMachines.has(handler.connectionId) &&
+              wrongMachine(handler.connectionId)
+            ) {
+              // The request names one machine and this tool belongs to another: refuse once and point at the right
+              // tools. A repeated call runs, so a task that really spans machines is not blocked.
+              warnedMachines.add(handler.connectionId);
+              const wanted = wrongMachine(handler.connectionId)!;
+              text = wrongMachineNotice(
+                machineRoster.get(handler.connectionId)!,
+                wanted,
+                machineTools(wanted.connectionId),
+              );
               isError = true;
             } else {
               try {
@@ -1582,37 +1685,31 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                       ],
                       isError: false,
                     }
-                  : await durableToolCall(
-                      ctx.ownerId,
-                      ctx.runId,
-                      idempotencyKey,
-                      handler.annotations?.readOnlyHint === true &&
-                        handler.annotations?.destructiveHint !== true,
-                      () =>
-                        handler.session.client.callTool(
-                          {
-                            name: handler.name,
-                            arguments: call.arguments,
-                            _meta: {
-                              idempotencyKey,
-                              ...(approval?.decision === 'approve' &&
-                              handler.trustedGateway &&
-                              handler.deviceId &&
-                              handler.requiresApproval
-                                ? {
-                                    humanApproval: signApprovalCall(config.GATEWAY_ADMIN_TOKEN, {
-                                      deviceId: handler.deviceId,
-                                      tool: handler.name,
-                                      arguments: call.arguments,
-                                      callId: idempotencyKey,
-                                    }),
-                                  }
-                                : {}),
-                            },
+                  : await durableToolCall(ctx.ownerId, ctx.runId, idempotencyKey, readOnlyCall, () =>
+                      handler.session.client.callTool(
+                        {
+                          name: handler.name,
+                          arguments: call.arguments,
+                          _meta: {
+                            idempotencyKey,
+                            ...(approval?.decision === 'approve' &&
+                            handler.trustedGateway &&
+                            handler.deviceId &&
+                            handler.requiresApproval
+                              ? {
+                                  humanApproval: signApprovalCall(config.GATEWAY_ADMIN_TOKEN, {
+                                    deviceId: handler.deviceId,
+                                    tool: handler.name,
+                                    arguments: call.arguments,
+                                    callId: idempotencyKey,
+                                  }),
+                                }
+                              : {}),
                           },
-                          undefined,
-                          { signal, timeout: 60000 },
-                        ),
+                        },
+                        undefined,
+                        { signal, timeout: toolCallTimeoutMs(call.arguments) },
+                      ),
                     );
                 // Large tool payloads are the usual cause of context overflow; the trace keeps 6000 chars anyway.
                 const full = asText(result);
@@ -1685,14 +1782,23 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                 }
               } catch (error) {
                 signal.throwIfAborted();
-                if (error instanceof AmbiguousToolCall) throw error;
-                text = `Tool call failed: ${error instanceof Error ? error.message : String(error)}`.slice(
-                  0,
-                  2000,
-                );
+                const failure = classifyToolFailure(error);
                 isError = true;
+                if (failure.outcome === 'unknown' && !readOnlyCall) {
+                  // The call may have acted: the runtime timed out waiting, the device reconnected, or the run
+                  // resumed over an unfinished call. The model learns that and verifies; the run continues.
+                  uncertainCalls.add(signature);
+                  text = uncertainToolResult(handler.name, failure).slice(0, 2000);
+                  await ctx.event({
+                    type: 'tool_uncertain',
+                    message: `${handler.label}: outcome unknown`,
+                    data: { callId: call.id, tool: handler.name, error: failure.message.slice(0, 500) },
+                  });
+                } else text = `Tool call failed: ${failure.message}`.slice(0, 2000);
               }
             }
+            const origin = handler.machine ? machineRoster.get(handler.connectionId) : undefined;
+            if (origin) text = `${machineTag(origin)}\n${text}`;
             await ctx.event({
               type: isError ? 'tool_error' : 'tool_completed',
               message: handler.label,
@@ -2222,7 +2328,7 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
                     },
                   },
                   undefined,
-                  { signal, timeout: 60000 },
+                  { signal, timeout: toolCallTimeoutMs(args) },
                 );
           } catch (error) {
             signal.throwIfAborted();

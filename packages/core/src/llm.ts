@@ -46,7 +46,7 @@ export async function ownedProvider(ownerId: string, id: string) {
 function endpoint(p: Provider, path: string) {
   return `${p.baseUrl.replace(/\/+$/, '')}${path}`;
 }
-async function failedResponse(response: Response) {
+async function failedResponse(response: Response, attempts = 1) {
   const body = await response.text().catch(() => '');
   let detail = body;
   try {
@@ -57,19 +57,82 @@ async function failedResponse(response: Response) {
     // Not JSON; keep the raw body text.
   }
   return new Error(
-    `Model provider returned HTTP ${response.status}${detail ? `: ${detail.slice(0, 500)}` : ''}. Check the endpoint, model, credentials and quota.`,
+    `Model provider returned HTTP ${response.status}${detail ? `: ${detail.slice(0, 500)}` : ''}${attempts > 1 ? ` (after ${attempts} attempts)` : ''}. Check the endpoint, model, credentials and quota.`,
   );
 }
-async function post(url: string, payload: unknown, headers: Record<string, string>, signal?: AbortSignal) {
-  const deadline = AbortSignal.timeout(180000);
-  const response = await safeFetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...headers },
-    body: JSON.stringify(payload),
-    signal: signal ? AbortSignal.any([deadline, signal]) : deadline,
+/** Responses worth another attempt: the provider is busy or a hop in front of it failed, not our request. */
+const RETRYABLE_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
+const MODEL_REQUEST_ATTEMPTS = 4;
+/** A connection that failed before or while the request was sent; never our own deadline or cancellation. */
+function transientNetworkError(error: unknown) {
+  if (!(error instanceof Error) || error.name === 'AbortError' || error.name === 'TimeoutError') return false;
+  const cause = (error as Error & { cause?: { code?: string; message?: string } }).cause;
+  const code = cause?.code ?? (error as Error & { code?: string }).code ?? '';
+  return (
+    /^(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|EPIPE|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|UND_ERR_)/.test(
+      code,
+    ) || /fetch failed|socket hang up|other side closed/i.test(`${error.message} ${cause?.message ?? ''}`)
+  );
+}
+function causeOf(error: unknown) {
+  const e = error as Error & { cause?: { code?: string; message?: string } };
+  return e?.cause?.code ?? e?.cause?.message ?? e?.message ?? String(error);
+}
+/** Exponential backoff with jitter, stretched to a Retry-After header when the provider sends one (30 s at most). */
+function retryDelayMs(attempt: number, retryAfter: string | null) {
+  const base = Math.min(8000, 500 * 2 ** attempt) + Math.floor(Math.random() * 250);
+  if (!retryAfter) return base;
+  const header = /^\d+$/.test(retryAfter.trim())
+    ? Number(retryAfter) * 1000
+    : Date.parse(retryAfter) - Date.now();
+  return Number.isFinite(header) && header > 0 ? Math.min(30000, Math.max(base, header)) : base;
+}
+function wait(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason ?? new Error('aborted'));
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error('aborted'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
-  if (!response.ok) throw await failedResponse(response);
-  return response;
+}
+/**
+ * One model request, retried on transient failures (connection errors, 408/409/425/429/5xx) with backoff. A
+ * provider that is momentarily unreachable or busy must not end a run; a rejected request (4xx) fails at once.
+ */
+async function post(url: string, payload: unknown, headers: Record<string, string>, signal?: AbortSignal) {
+  let retryAfter: string | null = null;
+  for (let attempt = 0; ; attempt++) {
+    if (attempt) await wait(retryDelayMs(attempt - 1, retryAfter), signal);
+    const last = attempt === MODEL_REQUEST_ATTEMPTS - 1;
+    let response: Response;
+    try {
+      const deadline = AbortSignal.timeout(180000);
+      response = await safeFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(payload),
+        signal: signal ? AbortSignal.any([deadline, signal]) : deadline,
+      });
+    } catch (error) {
+      if (signal?.aborted || !transientNetworkError(error)) throw error;
+      if (last)
+        throw new Error(
+          `Model provider at ${new URL(url).host} is unreachable: ${causeOf(error)} (${MODEL_REQUEST_ATTEMPTS} attempts). Check the endpoint, the network and that the model server is running.`,
+          { cause: error },
+        );
+      continue;
+    }
+    if (response.ok) return response;
+    if (last || !RETRYABLE_STATUS.has(response.status)) throw await failedResponse(response, attempt + 1);
+    retryAfter = response.headers.get('retry-after');
+    await response.body?.cancel().catch(() => {});
+  }
 }
 async function jsonRequest(
   url: string,
@@ -86,7 +149,7 @@ export class ModelResponseError extends Error {
   constructor(
     message: string,
     public details: {
-      reason: 'tool_arguments' | 'invalid_stream' | 'incomplete_stream' | 'output_limit';
+      reason: 'tool_arguments' | 'invalid_stream' | 'incomplete_stream' | 'stream_error' | 'output_limit';
       tool?: string;
       argumentChars?: number;
       finishReason?: string;
@@ -258,7 +321,10 @@ export async function chat(
           }
         }
         if (stopReason === 'max_tokens')
-          throw new Error('Model output limit reached; increase the provider output budget');
+          throw new ModelResponseError(
+            'Model output limit reached; use shorter tool arguments or increase the provider output budget',
+            { reason: 'output_limit', finishReason: 'length' },
+          );
         return {
           text,
           toolCalls: [...blocks.values()].map((b) => ({
@@ -343,8 +409,12 @@ export async function chat(
               output: data.usageMetadata.candidatesTokenCount ?? usage.output,
             };
         }
-        if (['MAX_TOKENS', 'SAFETY', 'RECITATION'].includes(finish))
-          throw new Error(`Model did not complete: ${finish}`);
+        if (finish === 'MAX_TOKENS')
+          throw new ModelResponseError(
+            'Model output limit reached; use shorter tool arguments or increase the provider output budget',
+            { reason: 'output_limit', finishReason: finish },
+          );
+        if (['SAFETY', 'RECITATION'].includes(finish)) throw new Error(`Model did not complete: ${finish}`);
         return { text, toolCalls, usage };
       }
       return geminiResult(await response.json());
@@ -417,9 +487,18 @@ export async function chat(
         return openAiResult(data, false);
       }
     }
-    if (!sawChunk) throw new Error('Model provider returned an empty stream');
+    if (!sawChunk)
+      throw new ModelResponseError(
+        'Model provider returned an empty stream. No tools from this response were executed.',
+        {
+          reason: 'incomplete_stream',
+        },
+      );
     if (doneReason === 'length')
-      throw new Error('Model output limit reached; increase the provider output budget');
+      throw new ModelResponseError(
+        'Model output limit reached; use shorter tool arguments or increase the provider output budget',
+        { reason: 'output_limit', finishReason: 'length' },
+      );
     return { text, toolCalls, usage };
   }
   if (!nativeOllama && isStream(response, 'text/event-stream')) {
@@ -428,7 +507,11 @@ export async function chat(
     let usage: ChatResult['usage'];
     let finish = '';
     for await (const { data } of sse(response, signal)) {
-      if (data.error) throw new Error('Model provider reported an error in its response stream');
+      if (data.error)
+        throw new ModelResponseError(
+          `Model provider reported an error in its response stream${typeof data.error?.message === 'string' ? `: ${data.error.message.slice(0, 200)}` : ''}. No tools from this response were executed.`,
+          { reason: 'stream_error' },
+        );
       const choice = data.choices?.[0];
       if (choice?.delta?.content) {
         text += choice.delta.content;
@@ -473,7 +556,10 @@ export async function chat(
 }
 function anthropicResult(data: any): ChatResult {
   if (data.stop_reason === 'max_tokens')
-    throw new Error('Model output limit reached; increase the provider output budget');
+    throw new ModelResponseError(
+      'Model output limit reached; use shorter tool arguments or increase the provider output budget',
+      { reason: 'output_limit', finishReason: 'length' },
+    );
   return {
     text: (data.content ?? [])
       .filter((c: any) => c.type === 'text')
@@ -487,7 +573,12 @@ function anthropicResult(data: any): ChatResult {
 }
 function geminiResult(data: any): ChatResult {
   const candidate = data.candidates?.[0];
-  if (!candidate || ['MAX_TOKENS', 'SAFETY', 'RECITATION'].includes(candidate.finishReason))
+  if (candidate?.finishReason === 'MAX_TOKENS')
+    throw new ModelResponseError(
+      'Model output limit reached; use shorter tool arguments or increase the provider output budget',
+      { reason: 'output_limit', finishReason: candidate.finishReason },
+    );
+  if (!candidate || ['SAFETY', 'RECITATION'].includes(candidate.finishReason))
     throw new Error(`Model did not complete: ${candidate?.finishReason ?? 'no candidate'}`);
   const parts = candidate.content?.parts ?? [];
   return {

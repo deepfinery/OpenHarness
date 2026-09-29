@@ -29,7 +29,7 @@ export type DeviceServerDeps = {
   audit: GatewayAudit;
   approval: ApprovalProvider;
   approvalTools: Set<string>;
-  timeoutFor: (tool: string) => number;
+  timeoutFor: (tool: string, requestedSeconds?: number) => number;
   log: Logger;
 };
 export function createDeviceServer(deviceId: string, identity: string, deps: DeviceServerDeps) {
@@ -154,7 +154,10 @@ export function createDeviceServer(deviceId: string, identity: string, deps: Dev
     }
     try {
       const result = await deps.hub.callTool(deviceId, request.params, {
-        timeoutMs: deps.timeoutFor(name),
+        timeoutMs: deps.timeoutFor(
+          name,
+          Number((args as { timeout_seconds?: unknown } | undefined)?.timeout_seconds),
+        ),
         signal: extra.signal,
       });
       await finish(result.isError ? 'error' : 'ok', result.isError ? 'tool reported an error' : undefined);
