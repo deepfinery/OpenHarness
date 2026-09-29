@@ -354,3 +354,50 @@ test('the inventory offers four resource types and old machine links still open 
   await page.goto('/clusters');
   await expect(page).toHaveURL(/\/inventory\?view=clusters$/);
 });
+
+test('the page trusts its own calls to the connector over a stale machine list', async ({ page }) => {
+  const login = await page.request.post('/api/auth/login', {
+    headers: { Origin: base },
+    data: { email: 'admin@openharness.test', password: 'Integration-test-password-42' },
+  });
+  expect(login.ok()).toBeTruthy();
+  const scripted = scriptedOpenShell(page);
+  await scripted.install();
+  // The machine list was loaded before the edge connected, so it still says offline, but the edge answers.
+  await page.route('**/api/devices', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({
+          json: {
+            configured: true,
+            publicUrl: 'ws://localhost:18090',
+            catalog,
+            machines: [{ ...machine, online: false }],
+          },
+        })
+      : route.continue(),
+  );
+  await page.goto('/openshell');
+  await expect(page.locator('.fleet-filters')).toContainText('connector online');
+  await expect(page.getByLabel('OpenShell machine')).not.toContainText('(offline)');
+  await expect(page.getByRole('button', { name: 'Launch executor', exact: true })).toBeVisible();
+  await expect(page.locator('.openshell-table')).toContainText('agent-one');
+
+  // The reverse: the list says online, but the gateway reports the connector gone.
+  await page.route('**/api/devices', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({
+          json: { configured: true, publicUrl: 'ws://localhost:18090', catalog, machines: [machine] },
+        })
+      : route.continue(),
+  );
+  await page.route('**/api/openshell/os-lab/**', (route) =>
+    route.fulfill({
+      status: 503,
+      json: { error: 'Lab OpenShell gateway is offline; its connector is not connected' },
+    }),
+  );
+  await page.reload();
+  await expect(page.locator('.fleet-filters')).toContainText('connector offline');
+  await expect(page.getByRole('button', { name: 'Launch executor', exact: true })).toHaveCount(0);
+  await expect(page.getByText('The connector is offline; start it on the OpenShell host')).toBeVisible();
+});

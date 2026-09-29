@@ -87,14 +87,20 @@ const starterPolicy = JSON.stringify(
   2,
 );
 
+/** A connector the gateway cannot reach answers 503 "… is offline; its connector is not connected". */
+const isOfflineError = (e: unknown) => /is offline|not connected/i.test(errorMessage(e));
+
 export function OpenShellPage({
   data,
   isAdmin,
   navigate,
+  refresh,
 }: {
   data: Data;
   isAdmin: boolean;
   navigate: (page: string) => void;
+  /** Reloads the studio's machine list, so online flags stay current while the page is open. */
+  refresh?: () => Promise<void>;
 }) {
   const machines = useMemo(() => data.machines.filter((m) => m.platform === 'openshell'), [data.machines]);
   const [deviceId, setDeviceId] = useState(readMachine);
@@ -110,6 +116,9 @@ export function OpenShellPage({
   const [creating, setCreating] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [globalPolicy, setGlobalPolicy] = useState<any>(null);
+  // What this page's own calls to the connector showed: true after a successful call, false after "is offline".
+  // It is fresher than the machine list, which was loaded before the page opened and may predate the connector.
+  const [reachable, setReachable] = useState<boolean | undefined>(undefined);
   useEffect(() => {
     if (machine && machine.device_id !== deviceId) setDeviceId(machine.device_id);
   }, [machine?.device_id]);
@@ -129,8 +138,14 @@ export function OpenShellPage({
   }, []);
   const loadSandboxes = useCallback(async () => {
     if (!base) return;
-    const result = await api(`${base}/sandboxes`);
-    setSandboxes(result.sandboxes ?? []);
+    try {
+      const result = await api(`${base}/sandboxes`);
+      setSandboxes(result.sandboxes ?? []);
+      setReachable(true);
+    } catch (e) {
+      if (isOfflineError(e)) setReachable(false);
+      throw e;
+    }
   }, [base]);
   const load = useCallback(async () => {
     if (!base) {
@@ -143,6 +158,7 @@ export function OpenShellPage({
       setStatus(s);
       setGlobalPolicy(await api(`${base}/policy/global`).catch(() => null));
     } catch (e) {
+      if (isOfflineError(e)) setReachable(false);
       setError(errorMessage(e));
     } finally {
       setLoaded(true);
@@ -153,13 +169,17 @@ export function OpenShellPage({
     setSandboxes([]);
     setSelected('');
     setLoaded(false);
+    setReachable(undefined);
     void load();
   }, [load]);
   useEffect(() => {
     if (!base) return;
-    const timer = setInterval(() => void loadSandboxes().catch(() => {}), 15000);
+    const timer = setInterval(() => {
+      void loadSandboxes().catch(() => {});
+      void refresh?.().catch(() => {});
+    }, 15000);
     return () => clearInterval(timer);
-  }, [base, loadSandboxes]);
+  }, [base, loadSandboxes, refresh]);
   const chooseMachine = (id: string) => {
     setDeviceId(id);
     const params = new URLSearchParams(location.search);
@@ -167,7 +187,8 @@ export function OpenShellPage({
     history.replaceState({}, '', `/openshell?${params}`);
   };
   const current = sandboxes.find((s) => s.name === selected);
-  const gatewayState: string = status?.status?.status ?? (machine?.online ? 'unknown' : 'offline');
+  const online = Boolean(machine && !machine.disabled && (reachable ?? machine.online));
+  const gatewayState: string = status?.status?.status ?? (online ? 'unknown' : 'offline');
   const authState: string = status?.status?.authentication?.status ?? '—';
   if (!machines.length)
     return (
@@ -212,14 +233,14 @@ export function OpenShellPage({
           {machines.map((m) => (
             <option key={m.device_id} value={m.device_id}>
               {m.name}
-              {m.online ? '' : ' (offline)'}
+              {(m.device_id === machine?.device_id ? online : m.online) ? '' : ' (offline)'}
             </option>
           ))}
         </select>
         {machine && (
-          <span className={`status ${machine.disabled ? 'disabled' : machine.online ? 'ready' : 'pending'}`}>
+          <span className={`status ${machine.disabled ? 'disabled' : online ? 'ready' : 'pending'}`}>
             <i />
-            {machine.disabled ? 'disabled' : machine.online ? 'connector online' : 'connector offline'}
+            {machine.disabled ? 'disabled' : online ? 'connector online' : 'connector offline'}
           </span>
         )}
         <small className="fleet-subtle">Sandboxes refresh every 15 seconds</small>
@@ -286,7 +307,7 @@ export function OpenShellPage({
               <h2>Sandboxes</h2>
               <p>Workloads confined by OpenShell on this machine.</p>
             </div>
-            {isAdmin && machine?.online && (
+            {isAdmin && online && (
               <div className="row-actions">
                 <Button variant="secondary" onClick={() => setCreating(true)}>
                   <Plus size={16} />
@@ -308,7 +329,7 @@ export function OpenShellPage({
               icon={<Boxes size={26} />}
               title="No sandboxes"
               text={
-                machine?.online
+                online
                   ? 'Launch an executor (a confined machine for your harnesses) or create a sandbox; harnesses can also create sandboxes through this machine’s tools.'
                   : 'The connector is offline; start it on the OpenShell host to see its sandboxes.'
               }
@@ -457,7 +478,7 @@ export function OpenShellPage({
               sandbox={current}
               tab={tab}
               setTab={setTab}
-              isAdmin={isAdmin && Boolean(machine?.online)}
+              isAdmin={isAdmin && online}
               act={act}
               busy={busy}
               onChanged={loadSandboxes}
