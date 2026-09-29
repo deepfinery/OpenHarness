@@ -283,6 +283,7 @@ function App() {
         publicUrl: devices.publicUrl ?? '',
         catalog: devices.catalog ?? {},
         error: devices.error,
+        ca: devices.ca ?? null,
       },
     });
   }, []);

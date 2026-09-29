@@ -22,6 +22,7 @@ import {
   send,
   timestamp,
   type Data,
+  type HarnessCa,
   type Machine,
   type Platform,
 } from '../api';
@@ -348,7 +349,12 @@ export function MachinesPage({
         />
       )}
       {enrollment && (
-        <ConnectModal enrollment={enrollment} live={enrolled} onClose={() => setEnrollment(null)} />
+        <ConnectModal
+          enrollment={enrollment}
+          live={enrolled}
+          ca={data.gateway.ca ?? null}
+          onClose={() => setEnrollment(null)}
+        />
       )}
       {editing && (
         <MachineSettingsModal
@@ -618,13 +624,33 @@ function AddMachineModal({
     </Modal>
   );
 }
+/** How the connector trusts the harness certificate: the server's CA written out, a CA file already on the machine, or none. */
+type CaMode = 'embed' | 'file' | 'public';
+/** The CA path is a per-viewer convenience: most people keep ca.crt in the same place on every machine. */
+const caPathKey = (windows: boolean) => `openharness.connect.caPath.${windows ? 'windows' : 'posix'}`;
+function savedCaPath(windows: boolean) {
+  try {
+    return localStorage.getItem(caPathKey(windows)) ?? '';
+  } catch {
+    return '';
+  }
+}
+function saveCaPath(windows: boolean, value: string) {
+  try {
+    localStorage.setItem(caPathKey(windows), value);
+  } catch {
+    /* Private windows and blocked storage just forget the path. */
+  }
+}
 function ConnectModal({
   enrollment,
   live,
+  ca,
   onClose,
 }: {
   enrollment: Enrollment;
   live?: Machine;
+  ca: HarnessCa | null;
   onClose: () => void;
 }) {
   const tabs =
@@ -640,10 +666,37 @@ function ConnectModal({
   );
   const [token, setToken] = useState(enrollment.token);
   const [gateway, setGateway] = useState(enrollment.connectUrl);
+  const windows = enrollment.machine.platform === 'windows';
+  const tls = /^\s*wss:\/\//i.test(gateway);
+  const [caMode, setCaMode] = useState<CaMode>(ca ? 'embed' : 'file');
+  const [caPath, setCaPath] = useState(() => savedCaPath(windows));
+  const mode: CaMode = caMode === 'embed' && !ca ? 'file' : caMode;
+  const caChoices: [CaMode, string][] = [
+    ...(ca ? [['embed', 'Include the server’s CA'] as [CaMode, string]] : []),
+    ['file', 'CA file on that machine'],
+    ['public', 'Publicly trusted'],
+  ];
+  const checkCommand = windows ? 'Get-FileHash -Algorithm SHA256' : 'sha256sum';
+  const certificateHint =
+    mode === 'embed'
+      ? `The commands write the server’s CA to ca.crt on that machine, so there is nothing to copy. Its SHA-256 is ${ca?.sha256}.`
+      : mode === 'file'
+        ? 'Use this when the server’s data/tls/ca.crt is already on that machine. The commands mount or copy it from the path below.'
+        : 'Use this when the harness certificate comes from a public authority such as Let’s Encrypt. The commands add no CA.';
+  const pathHint = `${windows ? 'A full path such as C:\\certs\\ca.crt' : 'Absolute, or starting with ~/'}. ${
+    ca
+      ? `Check the copy on that machine with ${checkCommand}; it should print ${ca.sha256}.`
+      : `Check the copy with ${checkCommand} against the server’s data/tls/ca.crt.`
+  }`;
   let snippets = enrollment.install,
     setupError = '';
   try {
-    snippets = machineInstallSnippets(enrollment.machine, token, gateway);
+    snippets = machineInstallSnippets(
+      enrollment.machine,
+      token,
+      gateway,
+      mode === 'embed' ? { caPem: ca?.pem } : mode === 'file' ? { caPath } : { publicCertificate: true },
+    );
   } catch (e) {
     setupError = errorMessage(e);
   }
@@ -692,13 +745,52 @@ function ConnectModal({
         >
           <input value={gateway} onChange={(e) => setGateway(e.target.value)} />
         </Field>
+        {tls && (
+          <Field label="Harness certificate" hint={certificateHint}>
+            <div className="segmented" role="radiogroup" aria-label="Harness certificate">
+              {caChoices.map(([value, text]) => (
+                <button
+                  type="button"
+                  key={value}
+                  role="radio"
+                  aria-checked={mode === value}
+                  className={mode === value ? 'active' : ''}
+                  onClick={() => setCaMode(value)}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
+        {tls && mode === 'file' && (
+          <Field label="CA certificate path on that machine" hint={pathHint}>
+            <input
+              aria-label="CA certificate path"
+              value={caPath}
+              placeholder={windows ? 'C:\\certs\\ca.crt' : '~/ca.crt'}
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(e) => {
+                setCaPath(e.target.value);
+                saveCaPath(windows, e.target.value);
+              }}
+            />
+          </Field>
+        )}
         <ErrorNotice error={setupError} />
         {enrollment.machine.platform === 'openshell' && (
           <p className="field-help">
             Run this on the OpenShell host. The compose file starts the OpenShell {'0.1.2'} gateway (Docker
             driver) and the OpenHarness edge beside it; the edge only needs outbound access to the harness
-            gateway. With a self-signed harness certificate, copy the server's <code>data/tls/ca.crt</code>{' '}
-            into <code>deploy/openshell/certs</code> before starting.
+            gateway.
+            {tls && mode !== 'public' && (
+              <>
+                {' '}
+                The harness certificate setting above puts the CA in <code>deploy/openshell/certs</code>,
+                where the edge reads it.
+              </>
+            )}
           </p>
         )}
         {enrollment.machine.access_mode === 'host' && (
