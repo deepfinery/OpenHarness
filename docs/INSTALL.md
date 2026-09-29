@@ -72,10 +72,22 @@ The studio's **Inventory** page does the same through the admin API and is the n
 
 ## 2. Enroll a machine
 
-**Machines → Add machine**: choose Linux host, Container, Windows or Chrome, name it, tick the tools the
-agent may use (deny by default; **acts** marks tools that change things), and click **Create token**. The
-next dialog shows the one-time device token and a copy-paste install command for each platform, and flips
-to **Connected** as soon as the connector dials in. Tokens are stored hashed (argon2id) and never shown
+**Inventory → Add resource**: choose Linux machine (service or container), OpenShell managed machine, Windows or
+Chrome, name it, tick the tools the agent may use (deny by default; **acts** marks tools that change things), and
+click **Create token**. The next dialog shows the one-time device token and a copy-paste install command for each
+platform, and flips to **Connected** as soon as the connector dials in.
+
+With a `wss://` gateway the dialog also asks how that machine trusts the harness certificate, and every command
+follows the answer:
+
+| Choice                      | When                                                                             | What the commands do                                                                                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Include the server's CA** | the server knows its CA (`PUBLIC_CA_PEM_BASE64`, set by `scripts/enable-tls.sh`) | write `ca.crt` themselves; nothing to copy                                                                                                             |
+| **CA file on that machine** | you copied the server's `data/tls/ca.crt` there                                  | use it from the path you type (absolute or `~/…`): containers mount it, the service installer and the OpenShell deployment copy it, Windows imports it |
+| **Publicly trusted**        | the certificate comes from a public authority                                    | add no CA                                                                                                                                              |
+
+The dialog shows the CA's SHA-256, so you can check a copy with `sha256sum` before starting. The path is
+remembered in your browser for the next machine. Tokens are stored hashed (argon2id) and never shown
 again; **New token** in the machine's settings issues another.
 
 ## 3. Linux host
@@ -159,9 +171,10 @@ Settings, tools, constraints and the enforcement check are in [openshell.md](ope
 `./scripts/enable-tls.sh <public-host-or-ip>` creates a local certificate authority and a server certificate under
 `data/tls/`, and switches `.env` so `./start.sh` runs Caddy on `TLS_PORT` (8443): `https://<host>:8443` is the
 studio and API, `wss://<host>:8443/connect` is where machines dial in, and the plain ports stay on loopback. The
-script also writes the CA into `.env` as `PUBLIC_CA_PEM_BASE64`, and the install commands the studio shows embed it,
-so a copy-paste enrollment trusts the server (`NODE_EXTRA_CA_CERTS` for the Node connector, `GATEWAY_CA_FILE` for
-the Go connector and edge, `certs/ca.crt` for the OpenShell deployment). Connectors set up by hand need the same;
+script also writes the CA into `.env` as `PUBLIC_CA_PEM_BASE64`, so the Connect dialog can offer **Include the
+server's CA** and a copy-paste enrollment trusts the server (`NODE_EXTRA_CA_CERTS` for the Node connector,
+`GATEWAY_CA_FILE` for the Go connector and edge, `certs/ca.crt` for the OpenShell deployment). Without it, choose
+**CA file on that machine** and type where you copied `data/tls/ca.crt` (see section 2). Connectors set up by hand need the same;
 `connector-linux/install.sh` takes `GATEWAY_CA_FILE=<ca.crt>`. Import `data/tls/ca.crt` into your browser to avoid
 the warning. Servers that enabled TLS before this option existed: run the script again to add the key.
 

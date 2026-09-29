@@ -1,6 +1,6 @@
-import { machineInstallSnippets } from './machineInstall.js';
+import { machineInstallSnippets, normalizeCaPem } from './machineInstall.js';
 // Machines: devices enrolled at the gateway, mirrored as `device` connections so agents can use their tools.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { collection } from './db.js';
 import { config } from './config.js';
@@ -197,10 +197,13 @@ export async function ensureDeviceConnection(ownerId: string, device: DeviceView
   if (device.online) await discoverTools(ownerId, id!).catch(() => undefined);
   return id!;
 }
-export async function listMachines(
-  ownerId: string,
-): Promise<{ configured: boolean; publicUrl: string; machines: Machine[] }> {
-  if (!gatewayConfigured()) return { configured: false, publicUrl: '', machines: [] };
+export async function listMachines(ownerId: string): Promise<{
+  configured: boolean;
+  publicUrl: string;
+  machines: Machine[];
+  ca: { pem: string; sha256: string } | null;
+}> {
+  if (!gatewayConfigured()) return { configured: false, publicUrl: '', machines: [], ca: null };
   const { devices } = await gatewayAdmin<{ devices: DeviceView[] }>(
     `/devices?owner=${encodeURIComponent(ownerId)}`,
   );
@@ -219,7 +222,7 @@ export async function listMachines(
     const record = records.find((r) => r.deviceId === d.device_id);
     return { ...d, connectionId: record?._id, tools: record?.tools ?? [] };
   });
-  return { configured: true, publicUrl: gatewayPublicUrl(), machines };
+  return { configured: true, publicUrl: gatewayPublicUrl(), machines, ca: publicCa() };
 }
 /** Keeps connections in step with the gateway: online devices get fresh tool lists, removed devices lose their connection. */
 export async function syncMachines(ownerId: string, userId?: string) {
@@ -242,6 +245,15 @@ export function installSnippets(device: DeviceView, token: string, connectUrl: s
  * (written to .env by scripts/enable-tls.sh) or a `PUBLIC_CA_FILE` readable by the API. Install commands embed it, so a
  * copy-paste enrollment trusts the server; without it, wss:// connectors fail their TLS handshake with a bare 1006.
  */
+/**
+ * The harness CA as the studio offers it in install commands: the certificate (public, not a secret) and the SHA-256 of
+ * the file, so a copy on a machine can be checked with sha256sum. Null when no private CA is configured.
+ */
+export function publicCa(): { pem: string; sha256: string } | null {
+  const pem = publicCaPem();
+  if (!pem || !normalizeCaPem(pem)) return null;
+  return { pem, sha256: createHash('sha256').update(pem).digest('hex') };
+}
 export function publicCaPem(): string | undefined {
   const encoded = process.env.PUBLIC_CA_PEM_BASE64?.trim();
   if (encoded) return Buffer.from(encoded, 'base64').toString('utf8');

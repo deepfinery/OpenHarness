@@ -40,6 +40,8 @@ export const platformLabels: Record<Platform, string> = {
   chrome: 'Chrome',
   windows: 'Windows',
 };
+/** The certificate authority that signed the harness certificate, and the SHA-256 of its file. */
+export type HarnessCa = { pem: string; sha256: string };
 /** A registered machine as reported by the device gateway, plus its mirrored connection. */
 export type Machine = {
   device_id: string;
@@ -69,7 +71,14 @@ export type Data = Record<(typeof collections)[number], Entity[]> & {
   /** Workspace defaults, such as the model provider new agents start with. */
   defaults: { providerId: string };
   machines: Machine[];
-  gateway: { configured: boolean; publicUrl: string; catalog: Partial<ToolCatalog>; error?: string };
+  gateway: {
+    configured: boolean;
+    publicUrl: string;
+    catalog: Partial<ToolCatalog>;
+    error?: string;
+    /** The harness CA when the server uses a private one; install commands can embed it. */
+    ca?: HarnessCa | null;
+  };
 };
 export const emptyData: Data = {
   guardrails: [],

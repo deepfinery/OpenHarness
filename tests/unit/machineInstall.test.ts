@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { machineInstallSnippets } from '../../packages/core/src/machineInstall.js';
+import { machineInstallSnippets, normalizeCaPath } from '../../packages/core/src/machineInstall.js';
 import { devicePlatforms } from '../../packages/core/src/schema.js';
 import { makeStarter } from '../../packages/core/src/starters.js';
 
@@ -170,4 +170,116 @@ test('install commands embed the harness certificate authority so a copy-paste e
   );
   assert.ok(!injected.docker.includes('rm -rf'), 'only base64 certificate bodies are embedded');
   assert.match(injected.docker, /Self-signed harness certificate\?/);
+});
+
+test('a CA file already on the machine is used from its path on every platform', () => {
+  const token = 'dv_test-token-123456';
+  const tls = 'wss://harness.example.com:8443';
+  const restricted = machineInstallSnippets({ device_id: 'vm1' }, token, tls, { caPath: '~/ca.crt' });
+  assert.match(
+    restricted.docker,
+    /-v "\$HOME\/ca\.crt:\/certs\/ca\.crt:ro"/,
+    '~ expands inside double quotes',
+  );
+  assert.match(
+    restricted.docker,
+    /GATEWAY_CA_FILE=\/certs\/ca\.crt/,
+    'the Go connector reads the mounted file',
+  );
+  assert.ok(!restricted.docker.includes('OPENHARNESS_CA'), 'nothing is written out when the file exists');
+  assert.ok(
+    !restricted.docker.includes('Self-signed harness certificate?'),
+    'no hint once the path is known',
+  );
+  assert.match(
+    restricted.linux,
+    /GATEWAY_CA_FILE="\$HOME\/ca\.crt" sh connector-linux\/install\.sh/,
+    'the systemd installer copies it into its config',
+  );
+  const host = machineInstallSnippets({ device_id: 'vm1', access_mode: 'host' }, token, tls, {
+    caPath: '/etc/ssl/harness ca.crt',
+  });
+  assert.match(host.docker, /-v "\/etc\/ssl\/harness ca\.crt:\/certs\/ca\.crt:ro"/, 'spaces survive quoting');
+  assert.match(
+    host.docker,
+    /NODE_EXTRA_CA_CERTS=\/certs\/ca\.crt/,
+    'the Node connector trusts it through Node',
+  );
+  const openshell = machineInstallSnippets({ device_id: 'os-1', platform: 'openshell' }, token, tls, {
+    caPath: '~/ca.crt',
+  });
+  assert.match(openshell.openshell, /cp "\$HOME\/ca\.crt" certs\/ca\.crt && chmod 644 certs\/ca\.crt/);
+  assert.match(
+    openshell.openshell,
+    /OPENHARNESS_CA_FILE=\/certs\/ca\.crt/,
+    'the edge reads the container path',
+  );
+  assert.ok(!openshell.openshell.includes('copy the server'), 'no copy instruction once the path is known');
+  const windows = machineInstallSnippets({ device_id: 'win-1', platform: 'windows' }, token, tls, {
+    caPath: 'C:\\certs\\ca.crt',
+  });
+  assert.match(windows.windows, /Import-Certificate -FilePath 'C:\\certs\\ca\.crt' -CertStoreLocation/);
+  const chrome = machineInstallSnippets({ device_id: 'browser-1', platform: 'chrome' }, token, tls, {
+    caPath: '~/ca.crt',
+  });
+  assert.match(chrome.chrome, /Import the harness CA at ~\/ca\.crt into the operating system trust store/);
+  // The file on the machine wins over the CA the server could embed, and a plaintext gateway needs neither.
+  const both = machineInstallSnippets({ device_id: 'vm1' }, token, tls, {
+    caPath: '/opt/ca.crt',
+    caPem: `-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----`,
+  });
+  assert.match(both.docker, /-v "\/opt\/ca\.crt:\/certs\/ca\.crt:ro"/);
+  assert.ok(!both.docker.includes('OPENHARNESS_CA'));
+  const plain = machineInstallSnippets({ device_id: 'vm1' }, token, 'ws://192.0.2.1:8090', {
+    caPath: '~/ca.crt',
+  });
+  assert.ok(!plain.docker.includes('ca.crt'), 'ws:// has no certificate to trust');
+});
+
+test('a publicly trusted certificate needs no CA lines or hints', () => {
+  const options = { publicCertificate: true };
+  const tls = 'wss://harness.example.com';
+  const linux = machineInstallSnippets({ device_id: 'vm1' }, 'dv_test-token-123456', tls, options);
+  assert.ok(!linux.docker.includes('ca.crt'));
+  assert.ok(!linux.docker.includes('GATEWAY_CA_FILE'));
+  assert.ok(!linux.linux.includes('GATEWAY_CA_FILE'));
+  const openshell = machineInstallSnippets(
+    { device_id: 'os-1', platform: 'openshell' },
+    'dv_test-token-123456',
+    tls,
+    options,
+  );
+  assert.ok(!openshell.openshell.includes('OPENHARNESS_CA_FILE'));
+  assert.ok(!openshell.openshell.includes('certs/ca.crt'));
+  assert.ok(!openshell.chrome.includes('trust store'));
+});
+
+test('CA paths are validated before they reach a shell', () => {
+  assert.equal(normalizeCaPath('  /etc/ca.crt '), '/etc/ca.crt');
+  assert.equal(normalizeCaPath('~/certs/ca.crt'), '$HOME/certs/ca.crt');
+  assert.equal(normalizeCaPath(''), undefined);
+  for (const bad of [
+    'ca.crt',
+    './ca.crt',
+    '~ca.crt',
+    '/tmp/$(id).crt',
+    '/tmp/a"b',
+    '/tmp/`id`',
+    '/tmp/a;b',
+    'C:\\ca.crt',
+  ])
+    assert.throws(() => normalizeCaPath(bad), /absolute path/, `${bad} is refused`);
+  assert.equal(normalizeCaPath('C:\\certs\\ca.crt', 'windows'), 'C:\\certs\\ca.crt');
+  for (const bad of ['/etc/ca.crt', "C:\\a'b.crt", 'C:\\a"b.crt', 'C:\\$env:x'])
+    assert.throws(() => normalizeCaPath(bad, 'windows'), /full Windows path/, `${bad} is refused on Windows`);
+  assert.equal(
+    normalizeCaPath('C:\\certs\\ca.crt', 'chrome'),
+    'C:\\certs\\ca.crt',
+    'Chrome accepts either form',
+  );
+  assert.throws(
+    () =>
+      machineInstallSnippets({ device_id: 'vm1' }, 'dv_test-token-123456', 'wss://h', { caPath: 'ca.crt' }),
+    /absolute path/,
+  );
 });
