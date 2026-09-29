@@ -116,7 +116,7 @@ func main() {
 	if caFile != "" && caPEM == "" {
 		data, err := os.ReadFile(caFile)
 		if err != nil {
-			fail(log, "cannot read GATEWAY_CA_FILE", err)
+			fail(log, "cannot read GATEWAY_CA_FILE", fmt.Errorf("%w (the path is read inside the edge container, where deploy/openshell/certs is mounted as /certs: put the certificate in ./certs and set OPENHARNESS_CA_FILE=/certs/<file>)", err))
 		}
 		caPEM = string(data)
 	}
