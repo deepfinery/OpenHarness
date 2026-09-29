@@ -46,9 +46,11 @@ export async function durableToolCall<T>(
     await journal.updateOne({ _id }, { $set: { status: 'completed' } });
     return result;
   } catch (error) {
+    // The cause travels along: a server that answered "not executed" is not an unknown outcome to the caller.
     if (!readOnly)
       throw new AmbiguousToolCall(
         'The external action or saving its result was interrupted. Its outcome is unknown; review the action before retrying.',
+        { cause: error },
       );
     throw error;
   }
