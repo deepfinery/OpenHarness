@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // CLI: `openharness-connector --config /etc/openharness-connector/config.json` dials the gateway;
 // `openharness-connector --stdio` serves MCP on stdin/stdout for MCP Inspector and local testing.
+import { connect as tlsConnect } from 'node:tls';
+import { isIP } from 'node:net';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { WebSocketClientTransport, createLogger, loadConnectorConfig } from '@openharness/connector-core';
 import { connectorVersion, createConnectorServer, linuxToolNames } from './index.js';
@@ -72,6 +74,7 @@ Environment: GATEWAY_URL DEVICE_ID DEVICE_PLATFORM DEVICE_TOKEN|DEVICE_TOKEN_FIL
     tools: linuxToolNames,
     allow_commands: config.allow_commands,
   });
+  let diagnosed = false;
   const transport = args.stdio
     ? new StdioServerTransport()
     : new WebSocketClientTransport({
@@ -86,8 +89,15 @@ Environment: GATEWAY_URL DEVICE_ID DEVICE_PLATFORM DEVICE_TOKEN|DEVICE_TOKEN_FIL
           capabilities: [...linuxToolNames, ...(config.access_mode === 'host' ? ['host_full_access'] : [])],
         },
         log,
-        onStateChange: (state, info) =>
-          log.info(`gateway ${state}`, { code: info.code, attempt: info.attempt }),
+        onStateChange: (state, info) => {
+          log.info(`gateway ${state}`, { code: info.code, attempt: info.attempt });
+          // Node's WebSocket reports a failed handshake as a bare 1006; name the reason once (an untrusted
+          // certificate is the usual one) so the operator does not have to guess.
+          if (state === 'disconnected' && info.code === 1006 && !diagnosed) {
+            diagnosed = true;
+            void diagnoseGateway(gateway, log);
+          }
+        },
       });
   transport.onerror = (error) => log.warn('transport error', { error: error.message });
   await server.connect(transport);
@@ -98,6 +108,37 @@ Environment: GATEWAY_URL DEVICE_ID DEVICE_PLATFORM DEVICE_TOKEN|DEVICE_TOKEN_FIL
   };
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
+}
+/** Probes the gateway's TLS endpoint directly and logs what the WebSocket handshake hid: an untrusted certificate or a refused connection. */
+async function diagnoseGateway(
+  gateway: URL,
+  log: { warn: (message: string, fields?: Record<string, unknown>) => void },
+) {
+  if (gateway.protocol !== 'wss:') return;
+  const host = gateway.hostname.replace(/^\[|\]$/g, '');
+  const port = Number(gateway.port || 443);
+  await new Promise<void>((resolve) => {
+    const socket = tlsConnect({ host, port, ...(isIP(host) ? {} : { servername: host }) }, () => {
+      socket.end();
+      resolve();
+    });
+    socket.setTimeout(5000, () => {
+      socket.destroy();
+      resolve();
+    });
+    socket.on('error', (error: NodeJS.ErrnoException) => {
+      const code = error.code ?? error.message;
+      if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY|ERR_TLS/.test(code)) {
+        log.warn('gateway certificate is not trusted by this connector', {
+          error: code,
+          hint: 'set NODE_EXTRA_CA_CERTS to the harness ca.crt (the install command in the studio embeds it)',
+        });
+      } else {
+        log.warn('gateway TLS connection failed', { error: code, host, port });
+      }
+      resolve();
+    });
+  });
 }
 main().catch((error) => {
   process.stderr.write(

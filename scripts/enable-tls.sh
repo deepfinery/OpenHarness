@@ -92,8 +92,10 @@ set_key GATEWAY_PUBLIC_URL "wss://$primary:$PORT"
 set_key STUDIO_BIND 127.0.0.1
 set_key GATEWAY_BIND 127.0.0.1
 set_key TRUST_PROXY 1
+# The API embeds the CA in the install commands it shows, so connectors enrolled from the studio trust this server.
+set_key PUBLIC_CA_PEM_BASE64 "$(base64 < "$TLS_DIR/ca.crt" | tr -d '\n')"
 chmod 600 "$ENV_FILE"
 echo "Updated $ENV_FILE (backup: $backup):"
 echo "  PUBLIC_URL=https://$primary:$PORT   GATEWAY_PUBLIC_URL=wss://$primary:$PORT   COMPOSE_PROFILES=$profiles"
 echo "Next: ./start.sh, then open https://$primary:$PORT (import $TLS_DIR/ca.crt into your browser to avoid the warning)."
-echo "Give connectors the CA: GATEWAY_CA_FILE=<path to ca.crt> for the Go connector and edge, NODE_EXTRA_CA_CERTS for the Node connector."
+echo "Install commands in the studio now embed this CA; connectors set up by hand need it as GATEWAY_CA_FILE (Go connector, edge), NODE_EXTRA_CA_CERTS (Node connector) or OPENHARNESS_CA_FILE (OpenShell deployment)."

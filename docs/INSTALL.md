@@ -158,10 +158,12 @@ Settings, tools, constraints and the enforcement check are in [openshell.md](ope
 
 `./scripts/enable-tls.sh <public-host-or-ip>` creates a local certificate authority and a server certificate under
 `data/tls/`, and switches `.env` so `./start.sh` runs Caddy on `TLS_PORT` (8443): `https://<host>:8443` is the
-studio and API, `wss://<host>:8443/connect` is where machines dial in, and the plain ports stay on loopback. Give
-connectors the CA: `GATEWAY_CA_FILE=/etc/openharness/ca.crt` (mounted) for the Go connector and edge,
-`OPENHARNESS_CA_FILE=/certs/ca.crt` in the OpenShell deployment, `NODE_EXTRA_CA_CERTS` for the Node connector.
-Import `data/tls/ca.crt` into your browser to avoid the warning.
+studio and API, `wss://<host>:8443/connect` is where machines dial in, and the plain ports stay on loopback. The
+script also writes the CA into `.env` as `PUBLIC_CA_PEM_BASE64`, and the install commands the studio shows embed it,
+so a copy-paste enrollment trusts the server (`NODE_EXTRA_CA_CERTS` for the Node connector, `GATEWAY_CA_FILE` for
+the Go connector and edge, `certs/ca.crt` for the OpenShell deployment). Connectors set up by hand need the same;
+`connector-linux/install.sh` takes `GATEWAY_CA_FILE=<ca.crt>`. Import `data/tls/ca.crt` into your browser to avoid
+the warning. Servers that enabled TLS before this option existed: run the script again to add the key.
 
 ## 6. Use a machine
 
@@ -173,14 +175,15 @@ Import `data/tls/ca.crt` into your browser to avoid the warning.
 
 ## 7. Troubleshooting
 
-| Symptom                                 | Check                                                                                                                                                                                               |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Machine stays **offline** after install | `sudo journalctl -u openharness-connector -f` (or `docker logs`). Close code 4001 = wrong token or not enrolled; 4003 = disabled or platform mismatch; TLS errors = `GATEWAY_URL` must be `wss://`. |
-| Online but **no tools**                 | Click **Sync tools** on the Inventory page; the connector's `ALLOW_COMMANDS` does not affect the tool list, the machine's allowed tools in the studio do.                                           |
-| `tool not allowed`                      | Add the tool in the machine's **Tools** dialog (gateway allow-list).                                                                                                                                |
-| `command is not on the allow-list`      | Add the program to `allow_commands` in the connector config (host) or `ALLOW_COMMANDS` (container).                                                                                                 |
-| `device timeout`                        | Raise `GATEWAY_TOOL_TIMEOUTS=run_command=600` or the connector's `command_timeout_seconds`.                                                                                                         |
-| Studio says the gateway is unreachable  | `docker compose ps gateway`, `GATEWAY_URL` from the api container, `GATEWAY_ADMIN_TOKEN` matches.                                                                                                   |
+| Symptom                                                            | Check                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Machine stays **offline** after install                            | `sudo journalctl -u openharness-connector -f` (or `docker logs`). Close code 4001 = wrong token or not enrolled; 4003 = disabled or platform mismatch; TLS errors = `GATEWAY_URL` must be `wss://`.                                                                                           |
+| **wss** connector loops on close code **1006** within milliseconds | The connector does not trust the server certificate. Re-copy the install command from the studio (it embeds the CA) or give the connector the CA: `NODE_EXTRA_CA_CERTS` (Node), `GATEWAY_CA_FILE` (Go). The connector log names the TLS error, for example `UNABLE_TO_VERIFY_LEAF_SIGNATURE`. |
+| Online but **no tools**                                            | Click **Sync tools** on the Inventory page; the connector's `ALLOW_COMMANDS` does not affect the tool list, the machine's allowed tools in the studio do.                                                                                                                                     |
+| `tool not allowed`                                                 | Add the tool in the machine's **Tools** dialog (gateway allow-list).                                                                                                                                                                                                                          |
+| `command is not on the allow-list`                                 | Add the program to `allow_commands` in the connector config (host) or `ALLOW_COMMANDS` (container).                                                                                                                                                                                           |
+| `device timeout`                                                   | Raise `GATEWAY_TOOL_TIMEOUTS=run_command=600` or the connector's `command_timeout_seconds`.                                                                                                                                                                                                   |
+| Studio says the gateway is unreachable                             | `docker compose ps gateway`, `GATEWAY_URL` from the api container, `GATEWAY_ADMIN_TOKEN` matches.                                                                                                                                                                                             |
 
 ## Restricted or privileged VM host access
 

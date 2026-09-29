@@ -48,7 +48,7 @@ test('OpenShell managed machines enroll like Linux machines, with a compose depl
   assert.match(snippets.openshell, /OPENHARNESS_TOKEN=dv_test-token-123456/);
   assert.match(snippets.openshell, /OPENHARNESS_CA_FILE=\/certs\/ca\.crt/, 'a wss gateway gets the CA hint');
   assert.match(snippets.openshell, /OPENSHELL_VERSION=0\.1\.2/);
-  assert.match(snippets.openshell, /docker compose up -d/);
+  assert.match(snippets.openshell, /sh up\.sh/, 'the first start creates the OpenShell PKI');
   assert.ok(!snippets.openshell.includes('docker.sock'), 'the snippet never mounts the Docker socket itself');
   const plain = machineInstallSnippets(
     { device_id: 'openshell-1', platform: 'openshell' },
@@ -66,6 +66,11 @@ test('OpenShell managed machines enroll like Linux machines, with a compose depl
   assert.match(linuxContainer.docker, /connector-go\/Dockerfile/);
   assert.match(linuxContainer.docker, /GATEWAY_CA_FILE/);
   assert.ok(!linuxContainer.docker.includes('--privileged'));
+  assert.match(
+    linuxContainer.docker,
+    /Self-signed harness certificate\?/,
+    'without a known CA the command carries a hint',
+  );
   assert.match(
     machineInstallSnippets({ device_id: 'vm2', access_mode: 'host' }, '', 'wss://gpu.example.com').docker,
     /connector-linux\/Dockerfile/,
@@ -104,4 +109,65 @@ test('OpenShell managed machines enroll like Linux machines, with a compose depl
     machine: { connectionId, name: 'Box', tools: ['run_command'] },
   });
   assert.equal(linux.nodes.find((n) => n.id === 'operator')!.name, 'Machine operator');
+});
+
+test('install commands embed the harness certificate authority so a copy-paste enrollment trusts the server', () => {
+  const caPem = `-----BEGIN CERTIFICATE-----\n${'MIIBszCCAVmgAwIBAgIUQ'.repeat(3)}\nAAAA\n-----END CERTIFICATE-----`;
+  const opts = { caPem: `${caPem}\n` };
+  const host = machineInstallSnippets(
+    { device_id: 'vm1', access_mode: 'host' },
+    'dv_test-token-123456',
+    'wss://harness.example.com:8443',
+    opts,
+  );
+  assert.match(host.docker, /cat > ca\.crt <<'OPENHARNESS_CA'\n-----BEGIN CERTIFICATE-----/);
+  assert.match(
+    host.docker,
+    /NODE_EXTRA_CA_CERTS=\/certs\/ca\.crt/,
+    'the Node connector trusts the CA through Node',
+  );
+  assert.match(host.docker, /-v "\$PWD\/ca\.crt:\/certs\/ca\.crt:ro"/);
+  assert.ok(!host.docker.includes('Self-signed harness certificate?'), 'no hint once the CA is embedded');
+  const restricted = machineInstallSnippets(
+    { device_id: 'vm1' },
+    'dv_test-token-123456',
+    'wss://harness.example.com:8443',
+    opts,
+  );
+  assert.match(restricted.docker, /GATEWAY_CA_FILE=\/certs\/ca\.crt/, 'the Go connector gets the CA file');
+  assert.match(restricted.docker, /-v "\$PWD\/ca\.crt:\/certs\/ca\.crt:ro"/);
+  assert.match(
+    restricted.linux,
+    /GATEWAY_CA_FILE="\$PWD\/ca\.crt" sh connector-linux\/install\.sh/,
+    'the systemd installer receives the CA',
+  );
+  assert.match(restricted.windows, /Import-Certificate -FilePath ca\.crt/);
+  assert.match(restricted.chrome, /trust store/);
+  const openshell = machineInstallSnippets(
+    { device_id: 'os-1', platform: 'openshell' },
+    'dv_test-token-123456',
+    'wss://harness.example.com:8443',
+    opts,
+  );
+  assert.match(openshell.openshell, /cat > certs\/ca\.crt <<'OPENHARNESS_CA'/);
+  assert.match(openshell.openshell, /OPENHARNESS_CA_FILE=\/certs\/ca\.crt/);
+  assert.ok(!openshell.openshell.includes('copy the server'), 'no copy instruction once the CA is embedded');
+  // A plaintext gateway has no certificate to trust, and anything that is not a PEM certificate is ignored.
+  const plain = machineInstallSnippets(
+    { device_id: 'vm1', access_mode: 'host' },
+    'dv_test-token-123456',
+    'ws://192.0.2.1:8090',
+    opts,
+  );
+  assert.ok(!plain.docker.includes('OPENHARNESS_CA'));
+  const injected = machineInstallSnippets(
+    { device_id: 'vm1' },
+    'dv_test-token-123456',
+    'wss://harness.example.com',
+    {
+      caPem: '-----BEGIN CERTIFICATE-----\nOPENHARNESS_CA\nrm -rf /\n-----END CERTIFICATE-----',
+    },
+  );
+  assert.ok(!injected.docker.includes('rm -rf'), 'only base64 certificate bodies are embedded');
+  assert.match(injected.docker, /Self-signed harness certificate\?/);
 });

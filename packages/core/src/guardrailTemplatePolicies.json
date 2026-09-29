@@ -4,7 +4,10 @@
     "description": "Check for discriminatory recommendations, stereotypes, and unequal treatment.",
     "provider": "nemo",
     "configId": "openharness",
-    "stages": ["input", "output"],
+    "stages": [
+      "input",
+      "output"
+    ],
     "failMode": "closed",
     "timeoutMs": 30000,
     "latencyBudgetMs": 120000,
@@ -26,7 +29,10 @@
     "description": "Screen for targeted abuse, hateful language, harassment, and threats.",
     "provider": "nemo",
     "configId": "openharness",
-    "stages": ["input", "output"],
+    "stages": [
+      "input",
+      "output"
+    ],
     "failMode": "closed",
     "timeoutMs": 30000,
     "latencyBudgetMs": 120000,
@@ -48,7 +54,9 @@
     "description": "Check answers for unsupported certainty, invented citations, and contradictory claims.",
     "provider": "nemo",
     "configId": "openharness",
-    "stages": ["output"],
+    "stages": [
+      "output"
+    ],
     "failMode": "closed",
     "timeoutMs": 30000,
     "latencyBudgetMs": 120000,
@@ -70,7 +78,9 @@
     "description": "Require clear assumptions, uncertainty, and a concise basis for consequential recommendations.",
     "provider": "nemo",
     "configId": "openharness",
-    "stages": ["output"],
+    "stages": [
+      "output"
+    ],
     "failMode": "closed",
     "timeoutMs": 30000,
     "latencyBudgetMs": 120000,
@@ -92,7 +102,13 @@
     "description": "Mask email addresses, US Social Security numbers, and payment-card patterns.",
     "provider": "builtin",
     "configId": "openharness",
-    "stages": ["input", "output", "retrieval", "tool_input", "tool_output"],
+    "stages": [
+      "input",
+      "output",
+      "retrieval",
+      "tool_input",
+      "tool_output"
+    ],
     "failMode": "closed",
     "timeoutMs": 5000,
     "latencyBudgetMs": 120000,
@@ -114,7 +130,13 @@
     "description": "Block common prompt injections and add restrictions for sensitive tool calls.",
     "provider": "nemo",
     "configId": "openharness",
-    "stages": ["input", "output", "retrieval", "tool_input", "tool_output"],
+    "stages": [
+      "input",
+      "output",
+      "retrieval",
+      "tool_input",
+      "tool_output"
+    ],
     "failMode": "closed",
     "timeoutMs": 5000,
     "latencyBudgetMs": 120000,

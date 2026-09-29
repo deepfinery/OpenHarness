@@ -49,7 +49,7 @@ gateway_ and _OpenShell gateway_.
    sh deploy/openshell/build-images.sh          # or pull openharness-edge and openharness-connector from your registry
    cd deploy/openshell && cp .env.example .env  # fill in OPENHARNESS_GATEWAY_URL, OPENHARNESS_DEVICE_ID, OPENHARNESS_TOKEN
    cp /path/to/harness/data/tls/ca.crt certs/   # only for a self-signed harness (scripts/enable-tls.sh on the server)
-   docker compose up -d && docker compose logs -f openharness-edge
+   sh up.sh && docker compose logs -f openharness-edge
    ```
 
    The compose file runs the OpenShell gateway (Docker driver, telemetry off, API on loopback only) and the

@@ -5,6 +5,10 @@ x-app-environment: &app-environment
   NODE_ENV: production
   PORT: 8088
   PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8088}
+  # The CA connectors must trust when the public endpoints use a private certificate (scripts/enable-tls.sh writes
+  # PUBLIC_CA_PEM_BASE64); install commands in the studio embed it.
+  PUBLIC_CA_PEM_BASE64: ${PUBLIC_CA_PEM_BASE64:-}
+  PUBLIC_CA_FILE: ${PUBLIC_CA_FILE:-}
   MONGODB_URI: mongodb://agentic:${MONGO_PASSWORD:?Run ./start.sh first}@mongo:27017/agentic?authSource=admin
   MONGODB_DATABASE: agentic
   RABBITMQ_URL: amqp://agentic:${RABBITMQ_PASSWORD:?Run ./start.sh first}@rabbitmq:5672

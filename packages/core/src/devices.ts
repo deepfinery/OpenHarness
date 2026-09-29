@@ -1,6 +1,7 @@
 import { machineInstallSnippets } from './machineInstall.js';
 // Machines: devices enrolled at the gateway, mirrored as `device` connections so agents can use their tools.
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { collection } from './db.js';
 import { config } from './config.js';
 import { encrypt, HttpError } from './security.js';
@@ -234,7 +235,23 @@ export async function syncMachines(ownerId: string, userId?: string) {
   return listMachines(ownerId);
 }
 export function installSnippets(device: DeviceView, token: string, connectUrl: string) {
-  return machineInstallSnippets(device, token, connectUrl);
+  return machineInstallSnippets(device, token, connectUrl, { caPem: publicCaPem() });
+}
+/**
+ * The certificate authority connectors must trust when the public endpoints use a private CA: `PUBLIC_CA_PEM_BASE64`
+ * (written to .env by scripts/enable-tls.sh) or a `PUBLIC_CA_FILE` readable by the API. Install commands embed it, so a
+ * copy-paste enrollment trusts the server; without it, wss:// connectors fail their TLS handshake with a bare 1006.
+ */
+export function publicCaPem(): string | undefined {
+  const encoded = process.env.PUBLIC_CA_PEM_BASE64?.trim();
+  if (encoded) return Buffer.from(encoded, 'base64').toString('utf8');
+  const file = process.env.PUBLIC_CA_FILE?.trim();
+  if (!file) return undefined;
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
 }
 
 export async function enrollMachine(
