@@ -535,7 +535,12 @@ function App() {
                 }}
               />
             ) : page === 'openshell' ? (
-              <OpenShellPage data={data} isAdmin={user.role === 'admin'} navigate={navigate} />
+              <OpenShellPage
+                data={data}
+                isAdmin={user.role === 'admin'}
+                navigate={navigate}
+                refresh={refresh}
+              />
             ) : page === 'connections' ? (
               <ConnectionsPage {...props} />
             ) : page === 'guardrails' ? (
