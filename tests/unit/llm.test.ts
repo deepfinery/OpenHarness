@@ -167,3 +167,113 @@ test('a provider error inside the stream is a retryable model response error', a
     (e: unknown) => e instanceof ModelResponseError && e.details.reason === 'incomplete_stream',
   );
 });
+
+for (const streaming of [true, false]) {
+  test(`configured route and upstream identity are distinct (streaming=${streaming})`, async (t) => {
+    const observed: { url: string; body: any }[] = [];
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+      observed.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+      return streaming
+        ? stream(
+            'data: ' +
+              JSON.stringify({
+                id: 'response-1',
+                model: 'server-model-alias',
+                choices: [{ delta: { content: 'answer' }, finish_reason: 'stop' }],
+              }) +
+              '\n\ndata: [DONE]\n\n',
+          )
+        : Response.json({
+            id: 'response-1',
+            model: 'server-model-alias',
+            choices: [{ message: { content: 'answer' }, finish_reason: 'stop' }],
+          });
+    });
+    const result = await request(streaming);
+    assert.equal(observed.length, 1);
+    assert.equal(observed[0].url, 'http://model.test/v1/chat/completions');
+    assert.equal(observed[0].body.model, 'test');
+    assert.equal(result.reportedModel, 'server-model-alias');
+    assert.equal(result.responseId, 'response-1');
+  });
+}
+
+test('model audit strips URL credentials and query secrets; identity contains only configured model', async () => {
+  const { modelRoute, modelIdentity } = await import('../../packages/core/src/llm.js');
+  const p = {
+    ...provider,
+    _id: 'provider-1',
+    baseUrl: 'https://user:secret@model.test/v1/?key=secret#secret',
+    apiKeyEncrypted: 'secret',
+    model: 'configured-model',
+    revision: 2,
+  };
+  assert.deepEqual(modelRoute(p), {
+    providerId: 'provider-1',
+    providerKind: 'openai-compatible',
+    providerRevision: 2,
+    endpoint: 'https://model.test/v1',
+    requestedModel: 'configured-model',
+  });
+  assert.match(modelIdentity(p).content, /"configured-model"/);
+  assert.match(
+    modelIdentity(p).content,
+    /memories and generated self-descriptions do not establish model identity/,
+  );
+  assert.ok(!JSON.stringify([modelRoute(p), modelIdentity(p)]).includes('secret'));
+});
+
+test('provider rejection never falls back to a different URL or model', async (t) => {
+  const observed: { url: string; body: any }[] = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    observed.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+    return Response.json({ error: { message: 'Unknown model' } }, { status: 404 });
+  });
+  await assert.rejects(request(), /HTTP 404/);
+  assert.deepEqual(
+    observed.map(({ url, body }) => [url, body.model]),
+    [['http://model.test/v1/chat/completions', 'test']],
+  );
+});
+
+for (const kind of ['anthropic', 'gemini', 'ollama'] as const) {
+  for (const streaming of [true, false]) {
+    test(`${kind} preserves upstream model metadata (streaming=${streaming})`, async (t) => {
+      const metadata = { model: 'served-model', id: 'served-id' };
+      const gemini = {
+        modelVersion: 'served-model',
+        responseId: 'served-id',
+        candidates: [{ content: { parts: [{ text: 'answer' }] }, finishReason: 'STOP' }],
+      };
+      const anthropic = { ...metadata, content: [{ type: 'text', text: 'answer' }], stop_reason: 'end_turn' };
+      const ollama = { ...metadata, message: { content: 'answer' }, done: true };
+      t.mock.method(globalThis, 'fetch', async () => {
+        if (!streaming)
+          return Response.json(kind === 'gemini' ? gemini : kind === 'anthropic' ? anthropic : ollama);
+        if (kind === 'ollama')
+          return new Response(JSON.stringify(ollama) + '\n', {
+            headers: { 'Content-Type': 'application/x-ndjson' },
+          });
+        const frames =
+          kind === 'gemini'
+            ? [gemini]
+            : [
+                { type: 'message_start', message: metadata },
+                { type: 'content_block_delta', delta: { type: 'text_delta', text: 'answer' } },
+                { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
+              ];
+        return stream(frames.map((data) => 'data: ' + JSON.stringify(data) + '\n\n').join(''));
+      });
+      const result = await chat(
+        { ...provider, kind, streaming },
+        [{ role: 'user', content: 'Hello' }],
+        [],
+        undefined,
+        () => {},
+      );
+      assert.equal(result.text, 'answer');
+      assert.equal(result.reportedModel, 'served-model');
+      assert.equal(result.responseId, 'served-id');
+    });
+  }
+}

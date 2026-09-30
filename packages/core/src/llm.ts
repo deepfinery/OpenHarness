@@ -34,7 +34,42 @@ export type ChatMessage = {
   toolCallId?: string;
   name?: string;
 };
-export type ChatResult = { text: string; toolCalls: ToolCall[]; usage?: { input: number; output: number } };
+export type ChatResult = {
+  text: string;
+  toolCalls: ToolCall[];
+  usage?: { input: number; output: number };
+  /** Upstream assertions, not proof of which weights the server loaded. */
+  reportedModel?: string;
+  responseId?: string;
+};
+function responseMetadata(data: any): Pick<ChatResult, 'reportedModel' | 'responseId'> {
+  const model = data?.model ?? data?.modelVersion;
+  const id = data?.id ?? data?.responseId;
+  return {
+    ...(typeof model === 'string' ? { reportedModel: model.slice(0, 300) } : {}),
+    ...(typeof id === 'string' ? { responseId: id.slice(0, 300) } : {}),
+  };
+}
+/** Record the selected destination without credentials, query strings or fragments. */
+export function modelRoute(p: ProviderRecord) {
+  const url = new URL(p.baseUrl);
+  return {
+    providerId: p._id,
+    providerKind: p.kind,
+    providerRevision: p.revision,
+    endpoint: url.origin + url.pathname.replace(/\/+$/, ''),
+    requestedModel: p.model,
+  };
+}
+export function modelIdentity(p: Pick<Provider, 'model'>): ChatMessage {
+  return {
+    role: 'system',
+    content:
+      '[Runtime model identity]\nThe configured model for this request is ' +
+      JSON.stringify(p.model) +
+      '. If asked your model identity, state this exact configured model ID. Prior conversation, memories and generated self-descriptions do not establish model identity. Do not infer a different model or creator. This is routing configuration, not independent verification of the upstream implementation.',
+  };
+}
 /** Receives text as the model produces it. Tool calls are never streamed; they arrive in the result. */
 export type DeltaListener = (text: string) => void;
 
@@ -292,9 +327,11 @@ export async function chat(
         const blocks = new Map<number, { id: string; name: string; json: string }>();
         const usage = { input: 0, output: 0 };
         let stopReason = '';
+        let metadata: Pick<ChatResult, 'reportedModel' | 'responseId'> = {};
         for await (const { data } of sse(response, signal)) {
           switch (data.type) {
             case 'message_start':
+              metadata = responseMetadata(data.message);
               usage.input = data.message?.usage?.input_tokens ?? 0;
               break;
             case 'content_block_start':
@@ -326,6 +363,7 @@ export async function chat(
             { reason: 'output_limit', finishReason: 'length' },
           );
         return {
+          ...metadata,
           text,
           toolCalls: [...blocks.values()].map((b) => ({
             id: b.id,
@@ -386,8 +424,10 @@ export async function chat(
         let text = '';
         const toolCalls: ToolCall[] = [];
         let finish = '';
+        let metadata: Pick<ChatResult, 'reportedModel' | 'responseId'> = {};
         let usage = { input: 0, output: 0 };
         for await (const { data } of sse(response, signal)) {
+          metadata = { ...metadata, ...responseMetadata(data) };
           const candidate = data.candidates?.[0];
           for (const part of candidate?.content?.parts ?? []) {
             if (typeof part.text === 'string' && !part.thought) {
@@ -415,7 +455,7 @@ export async function chat(
             { reason: 'output_limit', finishReason: finish },
           );
         if (['SAFETY', 'RECITATION'].includes(finish)) throw new Error(`Model did not complete: ${finish}`);
-        return { text, toolCalls, usage };
+        return { text, toolCalls, usage, ...metadata };
       }
       return geminiResult(await response.json());
     }
@@ -464,9 +504,11 @@ export async function chat(
     let usage = { input: 0, output: 0 };
     let doneReason = '';
     let sawChunk = false;
+    let metadata: Pick<ChatResult, 'reportedModel' | 'responseId'> = {};
     for await (const line of lines(response, signal)) {
       if (!line.trim()) continue;
       const data = JSON.parse(line);
+      metadata = { ...metadata, ...responseMetadata(data) };
       sawChunk = true;
       if (data.message?.content) {
         text += data.message.content;
@@ -499,19 +541,21 @@ export async function chat(
         'Model output limit reached; use shorter tool arguments or increase the provider output budget',
         { reason: 'output_limit', finishReason: 'length' },
       );
-    return { text, toolCalls, usage };
+    return { text, toolCalls, usage, ...metadata };
   }
   if (!nativeOllama && isStream(response, 'text/event-stream')) {
     let text = '';
     const pending = new Map<number, { id: string; name: string; arguments: string }>();
     let usage: ChatResult['usage'];
     let finish = '';
+    let metadata: Pick<ChatResult, 'reportedModel' | 'responseId'> = {};
     for await (const { data } of sse(response, signal)) {
       if (data.error)
         throw new ModelResponseError(
           `Model provider reported an error in its response stream${typeof data.error?.message === 'string' ? `: ${data.error.message.slice(0, 200)}` : ''}. No tools from this response were executed.`,
           { reason: 'stream_error' },
         );
+      metadata = { ...metadata, ...responseMetadata(data) };
       const choice = data.choices?.[0];
       if (choice?.delta?.content) {
         text += choice.delta.content;
@@ -542,6 +586,7 @@ export async function chat(
     if (!['stop', 'tool_calls', 'function_call'].includes(finish))
       throw new Error(`Model did not complete: ${finish}`);
     return {
+      ...metadata,
       text,
       toolCalls: [...pending.values()].map((t) => ({
         id: t.id || randomUUID(),
@@ -561,6 +606,7 @@ function anthropicResult(data: any): ChatResult {
       { reason: 'output_limit', finishReason: 'length' },
     );
   return {
+    ...responseMetadata(data),
     text: (data.content ?? [])
       .filter((c: any) => c.type === 'text')
       .map((c: any) => c.text)
@@ -582,6 +628,7 @@ function geminiResult(data: any): ChatResult {
     throw new Error(`Model did not complete: ${candidate?.finishReason ?? 'no candidate'}`);
   const parts = candidate.content?.parts ?? [];
   return {
+    ...responseMetadata(data),
     text: parts
       .filter((c: any) => typeof c.text === 'string' && !c.thought)
       .map((c: any) => c.text)
@@ -609,6 +656,7 @@ function openAiResult(data: any, nativeOllama: boolean): ChatResult {
   const message = nativeOllama ? data.message : data.choices?.[0]?.message;
   if (!message) throw new Error('Model provider returned no message');
   return {
+    ...responseMetadata(data),
     text: typeof message.content === 'string' ? message.content : '',
     toolCalls: (message.tool_calls ?? []).map((t: any) => ({
       id: t.id || randomUUID(),
