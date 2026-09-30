@@ -976,6 +976,59 @@ app.post('/context-upgrade/release', (req, res) => {
   res.sendStatus(204);
 });
 app.post('/v1/chat/completions', async (req, res) => {
+  if (req.body.model === 'test-vision') {
+    if (
+      req.body.tools?.some((t) => t.function.name === 'spawn_agents') &&
+      req.body.messages.some((m) => typeof m.content === 'string' && m.content.includes('delegate image')) &&
+      !req.body.messages.some((m) => m.role === 'tool')
+    ) {
+      return res.json({
+        model: req.body.model,
+        choices: [
+          {
+            message: {
+              content: '',
+              tool_calls: [
+                {
+                  id: 'vision-delegate',
+                  type: 'function',
+                  function: {
+                    name: 'spawn_agents',
+                    arguments: JSON.stringify({ agents: [{ task: 'Read the shared image' }] }),
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      });
+    }
+    const parts = req.body.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []));
+    const images = parts.filter((p) => p.type === 'image_url');
+    const content = JSON.stringify({
+      images: images.length,
+      valid: images.every((i) => i.image_url.url.startsWith('data:image/jpeg;base64,/9j/')),
+      model: req.body.model,
+    });
+    if (req.body.stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      return res.end(
+        'data: ' +
+          JSON.stringify({
+            model: req.body.model,
+            id: 'vision-response',
+            choices: [{ delta: { content }, finish_reason: 'stop' }],
+          }) +
+          '\n\ndata: [DONE]\n\n',
+      );
+    }
+    return res.json({
+      model: req.body.model,
+      id: 'vision-response',
+      choices: [{ message: { content }, finish_reason: 'stop' }],
+    });
+  }
   if (req.body.model.startsWith('test-identity')) {
     const system = req.body.messages
       .filter((m) => m.role === 'system')

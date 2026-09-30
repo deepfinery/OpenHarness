@@ -1,3 +1,5 @@
+import { ownedImage } from './images.js';
+import { requireModel } from './modelRoles.js';
 import { hasAmbiguousCalls } from './executionRecovery.js';
 import { snapshotGuardrails } from './guardrails.js';
 import { randomUUID } from 'node:crypto';
@@ -129,6 +131,24 @@ export async function createRun(
     });
     for (const id of Object.keys(nodeAgents)) nodeAgents[id] = apply(nodeAgents[id]);
     for (const id of Object.keys(agents)) agents[id] = apply(agents[id]);
+  }
+  const attachmentIds = [
+    ...new Set([...(input.attachments ?? []), ...input.history.flatMap((m) => m.attachments ?? [])]),
+  ];
+  if (attachmentIds.length > 20)
+    throw new HttpError(400, 'A conversation can use up to 20 images; start a new conversation');
+  for (const id of attachmentIds) await ownedImage(ownerId, id);
+  const selectedAgents = Object.values({ ...agents, ...nodeAgents });
+  if (attachmentIds.length && !selectedAgents.length)
+    throw new HttpError(400, 'Image attachments need an agent with a vision model');
+  for (const a of selectedAgents) {
+    const primary = await requireModel(ownerId, a.providerId, 'chat');
+    if (a.visionProviderId) await requireModel(ownerId, a.visionProviderId, 'vision');
+    if (attachmentIds.length) {
+      await requireModel(ownerId, a.visionProviderId ?? primary._id, 'vision');
+      if (a.pattern === 'reflection' && a.patternConfig.judgeProviderId)
+        await requireModel(ownerId, a.patternConfig.judgeProviderId, 'vision');
+    }
   }
   // Skills are snapshotted so editing one never changes a run that was already accepted.
   const withSkills = async (a: Agent): Promise<Agent> => {

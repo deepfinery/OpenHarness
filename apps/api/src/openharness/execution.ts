@@ -82,7 +82,7 @@ export async function resolveTarget(tenantId: string, agentId?: string) {
 async function resolveModel(tenantId: string, model?: string) {
   if (!model) return undefined;
   const providers = await collection<{ _id: string; name: string; model: string }>('providers')
-    .find({ ownerId: tenantId })
+    .find({ ownerId: tenantId, modelType: { $ne: 'embedding' } })
     .toArray();
   const match =
     providers.find((p) => p._id === model) ??

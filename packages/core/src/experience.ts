@@ -84,7 +84,7 @@ async function reflectionProvider(run: Run) {
   });
   const fallback = (
     await collection<{ _id: string; ownerId: string; createdAt: Date }>('providers')
-      .find({ ownerId: run.ownerId })
+      .find({ ownerId: run.ownerId, modelType: { $ne: 'embedding' } })
       .sort({ createdAt: 1 })
       .limit(1)
       .next()

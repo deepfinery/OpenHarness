@@ -3,6 +3,8 @@ import { displayAnswer } from '../../../../packages/core/src/finalAnswer.js';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  ImagePlus,
+  X,
   Activity,
   Bot,
   Check,
@@ -39,7 +41,7 @@ export function Markdown({ text }: { text: string }) {
   );
 }
 const terminal = ['succeeded', 'failed', 'cancelled', 'interrupted'];
-type Message = { role: 'user' | 'assistant'; content: string; runId?: string };
+type Message = { role: 'user' | 'assistant'; content: string; attachments?: string[]; runId?: string };
 type Conversation = {
   id: string;
   title: string;
@@ -201,6 +203,11 @@ export function Playground({
   const narrow = typeof window !== 'undefined' && window.innerWidth <= 900;
   const [showTrace, setShowTrace] = useState(!narrow);
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<{ id: string; filename: string }[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const uploadingRef = useRef(false);
+  const imageInput = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
   const [run, setRun] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [restoring, setRestoring] = useState(true);
@@ -286,6 +293,8 @@ export function Playground({
   }, [panel, run?.status]);
 
   function reset() {
+    setAttachments([]);
+    setDragging(false);
     setActivityRunId(undefined);
     setRestoring(false);
     generation.current++;
@@ -362,21 +371,59 @@ export function Playground({
     window.addEventListener('playground-conversation', restoreAccepted);
     return () => window.removeEventListener('playground-conversation', restoreAccepted);
   }, [storageKey]);
+  async function uploadImages(files: File[]) {
+    if (!files.length || busy || restoring || !current || uploadingRef.current) return;
+    if (attachments.length + files.length > 4) {
+      setError('Attach up to four images per message.');
+      return;
+    }
+    if (
+      files.some(
+        (f) => !['image/png', 'image/jpeg', 'image/webp'].includes(f.type) || f.size > 10 * 1024 * 1024,
+      )
+    ) {
+      setError('Choose PNG, JPEG or WebP images, up to 10 MB each.');
+      return;
+    }
+    const version = generation.current;
+    uploadingRef.current = true;
+    setUploading(true);
+    setError('');
+    try {
+      for (const file of files) {
+        const body = new FormData();
+        body.append('file', file);
+        const uploaded = await api<{ id: string; filename: string }>('/images', { method: 'POST', body });
+        if (version !== generation.current) return;
+        setAttachments((previous) => [...previous, uploaded]);
+      }
+    } catch (e) {
+      if (version === generation.current) setError(errorMessage(e));
+    } finally {
+      uploadingRef.current = false;
+      setUploading(false);
+    }
+  }
   async function submit() {
-    if (!input.trim() || busy || restoring || !current) return;
+    if ((!input.trim() && !attachments.length) || uploadingRef.current || busy || restoring || !current)
+      return;
     setBusy(true);
     setError('');
     setInspected(null);
     setPanel('trace');
     const version = generation.current;
     remember(conversationId);
-    const text = input.trim();
+    const text = input.trim() || 'Describe the attached images.';
+    const sentImages = attachments;
+    const imageIds = sentImages.map((a) => a.id);
+    setAttachments([]);
     setInput('');
-    setMessages((m) => [...m, { role: 'user', content: text }]);
+    setMessages((m) => [...m, { role: 'user', content: text, attachments: imageIds }]);
     try {
       const r = await send('/chat', {
         [current.type === 'agent' ? 'agentId' : 'workflowId']: current.id,
         message: text,
+        attachments: imageIds,
         conversationId,
         // Machines come from the workflow's own cards; this also clears one an older conversation remembered.
         deviceId: null,
@@ -406,6 +453,7 @@ export function Playground({
       setError(errorMessage(e));
       setBusy(false);
       setInput(text);
+      setAttachments(sentImages);
       setMessages((m) => m.slice(0, -1));
     }
   }
@@ -422,7 +470,24 @@ export function Playground({
           </Button>,
           actionsContainer,
         )}
-      <div className="playground-main">
+      <div
+        className={`playground-main ${dragging ? 'image-dragging' : ''}`}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes('Files')) {
+            e.preventDefault();
+            setDragging(true);
+          }
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          void uploadImages(Array.from(e.dataTransfer.files));
+        }}
+      >
+        {dragging && <div className="image-drop-hint">Drop images to attach</div>}
         <div className="playground-float">
           <span className="grow" />
           <IconButton
@@ -471,6 +536,15 @@ export function Playground({
                   </div>
                   <div className="message-body">
                     <strong>{m.role === 'user' ? 'You' : (current?.name ?? 'Agent')}</strong>
+                    {m.attachments?.length ? (
+                      <div className="chat-images">
+                        {m.attachments.map((id) => (
+                          <a key={id} href={`/api/images/${id}`} target="_blank" rel="noopener noreferrer">
+                            <img src={`/api/images/${id}`} alt="Attached image" />
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
                     <Markdown text={m.role === 'assistant' ? displayAnswer(m.content) : m.content} />
                     {m.role === 'assistant' && m.runId && <FeedbackBar runId={m.runId} />}
                     {m.role === 'assistant' && m.runId && (
@@ -535,6 +609,33 @@ export function Playground({
           <div ref={bottom} />
         </div>
         <div className="chat-compose">
+          <div className="chat-images pending-images">
+            {attachments.map((a) => (
+              <div key={a.id}>
+                <img src={`/api/images/${a.id}`} alt={a.filename} />
+                <button
+                  type="button"
+                  aria-label={`Remove ${a.filename}`}
+                  onClick={() => setAttachments((prev) => prev.filter((i) => i.id !== a.id))}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+          {uploading && <small role="status">Uploading images…</small>}
+          <input
+            ref={imageInput}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            hidden
+            aria-label="Upload images"
+            onChange={(e) => {
+              void uploadImages(Array.from(e.target.files ?? []));
+              e.target.value = '';
+            }}
+          />
           <ErrorNotice error={error} />
           <form
             onSubmit={(e) => {
@@ -542,6 +643,13 @@ export function Playground({
               void submit();
             }}
           >
+            <IconButton
+              title="Attach images"
+              disabled={!current || busy || restoring || uploading || attachments.length >= 4}
+              onClick={() => imageInput.current?.click()}
+            >
+              <ImagePlus size={20} />
+            </IconButton>
             <textarea
               aria-label="Message your agent"
               placeholder={current ? `Message ${current.name}…` : 'Choose a harness…'}
@@ -568,14 +676,14 @@ export function Playground({
             ) : (
               <button
                 className="send-button"
-                disabled={!input.trim() || !current || restoring}
+                disabled={(!input.trim() && !attachments.length) || !current || restoring || uploading}
                 aria-label="Send message"
               >
                 <Send size={18} />
               </button>
             )}
           </form>
-          <small>Enter to send · Shift + Enter for a new line</small>
+          <small>Drop images or attach · Enter to send · Shift + Enter for a new line</small>
         </div>
       </div>
       <aside className="trace-panel">

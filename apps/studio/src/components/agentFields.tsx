@@ -123,6 +123,29 @@ export function AgentFields({
           value={value.providerId}
           onChange={(providerId) => onChange({ providerId })}
         />
+        <Field
+          label="Vision model"
+          hint="Used for turns with images, including image follow-ups. Text-only conversations use the model above."
+        >
+          <select
+            aria-label="Harness vision model"
+            value={value.visionProviderId ?? ''}
+            onChange={(e) => onChange({ visionProviderId: e.target.value || undefined })}
+          >
+            <option value="">
+              {data.providers.find((p) => p.id === value.providerId)?.modelType === 'vision'
+                ? 'Use the primary vision model'
+                : 'No vision model selected'}
+            </option>
+            {data.providers
+              .filter((p) => p.modelType === 'vision')
+              .map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} · {p.model}
+                </option>
+              ))}
+          </select>
+        </Field>
         <Field label="Template">
           <select
             aria-label="Agent template"
@@ -234,11 +257,13 @@ export function AgentFields({
               }
             >
               <option value="">Same as working model</option>
-              {data.providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} · {p.model}
-                </option>
-              ))}
+              {data.providers
+                .filter((p) => p.modelType !== 'embedding')
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} · {p.model}
+                  </option>
+                ))}
             </select>
           </Field>
         )}

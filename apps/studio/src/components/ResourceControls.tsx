@@ -18,12 +18,14 @@ export function ProviderControl({
       <Field label="Model provider">
         <select aria-label="Harness model provider" value={value} onChange={(e) => onChange(e.target.value)}>
           <option value="">Choose a model</option>
-          {data.providers.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} · {p.model}
-              {p.id === defaultProviderId(data) ? ' · default' : ''}
-            </option>
-          ))}
+          {data.providers
+            .filter((p) => p.modelType !== 'embedding')
+            .map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} · {p.model}
+                {p.id === defaultProviderId(data) ? ' · default' : ''}
+              </option>
+            ))}
         </select>
       </Field>
       <button
@@ -53,7 +55,7 @@ export function ProviderControl({
           onClose={() => setAdding(false)}
           onSaved={async (p) => {
             await refresh();
-            if (p) onChange(p.id);
+            if (p && p.modelType !== 'embedding') onChange(p.id);
           }}
         />
       )}

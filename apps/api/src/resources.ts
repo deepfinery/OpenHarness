@@ -1,3 +1,6 @@
+import { requireModel } from '../../../packages/core/src/modelRoles.js';
+import { saveImage, ownedImage, imageAttachments } from '../../../packages/core/src/images.js';
+import sharp from 'sharp';
 import {
   snapshotSkill,
   skillVersion,
@@ -22,7 +25,7 @@ import {
 } from '../../../packages/core/src/schema.js';
 import { encrypt, HttpError, safeError, validateRemoteUrl } from '../../../packages/core/src/security.js';
 import { discoverTools, startOAuth } from '../../../packages/core/src/mcp.js';
-import { chat, embed, ownedProvider } from '../../../packages/core/src/llm.js';
+import { chat, embed, ownedProvider, type ProviderRecord } from '../../../packages/core/src/llm.js';
 import { dropKnowledgeIndex, searchKnowledge } from '../../../packages/core/src/knowledge.js';
 import { configuredVectorStores, storeEmbeds } from '../../../packages/core/src/vectorstores/index.js';
 import { agentWithResources } from '../../../packages/core/src/workflow.js';
@@ -64,19 +67,24 @@ async function assertOwned(name: string, ownerId: string, id: string) {
     throw new HttpError(400, `Referenced ${name} resource is unavailable`);
 }
 export async function validateReferences(kind: string, ownerId: string, body: any) {
+  if (kind === 'providers' && body.modelType && body.embeddingModel)
+    throw new HttpError(400, 'Define a separate embedding model entry');
+  if (kind === 'providers' && body.modelType === 'embedding' && body.kind === 'anthropic')
+    throw new HttpError(400, 'Anthropic does not provide an embedding API');
   if (kind === 'connections' && body.kind === 'device')
     throw new HttpError(400, 'Machines are managed on the Machines page, not as manual connections');
   if (kind === 'guardrails' && body.safetyModelProviderId)
-    await assertOwned('providers', ownerId, body.safetyModelProviderId);
+    await requireModel(ownerId, body.safetyModelProviderId, 'chat');
   if (kind === 'agents' || kind === 'workflows')
     for (const id of body.guardrailIds ?? []) await assertOwned('guardrails', ownerId, id);
   if (kind === 'agents') {
     if (body.workspace) await assertOwned('knowledge', ownerId, body.workspace.knowledgeBaseId);
     if (body.experience?.enabled && !resolveNotebook(body).workspace)
       throw new HttpError(400, 'Learning from experience needs a knowledge workspace');
-    await assertOwned('providers', ownerId, body.providerId);
+    await requireModel(ownerId, body.providerId, 'chat');
+    if (body.visionProviderId) await requireModel(ownerId, body.visionProviderId, 'vision');
     if (body.patternConfig?.judgeProviderId)
-      await assertOwned('providers', ownerId, body.patternConfig.judgeProviderId);
+      await requireModel(ownerId, body.patternConfig.judgeProviderId, 'chat');
     for (const binding of body.connections) {
       const c = await collection<Resource>('connections').findOne({ _id: binding.connectionId, ownerId });
       if (!c) throw new HttpError(400, 'An MCP connection does not belong to this workspace');
@@ -91,7 +99,10 @@ export async function validateReferences(kind: string, ownerId: string, body: an
   if (kind === 'knowledge') {
     const p = await ownedProvider(ownerId, body.providerId);
     // Stores that embed text themselves need no embedding model of ours.
-    if (!storeEmbeds(body.vectorStore ?? 'weaviate') && (!p.embeddingModel || p.kind === 'anthropic'))
+    if (
+      !storeEmbeds(body.vectorStore ?? 'weaviate') &&
+      ((p.modelType !== 'embedding' && !(!p.modelType && p.embeddingModel)) || p.kind === 'anthropic')
+    )
       throw new HttpError(400, 'This knowledge base needs a provider with a supported embedding model');
   }
   if (kind === 'workflows') {
@@ -172,6 +183,7 @@ for (const [kind, schema] of Object.entries(definitions)) {
       const body: any = schema.parse(req.body);
       const id = method === 'put' ? String((req.params as Record<string, string>).id) : randomUUID();
       const previous = method === 'put' ? await records().findOne({ _id: id, ownerId }) : null;
+      if (kind === 'providers' && previous?.modelType && !body.modelType) body.modelType = previous.modelType;
       if (method === 'put' && !previous) throw new HttpError(404, 'Resource not found');
       if (kind === 'providers' || kind === 'connections') await validateRemoteUrl(body.baseUrl ?? body.url);
       if (kind === 'knowledge')
@@ -183,7 +195,7 @@ for (const [kind, schema] of Object.entries(definitions)) {
       if (
         kind === 'providers' &&
         previous &&
-        ['kind', 'baseUrl', 'embeddingModel'].some((k) => previous[k] !== body[k]) &&
+        ['kind', 'baseUrl', 'embeddingModel', 'model', 'modelType'].some((k) => previous[k] !== body[k]) &&
         (await collection<Resource>('knowledge').findOne({ ownerId, providerId: id }))
       )
         throw new HttpError(
@@ -213,6 +225,21 @@ for (const [kind, schema] of Object.entries(definitions)) {
         (await collection<KnowledgeDocument>('documents').findOne({ ownerId, knowledgeBaseId: id }))
       )
         throw new HttpError(409, 'Remove the documents before changing the embedding provider');
+      if (
+        kind === 'providers' &&
+        previous?.modelType &&
+        previous.modelType !== body.modelType &&
+        (previous.modelType === 'embedding' || body.modelType === 'embedding')
+      )
+        throw new HttpError(409, 'Create a new model entry to change its type');
+      if (
+        kind === 'providers' &&
+        previous?.modelType === 'vision' &&
+        body.modelType !== 'vision' &&
+        ((await collection('agents').findOne({ ownerId, visionProviderId: id })) ||
+          (await collection('workflows').findOne({ ownerId, 'nodes.config.visionProviderId': id })))
+      )
+        throw new HttpError(409, 'This model is selected for vision in a harness');
       const data = { ...body };
       if (kind === 'skills') {
         if (previous) await snapshotSkill(previous as VersionedSkill);
@@ -243,6 +270,7 @@ for (const [kind, schema] of Object.entries(definitions)) {
         delete data[plain];
       }
       const clear: Record<string, string> = {};
+      if (kind === 'agents' && !body.visionProviderId) clear.visionProviderId = '';
       if (
         kind === 'connections' &&
         previous &&
@@ -307,13 +335,19 @@ for (const [kind, schema] of Object.entries(definitions)) {
     const blockers: [string, Record<string, unknown>][] =
       kind === 'providers'
         ? [
-            ['agents', { $or: [{ providerId: id }, { 'patternConfig.judgeProviderId': id }] }],
+            [
+              'agents',
+              {
+                $or: [{ providerId: id }, { visionProviderId: id }, { 'patternConfig.judgeProviderId': id }],
+              },
+            ],
             ['knowledge', { providerId: id }],
             [
               'workflows',
               {
                 $or: [
                   { 'nodes.config.providerId': id },
+                  { 'nodes.config.visionProviderId': id },
                   { 'nodes.config.patternConfig.judgeProviderId': id },
                 ],
               },
@@ -376,6 +410,24 @@ for (const [kind, schema] of Object.entries(definitions)) {
     res.status(204).end();
   });
 }
+async function testChatModel(provider: ProviderRecord) {
+  if (provider.modelType !== 'vision')
+    return chat(provider, [{ role: 'user', content: 'Reply with the word Connected.' }], []);
+  const bytes = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#0000ff' } })
+    .png()
+    .toBuffer();
+  const probe = await saveImage(provider.ownerId, 'connectivity-probe.png', bytes);
+  try {
+    return await chat(
+      provider,
+      [{ role: 'user', content: 'What color is this image? Reply briefly.', images: [probe._id] }],
+      [],
+    );
+  } finally {
+    await removeFile(probe.storageKey);
+    await imageAttachments().deleteOne({ _id: probe._id, ownerId: provider.ownerId });
+  }
+}
 /** Tests a provider definition before it is saved; an existing provider's stored key is reused when `providerId` is set. */
 resources.post('/providers/test-config', async (req, res) => {
   const ownerId = req.principal!.tenantId;
@@ -398,13 +450,14 @@ resources.post('/providers/test-config', async (req, res) => {
   } = {
     chat: { ok: false },
   };
-  try {
-    const response = await chat(candidate, [{ role: 'user', content: 'Reply with the word Connected.' }], []);
-    result.chat = { ok: true, text: response.text.slice(0, 200) };
-  } catch (error) {
-    result.chat = { ok: false, error: safeError(error) };
-  }
-  if (candidate.embeddingModel) {
+  if (candidate.modelType !== 'embedding')
+    try {
+      const response = await testChatModel(candidate);
+      result.chat = { ok: true, text: response.text.slice(0, 200) };
+    } catch (error) {
+      result.chat = { ok: false, error: safeError(error) };
+    }
+  if (candidate.modelType === 'embedding' || candidate.embeddingModel) {
     try {
       const vector = await embed(candidate, 'Embedding connectivity test');
       result.embedding = { ok: true, dimensions: vector.length };
@@ -417,7 +470,12 @@ resources.post('/providers/test-config', async (req, res) => {
 resources.post('/providers/:id/test', async (req, res) => {
   await rateLimit(`provider-test:${req.principal!.tenantId}`, 10);
   const provider = await ownedProvider(req.principal!.tenantId, String(req.params.id));
-  const response = await chat(provider, [{ role: 'user', content: 'Reply with the word Connected.' }], []);
+  if (provider.modelType === 'embedding') {
+    const vector = await embed(provider, 'Connectivity test');
+    res.json({ text: `Vectors of ${vector.length} dimensions` });
+    return;
+  }
+  const response = await testChatModel(provider);
   res.json({ text: response.text });
 });
 resources.post('/connections/:id/discover', async (req, res) => {
@@ -574,4 +632,20 @@ resources.post('/knowledge/:id/search', async (req, res) => {
   const body = z.object({ query: z.string().min(1).max(4000) }).parse(req.body);
   await rateLimit(`knowledge-search:${req.principal!.tenantId}`, 30);
   res.json(await searchKnowledge(req.principal!.tenantId, String(req.params.id), body.query));
+});
+
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+});
+resources.post('/images', imageUpload.single('file'), async (req, res) => {
+  await rateLimit(`images:${req.principal!.tenantId}`, 60);
+  if (!req.file) throw new HttpError(400, 'Choose an image');
+  const d = await saveImage(req.principal!.tenantId, req.file.originalname, req.file.buffer);
+  res.status(201).json({ id: d._id, filename: d.filename, width: d.width, height: d.height });
+});
+resources.get('/images/:id', async (req, res) => {
+  const d = await ownedImage(req.principal!.tenantId, String(req.params.id));
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.type(d.mimeType).send(await readStoredFile(d.storageKey));
 });

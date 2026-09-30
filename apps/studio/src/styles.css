@@ -7291,3 +7291,52 @@ details.advanced summary {
   color: var(--green-ink, #316d4b);
   vertical-align: 1px;
 }
+
+.chat-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 8px 0;
+}
+.chat-images img {
+  display: block;
+  width: auto;
+  max-width: 220px;
+  height: 120px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+.pending-images > div {
+  position: relative;
+}
+.pending-images img {
+  height: 76px;
+  max-width: 150px;
+}
+.pending-images button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 3px;
+  cursor: pointer;
+}
+.playground-main.image-dragging {
+  outline: 2px dashed var(--primary, #4f46e5);
+  outline-offset: -8px;
+}
+.image-drop-hint {
+  position: absolute;
+  top: 65px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border-radius: 8px;
+  background: var(--surface);
+  z-index: 5;
+  pointer-events: none;
+}

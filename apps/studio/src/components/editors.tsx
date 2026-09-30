@@ -165,13 +165,14 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
   const [preset, setPreset] = useState<Preset>(presetFor(value));
   const [form, set] = useState<any>(
     value
-      ? { ...value, apiKey: undefined }
+      ? { ...value, modelType: value.modelType ?? 'llm', embeddingModel: '', apiKey: undefined }
       : {
           name: presets[0].name,
           kind: presets[0].kind,
           baseUrl: presets[0].baseUrl,
           model: presets[0].chatModels[0] ?? '',
-          embeddingModel: presets[0].embeddingModels[0] ?? '',
+          modelType: 'llm',
+          embeddingModel: '',
           maxOutputTokens: 4096,
           contextWindow: 128000,
           outputTokenParameter: 'max_tokens',
@@ -190,8 +191,8 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
       kind: p.kind,
       baseUrl: p.baseUrl,
       name: !value && (!f.name || presets.some((x) => x.name === f.name)) ? p.name : f.name,
-      model: p.chatModels[0] ?? '',
-      embeddingModel: p.kind === 'anthropic' ? '' : (p.embeddingModels[0] ?? ''),
+      model: (f.modelType === 'embedding' ? p.embeddingModels[0] : p.chatModels[0]) ?? '',
+      embeddingModel: '',
     }));
   }
   async function runTest() {
@@ -285,11 +286,28 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
         </div>
         <div className="form-section">
           <h3>
-            <Sparkles size={17} /> Chat model
+            <Sparkles size={17} /> Model
           </h3>
+          <Field label="Model type" hint="One model per entry. Choose where this model can be used.">
+            <select
+              aria-label="Model type"
+              value={form.modelType}
+              onChange={(e) => {
+                update('modelType', e.target.value);
+                update('model', '');
+                setTest(null);
+              }}
+            >
+              <option value="llm">LLM · text and reasoning</option>
+              <option value="vision">Vision · images and text</option>
+              <option value="embedding" disabled={form.kind === 'anthropic'}>
+                Embedding · notebook search
+              </option>
+            </select>
+          </Field>
           <Field label="Model ID" hint="Any model your provider offers.">
             <input
-              aria-label="Chat model"
+              aria-label="Model ID"
               required
               list="chat-model-suggestions"
               placeholder="Model ID"
@@ -298,42 +316,12 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
             />
           </Field>
           <datalist id="chat-model-suggestions">
-            {preset.chatModels.map((m) => (
+            {(form.modelType === 'embedding' ? preset.embeddingModels : preset.chatModels).map((m) => (
               <option value={m} key={m} />
             ))}
           </datalist>
         </div>
-        <div className="form-section">
-          <h3>
-            <BookOpen size={17} /> Embedding model
-          </h3>
-          {preset.kind === 'anthropic' ? (
-            <div className="notice">
-              Anthropic has no embedding models. Knowledge bases use another provider for embeddings.
-            </div>
-          ) : (
-            <>
-              <Field
-                label="Embedding model ID (optional)"
-                hint="For knowledge bases. Fixed once one uses it."
-              >
-                <input
-                  aria-label="Embedding model"
-                  list="embedding-model-suggestions"
-                  placeholder="Embedding model ID"
-                  value={form.embeddingModel ?? ''}
-                  onChange={(e) => update('embeddingModel', e.target.value)}
-                />
-              </Field>
-              <datalist id="embedding-model-suggestions">
-                {preset.embeddingModels.map((m) => (
-                  <option value={m} key={m} />
-                ))}
-              </datalist>
-            </>
-          )}
-        </div>
-        <details className="advanced">
+        <details className="advanced" hidden={form.modelType === 'embedding'}>
           <summary>Advanced</summary>
           <div className="two-columns">
             <Field label="Maximum output tokens">
@@ -401,13 +389,15 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
           <ErrorNotice error={testError} />
           {test && (
             <div className="test-results">
-              <div className={`test-result ${test.chat.ok ? 'ok' : 'bad'}`}>
-                {test.chat.ok ? <Check size={14} /> : <X size={14} />}
-                <span>
-                  <strong>Chat model</strong>
-                  <small>{test.chat.ok ? `Replied: “${test.chat.text}”` : test.chat.error}</small>
-                </span>
-              </div>
+              {form.modelType !== 'embedding' && (
+                <div className={`test-result ${test.chat.ok ? 'ok' : 'bad'}`}>
+                  {test.chat.ok ? <Check size={14} /> : <X size={14} />}
+                  <span>
+                    <strong>Chat model</strong>
+                    <small>{test.chat.ok ? `Replied: “${test.chat.text}”` : test.chat.error}</small>
+                  </span>
+                </div>
+              )}
               {test.embedding && (
                 <div className={`test-result ${test.embedding.ok ? 'ok' : 'bad'}`}>
                   {test.embedding.ok ? <Check size={14} /> : <X size={14} />}
@@ -626,7 +616,9 @@ export function ConnectionEditor({ value, onClose, onSaved }: Props) {
 }
 
 export function KnowledgeEditor({ value, data, onClose, onSaved }: Props) {
-  const providers = data.providers.filter((p) => p.embeddingModel && p.kind !== 'anthropic');
+  const providers = data.providers.filter(
+    (p) => p.modelType === 'embedding' || (!p.modelType && p.embeddingModel && p.kind !== 'anthropic'),
+  );
   const [form, set] = useState<any>(
     value ?? { name: '', description: '', providerId: providers[0]?.id ?? '' },
   );
@@ -693,7 +685,7 @@ export function KnowledgeEditor({ value, data, onClose, onSaved }: Props) {
             </option>
             {providers.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name} · {p.embeddingModel}
+                {p.name} · {p.modelType === 'embedding' ? p.model : p.embeddingModel}
               </option>
             ))}
           </select>
@@ -734,7 +726,8 @@ export function KnowledgeEditor({ value, data, onClose, onSaved }: Props) {
           onClose={() => setAddingProvider(false)}
           onSaved={async (p) => {
             await onSaved();
-            if (p?.embeddingModel) set((f: any) => ({ ...f, providerId: p.id }));
+            if (p?.modelType === 'embedding' || p?.embeddingModel)
+              set((f: any) => ({ ...f, providerId: p.id }));
           }}
         />
       )}

@@ -19,6 +19,8 @@ export const providerSchema = z.object({
   baseUrl: url,
   model: z.string().trim().min(1).max(150),
   apiKey: z.string().max(8192).optional(),
+  modelType: z.enum(['llm', 'vision', 'embedding']).optional(),
+  // Accepted only for legacy API clients; new entries contain one model and an explicit role.
   embeddingModel: z.string().trim().max(150).default(''),
   outputTokenParameter: z.enum(['max_tokens', 'max_completion_tokens']).default('max_tokens'),
   maxOutputTokens: z.number().int().min(128).max(32768).default(4096),
@@ -108,6 +110,7 @@ export const agentSchema = z.object({
   humanInput: z.boolean().optional(),
   approvals: humanSettingsSchema.optional(),
   providerId: id,
+  visionProviderId: id.optional(),
   connections: z.array(toolBindingSchema).max(30).default([]),
   guardrailIds: z.array(id).max(20).optional(),
   knowledgeBaseIds: z.array(id).max(20).default([]),
@@ -406,11 +409,18 @@ export const runSchema = z
     agentId: id.optional(),
     workflowId: id.optional(),
     input: z.string().min(1).max(32000),
+    attachments: z.array(id).max(4).optional(),
     payload: z.record(z.unknown()).optional(),
     /** A registered machine whose tools every agent in the run receives. */
     deviceId: z.string().regex(deviceIdPattern).optional(),
     history: z
-      .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(32000) }))
+      .array(
+        z.object({
+          role: z.enum(['user', 'assistant']),
+          content: z.string().max(32000),
+          attachments: z.array(id).max(4).optional(),
+        }),
+      )
       .max(20)
       .default([]),
   })

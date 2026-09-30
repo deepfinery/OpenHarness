@@ -139,9 +139,13 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
                     <div className="tag-row">
                       {p.id === defaultProviderId(data) && <span className="provider-default">Default</span>}
                       <span>{kindLabel[p.kind] ?? p.kind}</span>
-                      <span>Chat · {p.model}</span>
-                      <span className={p.embeddingModel ? '' : 'faint'}>
-                        {p.embeddingModel ? `Embeddings · ${p.embeddingModel}` : 'No embedding model'}
+                      <span>
+                        {p.modelType === 'embedding'
+                          ? 'Embedding'
+                          : p.modelType === 'vision'
+                            ? 'Vision'
+                            : 'LLM'}{' '}
+                        · {p.model}
                       </span>
                       <span>{p.hasApiKey ? 'Encrypted key' : 'No API key'}</span>
                       {p.streaming === false && <span>Streaming off</span>}
@@ -172,19 +176,21 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
                       {busy === p.id ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
                       Test
                     </Button>
-                    {user.role === 'admin' && p.id !== defaultProviderId(data) && (
-                      <Button
-                        variant="ghost"
-                        onClick={() =>
-                          void act(async () => {
-                            await send('/tenant', { defaultProviderId: p.id }, 'PUT');
-                            await refresh();
-                          })
-                        }
-                      >
-                        Make default
-                      </Button>
-                    )}
+                    {user.role === 'admin' &&
+                      p.modelType !== 'embedding' &&
+                      p.id !== defaultProviderId(data) && (
+                        <Button
+                          variant="ghost"
+                          onClick={() =>
+                            void act(async () => {
+                              await send('/tenant', { defaultProviderId: p.id }, 'PUT');
+                              await refresh();
+                            })
+                          }
+                        >
+                          Make default
+                        </Button>
+                      )}
                     <IconButton title={`Edit ${p.name}`} onClick={() => edit('providers', p)}>
                       <Settings2 size={17} />
                     </IconButton>
