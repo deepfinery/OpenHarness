@@ -13,7 +13,7 @@ export type Conversation = {
   updatedAt: Date;
   pending?: { runId: string; since: Date };
   lastRunId?: string;
-  lastTurn?: { input: string; status: Run['status'] };
+  lastTurn?: { input: string; attachments?: string[]; status: Run['status'] };
 };
 /** Compare-and-update makes completion safe after duplicate delivery or a runner restart. */
 export async function settleConversation(run: Run) {
@@ -22,7 +22,11 @@ export async function settleConversation(run: Run) {
     { _id: run.conversationId, ownerId: run.ownerId, 'pending.runId': run._id },
     {
       $unset: { pending: '' },
-      $set: { updatedAt: new Date(), lastRunId: run._id, lastTurn: { input: run.input, status: run.status } },
+      $set: {
+        updatedAt: new Date(),
+        lastRunId: run._id,
+        lastTurn: { input: run.input, attachments: run.attachments, status: run.status },
+      },
       ...(run.output !== undefined
         ? {
             $push: {
@@ -33,6 +37,7 @@ export async function settleConversation(run: Run) {
                     createdAt: run.createdAt.toISOString(),
                     role: 'user' as const,
                     content: run.input,
+                    attachments: run.attachments,
                   },
                   {
                     id: `${run._id}:assistant`,

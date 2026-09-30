@@ -118,6 +118,7 @@ export function childAgent(
     description: 'Sub-agent',
     systemPrompt,
     providerId: parent.providerId,
+    visionProviderId: parent.visionProviderId,
     connections,
     knowledgeBaseIds: parent.knowledgeBaseIds,
     workspace: parent.workspace,
@@ -137,6 +138,8 @@ export function childAgent(
 
 type EventWriter = (event: Omit<RunEvent, 'at'>) => Promise<void>;
 type ChildContext = {
+  attachments?: string[];
+  imageHistory: Run['history'];
   ownerId: string;
   runId: string;
   event: EventWriter;
@@ -149,6 +152,8 @@ type ChildContext = {
   taskId: string;
 };
 export type SpawnOptions = {
+  attachments?: string[];
+  imageHistory?: Run['history'];
   parent: Agent;
   ownerId: string;
   runId: string;
@@ -221,7 +226,8 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
           trigger: 'subagent',
           status: 'running',
           input: request.task,
-          history: [],
+          attachments: options.attachments,
+          history: options.imageHistory ?? [],
           events: [],
           outputs: {},
           snapshot: {
@@ -256,6 +262,8 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
         );
       };
       const ctx: ChildContext = {
+        attachments: previous?.attachments ?? options.attachments,
+        imageHistory: previous?.history ?? options.imageHistory ?? [],
         ownerId: options.ownerId,
         runId: id,
         event: write,

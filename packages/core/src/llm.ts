@@ -1,3 +1,4 @@
+import { imageData } from './images.js';
 // Provider-neutral chat/tool contract with optional token streaming.
 import { randomUUID } from 'node:crypto';
 import { collection } from './db.js';
@@ -26,6 +27,8 @@ export type ToolCall = { id: string; name: string; arguments: Record<string, unk
 export type ChatMessage = {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  images?: string[];
+  currentImages?: boolean;
   /** Internal reference data, distinct from operating instructions and the current user request. */
   reference?: boolean;
   /** Original user wording used only to select response language; retained during compaction. */
@@ -279,6 +282,15 @@ export async function chat(
   signal?: AbortSignal,
   onDelta?: DeltaListener,
 ): Promise<ChatResult> {
+  if (p.modelType === 'embedding')
+    throw new HttpError(400, 'Embedding models cannot generate chat responses');
+  const hasImages = messages.some((m) => m.images?.length);
+  if (hasImages && p.modelType !== 'vision')
+    throw new HttpError(400, 'Select a vision model to process image attachments');
+  const images = new Map<string, { mimeType: string; data: string }>();
+  for (const id of new Set(messages.flatMap((m) => m.images ?? [])))
+    images.set(id, await imageData(p.ownerId, id));
+  const imageParts = (m: ChatMessage) => (m.images ?? []).map((id) => images.get(id)!);
   const key = decrypt(p.apiKeyEncrypted);
   const streaming = Boolean(onDelta) && p.streaming !== false;
   const system = messages
@@ -295,6 +307,10 @@ export async function chat(
             ? [{ type: 'tool_result', tool_use_id: m.toolCallId, content: m.content }]
             : [
                 ...(m.content ? [{ type: 'text', text: m.content }] : []),
+                ...imageParts(m).map((i) => ({
+                  type: 'image',
+                  source: { type: 'base64', media_type: i.mimeType, data: i.data },
+                })),
                 ...(m.toolCalls ?? []).map((t) => ({
                   type: 'tool_use',
                   id: t.id,
@@ -387,6 +403,7 @@ export async function chat(
             ? [{ functionResponse: { name: m.name, response: { result: m.content } } }]
             : [
                 ...(m.content ? [{ text: m.content }] : []),
+                ...imageParts(m).map((i) => ({ inlineData: { mimeType: i.mimeType, data: i.data } })),
                 ...(m.toolCalls ?? []).map((t) => ({
                   functionCall: { name: t.name, args: t.arguments },
                   ...(t.signature ? { thoughtSignature: t.signature } : {}),
@@ -466,7 +483,17 @@ export async function chat(
   const nativeOllama = p.kind === 'ollama';
   const dialog = messages.map((m) => ({
     role: m.role,
-    content: m.content,
+    content:
+      !nativeOllama && m.images?.length
+        ? [
+            { type: 'text', text: m.content },
+            ...imageParts(m).map((i) => ({
+              type: 'image_url',
+              image_url: { url: `data:${i.mimeType};base64,${i.data}` },
+            })),
+          ]
+        : m.content,
+    ...(nativeOllama && m.images?.length ? { images: imageParts(m).map((i) => i.data) } : {}),
     ...(m.toolCallId ? { tool_call_id: m.toolCallId, ...(nativeOllama ? { tool_name: m.name } : {}) } : {}),
     ...(m.toolCalls?.length
       ? {
@@ -674,12 +701,13 @@ function openAiResult(data: any, nativeOllama: boolean): ChatResult {
   };
 }
 export async function embed(p: ProviderRecord, input: string, signal?: AbortSignal): Promise<number[]> {
-  if (!p.embeddingModel) throw new Error('Configure an embedding model on the knowledge base provider');
+  const embeddingModel = p.modelType === 'embedding' ? p.model : !p.modelType ? p.embeddingModel : '';
+  if (!embeddingModel) throw new Error('Select an embedding model for the knowledge base');
   const key = decrypt(p.apiKeyEncrypted);
   let vector: unknown;
   if (p.kind === 'gemini') {
     const data = await jsonRequest(
-      endpoint(p, `/models/${encodeURIComponent(p.embeddingModel)}:embedContent`),
+      endpoint(p, `/models/${encodeURIComponent(embeddingModel)}:embedContent`),
       { content: { parts: [{ text: input }] } },
       { 'x-goog-api-key': key },
       signal,
@@ -688,7 +716,7 @@ export async function embed(p: ProviderRecord, input: string, signal?: AbortSign
   } else if (p.kind === 'ollama') {
     const data = await jsonRequest(
       endpoint(p, '/api/embed'),
-      { model: p.embeddingModel, input },
+      { model: embeddingModel, input },
       key ? { Authorization: `Bearer ${key}` } : {},
       signal,
     );
@@ -696,7 +724,7 @@ export async function embed(p: ProviderRecord, input: string, signal?: AbortSign
   } else if (p.kind === 'openai-compatible') {
     const data = await jsonRequest(
       endpoint(p, '/embeddings'),
-      { model: p.embeddingModel, input },
+      { model: embeddingModel, input },
       key ? { Authorization: `Bearer ${key}` } : {},
       signal,
     );

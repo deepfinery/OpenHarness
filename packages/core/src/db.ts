@@ -7,6 +7,8 @@ export function collection<T extends Document & { _id: string }>(name: string) {
 }
 export async function connectDatabase() {
   await mongo.connect();
+  const { migrateModelRoles } = await import('./modelRoles.js');
+  await migrateModelRoles();
   // Keep legacy private workspaces isolated. New members explicitly join a tenant.
   await db.collection('users').updateMany({ tenantId: { $exists: false } }, [{ $set: { tenantId: '$_id' } }]);
   await Promise.all([

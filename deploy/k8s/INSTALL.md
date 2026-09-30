@@ -445,7 +445,8 @@ trusted certificate, the extra CA setting is usually unnecessary.
 
 The application now runs, but it has no inference model configured:
 
-1. Open Settings and add your model provider's endpoint, model name and credentials. Use the
+1. Open Settings and add your model provider's endpoint and credentials. Select **LLM**, **Vision** or
+   **Embedding** as its type, and enter one model ID per entry. Use the
    connection test before saving it as the workspace default. See the
    [model-provider guide](../../README.md#1-connect-a-model-provider).
 2. Open Harnesses, create a simple harness with an agent using that provider, and run a prompt
@@ -454,8 +455,22 @@ The application now runs, but it has no inference model configured:
    tools, and explicitly enable the tools the agent should use.
 4. For device tools, enroll a machine through Inventory and run its generated connector command
    on the target machine. It must reach `wss://YOUR_ORIGIN/connect` and trust your certificate.
-5. For retrieval, configure a provider with an embedding model, create a knowledge base and
+5. For retrieval, create an **Embedding** model entry, create a knowledge base using it and
    upload a small document. Wait for indexing before trying a grounded query.
+
+For image questions, add a **Vision** model entry and select it in the agent's **General → Harness
+vision model** field. In Playground, attach or drag and drop a PNG, JPEG or WebP image and ask a
+question. Up to four images per message are supported, each up to 10 MB and 25 megapixels. The API
+normalizes images to JPEG (maximum 2048-pixel edge); the runner reads them from the shared files PVC
+and sends them to the chosen vision endpoint. No additional Kubernetes service or Docling install is
+needed. Follow-up questions retain images and keep using the vision model. A new text-only
+conversation uses the primary model. The connection test for Vision sends a small synthetic image.
+
+The upgrade automatically splits old combined chat/embedding definitions and preserves notebook
+references. Reclassify your image-capable entries as Vision after upgrading. See the
+[model-provider guide](../../README.md#1-connect-a-model-provider) for migration and storage details.
+Images use the existing file volume and MongoDB backup procedure; removed draft uploads currently
+remain stored, subject to a 1 GB soft quota per workspace.
 
 If the model or MCP server is inside a private network, add only its required hostnames to
 `ALLOWED_PRIVATE_HOSTS` through a ConfigMap patch. The default intentionally does not allow

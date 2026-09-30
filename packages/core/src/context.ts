@@ -28,7 +28,11 @@ export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 export function dialogTokens(messages: ChatMessage[]) {
   return messages.reduce(
     (n, m) =>
-      n + estimateTokens(m.content) + (m.toolCalls ? estimateTokens(JSON.stringify(m.toolCalls)) : 0) + 6,
+      n +
+      (m.images?.length ?? 0) * 8192 +
+      estimateTokens(m.content) +
+      (m.toolCalls ? estimateTokens(JSON.stringify(m.toolCalls)) : 0) +
+      6,
     0,
   );
 }
@@ -102,9 +106,9 @@ export function compactDialog(
   // Retain its opening and trailing constraints, targeting a fifth of the space after instructions with a short minimum.
   const languageChars = Math.max(160, Math.floor((budget - dialogTokens(instructions)) * 0.2 * 3.5));
   const retained = messages
-    .filter((m) => m.role === 'system' || m.responseLanguageSource)
+    .filter((m) => m.role === 'system' || m.responseLanguageSource || m.currentImages)
     .map((m) => (m.responseLanguageSource ? { ...m, content: excerpt(m.content, languageChars) } : m));
-  let rest = messages.filter((m) => m.role !== 'system' && !m.responseLanguageSource);
+  let rest = messages.filter((m) => m.role !== 'system' && !m.responseLanguageSource && !m.currentImages);
   let level: 1 | 2 | 3 = 1;
   const fits = () => dialogTokens([...retained, ...rest]) <= budget;
 

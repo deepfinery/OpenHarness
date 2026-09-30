@@ -749,11 +749,13 @@ export function GuardrailsPage({
                           onChange={(e) => patch({ safetyModelProviderId: e.target.value || undefined })}
                         >
                           <option value="">Automatic (workspace default / NeMo service)</option>
-                          {data.providers.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name} · {p.model}
-                            </option>
-                          ))}
+                          {data.providers
+                            .filter((p) => p.modelType !== 'embedding')
+                            .map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} · {p.model}
+                              </option>
+                            ))}
                         </select>
                       </Field>
                       <Field

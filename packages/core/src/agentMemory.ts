@@ -100,16 +100,28 @@ export async function indexArchive(
   const { embed, ownedProvider } = await import('./llm.js');
   const { vectorStore } = await import('./vectorstores/index.js');
   const { stableId } = await import('./human.js');
-  const providerRecord = await collection<{ _id: string; ownerId: string; embeddingModel?: string }>(
-    'providers',
-  ).findOne({ ownerId, embeddingModel: { $type: 'string', $ne: '' } });
+  const providerRecord = await collection<{
+    _id: string;
+    ownerId: string;
+    embeddingModel?: string;
+    legacyEmbeddingSourceId?: string;
+  }>('providers').findOne({
+    ownerId,
+    $or: [
+      { modelType: 'embedding' },
+      { modelType: { $exists: false }, embeddingModel: { $type: 'string', $ne: '' } },
+    ],
+  });
   if (!providerRecord) return false;
   const provider = await ownedProvider(ownerId, providerRecord._id);
   const vector = await embed(provider, entry.content.slice(0, 8000), AbortSignal.timeout(30000));
   const store = vectorStore(),
     name =
       'AgentMemory_' +
-      createHash('sha256').update(`${ownerId}:${agentKey}:${providerRecord._id}`).digest('hex').slice(0, 24);
+      createHash('sha256')
+        .update(`${ownerId}:${agentKey}:${providerRecord.legacyEmbeddingSourceId ?? providerRecord._id}`)
+        .digest('hex')
+        .slice(0, 24);
   await store.ensureCollection(name, vector.length);
   await store.upsert(name, [
     {
@@ -127,16 +139,28 @@ export async function indexArchive(
 export async function searchArchive(ownerId: string, agentKey: string, text: string, limit: number) {
   const { embed, ownedProvider } = await import('./llm.js');
   const { vectorStore } = await import('./vectorstores/index.js');
-  const providerRecord = await collection<{ _id: string; ownerId: string; embeddingModel?: string }>(
-    'providers',
-  ).findOne({ ownerId, embeddingModel: { $type: 'string', $ne: '' } });
+  const providerRecord = await collection<{
+    _id: string;
+    ownerId: string;
+    embeddingModel?: string;
+    legacyEmbeddingSourceId?: string;
+  }>('providers').findOne({
+    ownerId,
+    $or: [
+      { modelType: 'embedding' },
+      { modelType: { $exists: false }, embeddingModel: { $type: 'string', $ne: '' } },
+    ],
+  });
   if (!providerRecord) return [];
   const provider = await ownedProvider(ownerId, providerRecord._id),
     vector = await embed(provider, text, AbortSignal.timeout(30000));
   const store = vectorStore(),
     name =
       'AgentMemory_' +
-      createHash('sha256').update(`${ownerId}:${agentKey}:${providerRecord._id}`).digest('hex').slice(0, 24);
+      createHash('sha256')
+        .update(`${ownerId}:${agentKey}:${providerRecord.legacyEmbeddingSourceId ?? providerRecord._id}`)
+        .digest('hex')
+        .slice(0, 24);
   await store.ensureCollection(name, vector.length);
   const hits = await store.search(name, { ownerId, vector, text, limit });
   const ids = hits.map((h) => h.documentId);

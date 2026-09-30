@@ -13,8 +13,14 @@ export async function defaultProviderId(tenantId: string) {
   const tenant = await collection<Tenant>('tenants').findOne({ _id: tenantId });
   const providers = collection<{ _id: string; ownerId: string; createdAt: Date }>('providers');
   let id = tenant?.defaultProviderId;
-  if (!id || !(await providers.findOne({ _id: id, ownerId: tenantId })))
-    id = (await providers.find({ ownerId: tenantId }).sort({ createdAt: 1 }).limit(1).next())?._id;
+  if (!id || !(await providers.findOne({ _id: id, ownerId: tenantId, modelType: { $ne: 'embedding' } })))
+    id = (
+      await providers
+        .find({ ownerId: tenantId, modelType: { $ne: 'embedding' } })
+        .sort({ createdAt: 1 })
+        .limit(1)
+        .next()
+    )?._id;
   return id;
 }
 export async function tenantView(tenantId: string) {

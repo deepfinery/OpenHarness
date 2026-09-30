@@ -425,6 +425,7 @@ test('a sub-agent gets a fresh prompt, the chosen skill and only the requested t
     name: 'Lead',
     systemPrompt: 'Lead the work.',
     providerId: randomUUID(),
+    visionProviderId: randomUUID(),
     connections: [{ connectionId: randomUUID(), tools: ['lookup', 'calculate'] }],
   });
   parent.skills = [
@@ -443,6 +444,7 @@ test('a sub-agent gets a fresh prompt, the chosen skill and only the requested t
     true,
   );
   assert.equal(child.connections[0].tools.join(), 'lookup');
+  assert.equal(child.visionProviderId, parent.visionProviderId);
   assert.equal(child.tokenBudget, 12_000);
   assert.equal(child.effort, 'medium');
   assert.equal(child.delegation, undefined, 'sub-agents are never delegators');

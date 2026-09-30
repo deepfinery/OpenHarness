@@ -158,6 +158,7 @@ conversationApi.post('/chat', async (req, res) => {
         .nullable()
         .optional(),
       message: z.string().min(1).max(32000),
+      attachments: z.array(id).max(4).optional(),
     })
     .parse(req.body);
   const principal = req.principal!;
@@ -226,7 +227,10 @@ conversationApi.post('/chat', async (req, res) => {
         agentId: reserved.agentId,
         workflowId: reserved.workflowId,
         input: body.message,
-        history: reserved.messages.map(({ role, content }) => ({ role, content })),
+        attachments: body.attachments,
+        history: reserved.messages
+          .slice(-20)
+          .map(({ role, content, attachments }) => ({ role, content, attachments })),
         ...(deviceId ? { deviceId } : {}),
       },
       {
@@ -292,9 +296,13 @@ conversationApi.get('/conversations/:id', async (req, res) => {
   if (!c) throw new HttpError(404, 'Conversation not found');
   checkTokenScope(req, 'read', c);
   let pendingInput: string | undefined;
+  let pendingAttachments: string[] | undefined;
   if (c.pending) {
     const run = await collection<Run>('runs').findOne({ _id: c.pending.runId, ownerId: c.ownerId });
-    if (run && ['queued', 'running', 'waiting_for_human'].includes(run.status)) pendingInput = run.input;
+    if (run && ['queued', 'running', 'waiting_for_human'].includes(run.status)) {
+      pendingInput = run.input;
+      pendingAttachments = run.attachments;
+    }
     if (run) await settleConversation(run);
     c = (await collection<Conversation>('conversations').findOne(filter))!;
   }
@@ -304,9 +312,9 @@ conversationApi.get('/conversations/:id', async (req, res) => {
     workflowId: c.workflowId,
     messages:
       c.pending && pendingInput !== undefined
-        ? [...c.messages, { role: 'user', content: pendingInput }]
+        ? [...c.messages, { role: 'user', content: pendingInput, attachments: pendingAttachments }]
         : !c.pending && c.lastTurn && c.lastTurn.status !== 'succeeded'
-          ? [...c.messages, { role: 'user', content: c.lastTurn.input }]
+          ? [...c.messages, { role: 'user', content: c.lastTurn.input, attachments: c.lastTurn.attachments }]
           : c.messages,
     activeRunId: c.pending?.runId,
     lastRunId: c.lastRunId,

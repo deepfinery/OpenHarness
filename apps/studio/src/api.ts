@@ -94,8 +94,10 @@ export const emptyData: Data = {
 };
 /** The provider new agents use: the workspace default when it exists, otherwise the first provider. */
 export const defaultProviderId = (data: Data) =>
-  (data.providers.some((p) => p.id === data.defaults.providerId) ? data.defaults.providerId : '') ||
-  data.providers[0]?.id ||
+  (data.providers.some((p) => p.id === data.defaults.providerId && p.modelType !== 'embedding')
+    ? data.defaults.providerId
+    : '') ||
+  data.providers.find((p) => p.modelType !== 'embedding')?.id ||
   '';
 export const timestamp = (date?: string) =>
   date ? new Date(date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—';

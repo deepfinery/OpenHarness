@@ -208,7 +208,7 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
             </div>
             <div className="kb-cards">
               {data.knowledge.map((k) => {
-                const embedding = data.providers.find((p) => p.id === k.providerId)?.embeddingModel;
+                const embedding = data.providers.find((p) => p.id === k.providerId)?.model;
                 const count = k.id === selected ? documents.length : (k.documentCount ?? 0);
                 return (
                   <div
@@ -276,7 +276,9 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
                     <small>
                       {documents.length} {documents.length === 1 ? 'file' : 'files'}
                       {indexing ? ` · ${indexing} indexing` : ''}
-                      {provider ? ` · ${provider.embeddingModel}` : ' · embedding provider missing'}
+                      {provider
+                        ? ` · ${provider.modelType === 'embedding' ? provider.model : provider.embeddingModel}`
+                        : ' · embedding provider missing'}
                     </small>
                   </div>
                 </div>
@@ -451,7 +453,10 @@ export function KnowledgePage({ data, edit, act, refresh }: PageProps) {
                   <PenLine size={26} />
                   <h3>{documents.length ? 'Pick a file' : 'Start writing'}</h3>
                   <p>
-                    Notes and uploads are indexed with {provider?.embeddingModel ?? 'your embedding model'}.
+                    Notes and uploads are indexed with{' '}
+                    {(provider?.modelType === 'embedding' ? provider.model : provider?.embeddingModel) ??
+                      'your embedding model'}
+                    .
                   </p>
                   <div className="row-actions">
                     <Button onClick={newNote}>

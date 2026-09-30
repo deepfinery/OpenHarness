@@ -127,3 +127,47 @@ The `model_response` event recorded requested and reported model
 and upstream response ID `chatcmpl-b0efc1c16e6c5df0`.
 In Studio, open the run trace and expand **Calling configured model provider** and
 **Received response from configured model provider** to inspect this evidence on new runs.
+
+## Playground vision and model roles — issue #119
+
+Settings now define one model per entry with an explicit LLM, Vision or Embedding type. Harnesses
+select a primary chat model and an optional vision model; notebooks select an embedding model.
+Playground supports a file picker, drag/drop, image previews and image follow-ups. Images go to the
+configured VLM as native multimodal input; no Docling or OCR deployment is needed.
+
+The live Financial-assistant uses:
+
+| Purpose                              | Model                                                                 |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| New text-only conversations          | `nvidia/Nemotron-3-Ultra-550b-a55b`                                   |
+| Conversations with image attachments | `deepseek-ai/DeepSeek-V4.1-Flash` at the configured US North endpoint |
+| Both existing notebooks              | `Qwen/Qwen3-Embedding-8B`                                             |
+
+Legacy combined entries were split with their encrypted keys retained and notebook references moved
+to the embedding entries. Archival vector-index identifiers are preserved across this migration.
+A private pre-migration backup is retained in `.local/model-role-backup-119.json` (not committed).
+The real Qwen embedding connection returned 4,096 dimensions. Flash correctly identified a blue
+probe image. Kimi's image probe timed out, so its classification was left unchanged.
+
+Image run `cb71a733-b7d1-44bc-aca9-d0b14f92f863` extracted the synthetic Apples/Pears table and
+calculated **41**. Follow-up run `1315b6cb-0f47-4ce7-aed6-9d740413fa4e` answered **7 apples**
+without another upload. Both recorded matching requested/reported DeepSeek V4.1 Flash model IDs.
+Text-only run `93e2b009-dcb5-4557-bf3d-19077c384dfd` recorded matching Nemotron IDs.
+These checks verify application routing and upstream response metadata, not independent attestation
+of the upstream weights. Uploaded images leave the cluster for the selected hosted VLM when used.
+
+Local validation: Node 22 type checks, **135 unit tests**, **64 real-stack integration tests**
+(with six optional fault/notification cases skipped), and **two Chromium browser tests** passed.
+The five vision integration tests were rerun after extending migration coverage to assert actual
+archival-memory retrieval before and after the split; all passed. Tests cover tenant isolation,
+invalid image rejection, four provider wire formats, context compaction, final synthesis, delegation,
+role validation, persistent follow-ups and text/vision routing. Hosted CI remains disabled.
+
+The final Linux AMD64 image `openharness:k8s-119` is pinned as
+`sha256:f2a6a4203329de183581c1a5b1aa6e43eeca84a60cac8f53bb7af72db1ac40e2` in the Nebius overlay.
+See [INSTALL.md](INSTALL.md#10-connect-a-model-and-optional-tools) for configuration and upload limits.
+
+The deployed Chromium check passed file selection, preview removal, native drag/drop, table rendering,
+and persisted images after reload. Its run `3d820eee-6162-4b44-a795-2363cecaa2cf` again returned **41**
+with matching DeepSeek V4.1 Flash response metadata. Kubernetes rollout, HTTPS, Studio HTML, gateway,
+NeMo, Garak, runner heartbeat and shared-files smoke checks passed.

@@ -171,6 +171,7 @@ app.put('/api/tenant', requireAdmin, async (req, res) => {
   if (body.defaultProviderId) {
     const owned = await collection<{ _id: string; ownerId: string }>('providers').findOne({
       _id: body.defaultProviderId,
+      modelType: { $ne: 'embedding' },
       ownerId: tenantId,
     });
     if (!owned) throw new HttpError(400, 'Choose a model provider from this workspace');
@@ -696,12 +697,12 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
       ? error.status
       : code === 'LIMIT_FILE_SIZE'
         ? 413
-        : (error as { status?: number }).status === 400
+        : code?.startsWith('LIMIT_') || (error as { status?: number }).status === 400
           ? 400
           : 500;
   const message =
     code === 'LIMIT_FILE_SIZE'
-      ? `File exceeds the ${config.MAX_UPLOAD_MB} MB upload limit`
+      ? `File exceeds the ${_req.path === '/api/images' ? 10 : config.MAX_UPLOAD_MB} MB upload limit`
       : safeError(error);
   if (status === 500) console.error('Request failed:', message);
   res.status(status).json({ error: message });
