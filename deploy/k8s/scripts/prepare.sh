@@ -4,11 +4,13 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 : "${KUBE_CONTEXT:?Set KUBE_CONTEXT explicitly}"
 : "${PUBLIC_URL:?Set PUBLIC_URL to the HTTPS origin}"
-export PUBLIC_URL
+KUSTOMIZE_BASE="${KUSTOMIZE_BASE:-../overlays/nebius}"
+export PUBLIC_URL KUSTOMIZE_BASE
 [[ "$PUBLIC_URL" == https://* ]] || { echo 'PUBLIC_URL must use HTTPS' >&2; exit 1; }
 kube() { kubectl --context "$KUBE_CONTEXT" -n openharness "$@"; }
 umask 077
 mkdir -p deploy/k8s/.local
+[[ -f "deploy/k8s/.local/$KUSTOMIZE_BASE/kustomization.yaml" ]] || { echo "No kustomization.yaml at $KUSTOMIZE_BASE (relative to deploy/k8s/.local)" >&2; exit 1; }
 kubectl --context "$KUBE_CONTEXT" apply -f deploy/k8s/base/namespace.yaml
 if ! kube get secret openharness-secrets >/dev/null 2>&1; then
   python3 - <<'PY' > deploy/k8s/.local/secrets.json
@@ -47,6 +49,6 @@ import os, json, base64
 url=os.environ['PUBLIC_URL'].rstrip('/')
 patch={'apiVersion':'v1','kind':'ConfigMap','metadata':{'name':'openharness-config'},'data':{'PUBLIC_URL':url,'GATEWAY_PUBLIC_URL':'wss://'+url.removeprefix('https://')}}
 if os.environ.get('SELF_SIGNED_TLS')=='1': patch['data']['PUBLIC_CA_PEM_BASE64']=base64.b64encode(open('deploy/k8s/.local/tls.crt','rb').read()).decode()
-print(json.dumps({'apiVersion':'kustomize.config.k8s.io/v1beta1','kind':'Kustomization','resources':['../overlays/nebius'],'patches':[{'patch':json.dumps(patch)}]},indent=2))
+print(json.dumps({'apiVersion':'kustomize.config.k8s.io/v1beta1','kind':'Kustomization','resources':[os.environ['KUSTOMIZE_BASE']],'patches':[{'patch':json.dumps(patch)}]},indent=2))
 PY
 printf 'Prepared deploy/k8s/.local for %s in %s\n' "$PUBLIC_URL" "$KUBE_CONTEXT"
