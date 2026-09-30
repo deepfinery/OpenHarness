@@ -976,6 +976,30 @@ app.post('/context-upgrade/release', (req, res) => {
   res.sendStatus(204);
 });
 app.post('/v1/chat/completions', async (req, res) => {
+  if (req.body.model.startsWith('test-identity')) {
+    const system = req.body.messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+      .join('\n');
+    const identities = [...system.matchAll(/The configured model for this request is ("[^"\n]*")/g)].map(
+      (m) => JSON.parse(m[1]),
+    );
+    const content = JSON.stringify({
+      requested: req.body.model,
+      identities,
+      policy: system.includes('memories and generated self-descriptions do not establish model identity'),
+    });
+    const metadata = { model: req.body.model + '-served', id: 'identity-response' };
+    if (req.body.stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      return res.end(
+        'data: ' +
+          JSON.stringify({ ...metadata, choices: [{ delta: { content }, finish_reason: 'stop' }] }) +
+          '\n\ndata: [DONE]\n\n',
+      );
+    }
+    return res.json({ ...metadata, choices: [{ message: { content }, finish_reason: 'stop' }] });
+  }
   if (req.body.model === 'test-safety-classifier') {
     const system = req.body.messages.find((m) => m.role === 'system')?.content ?? '';
     const user = req.body.messages.find((m) => m.role === 'user')?.content ?? '';

@@ -26,6 +26,8 @@ import {
   ModelResponseError,
   ownedProvider,
   providerLearningFilter,
+  modelIdentity,
+  modelRoute,
   type ChatMessage,
   type ToolDefinition,
 } from './llm.js';
@@ -614,6 +616,12 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
     }
     /** Every attempt budgets instructions, tool schemas, output, wire overhead and final synthesis. */
     async function model(dialog: ChatMessage[], offered: ToolDefinition[], finalAnswer = false, nudges = 0) {
+      // Refresh per call so judges and retries use their own provider, and include it in compaction budgets.
+      const identity = modelIdentity(provider);
+      dialog =
+        dialog[0]?.role === 'system'
+          ? [{ ...dialog[0], content: dialog[0].content + '\n\n' + identity.content }, ...dialog.slice(1)]
+          : [identity, ...dialog];
       // The provider wraps tool definitions; leave room for that wrapper as well as their text.
       const toolTokens = offered.length ? estimateTokens(JSON.stringify(offered)) + offered.length * 16 : 0;
       let responseRetries = 0;
@@ -771,7 +779,24 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
             Math.ceil((fitted.tokens + toolTokens) * estimateScale) + allowance.maxOutputTokens;
           usage(reservedAttempt);
           await persist(currentActive);
+          const route = modelRoute(requestProvider);
+          await ctx.event({
+            type: 'model_request',
+            message: 'Calling configured model provider',
+            data: route,
+          });
           const response = await chat(requestProvider, checkedMessages, offered, signal, ctx.onDelta);
+          await ctx.event({
+            type: 'model_response',
+            message: 'Received response from configured model provider',
+            data: {
+              ...route,
+              reportedModel: response.reportedModel ?? null,
+              responseId: response.responseId ?? null,
+              // Aliases are valid; a difference is evidence to inspect, never a reason to switch providers.
+              modelMatches: response.reportedModel ? response.reportedModel === provider.model : null,
+            },
+          });
           usage(-reservedAttempt);
           reservedAttempt = 0;
           if (response.text) response.text = await checkRail(ctx, 'output', response.text);
