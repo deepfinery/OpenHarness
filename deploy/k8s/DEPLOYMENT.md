@@ -34,15 +34,25 @@ The same registry also contains the optional machine images:
   and successfully executed `uname -s` from a Kubernetes-run workflow (returned `Linux`).
 - The temporary connector, its device enrollment and test workflows were removed after validation.
 - Re-running secret preparation preserved the existing credentials; login still worked after rollout.
+- A sentinel file on the shared PVC survived replacement of the API/runner pod.
 
 ## Local verification
 
 Node 22 type checks and 119 unit tests passed. All 30 connector/gateway unit tests passed in Linux
-(the Linux connector suite requires `/proc`). The full real-stack integration suite runs in an
-isolated `openharness-test-*` Compose project, including fault injection; no faults were injected
-into the deployed namespace. During that run an existing effort-budget test selected the preceding
-dense-tokenizer fixture. Its isolation fix was merged in [PR #112](https://github.com/deepfinery/OpenHarness/pull/112),
-and all 15 feature integration tests passed in a second isolated Compose project.
+(the Linux connector suite requires `/proc`). The full real-stack integration run used an isolated
+`openharness-test-*` Compose project, including fault injection: **213 passed, 2 failed, 4 skipped**
+(219 total). No faults were injected into the deployed namespace.
+
+- The effort-budget failure selected the preceding dense-tokenizer fixture. Its isolation fix was
+  merged in [PR #112](https://github.com/deepfinery/OpenHarness/pull/112); all 15 feature integration
+  tests then passed in a second isolated Compose project.
+- The remaining pre-existing task-memory final-synthesis event failure is tracked in
+  [issue #114](https://github.com/deepfinery/OpenHarness/issues/114). It reproduced independently
+  on a fresh test stack (task-memory suite: 5 passed, 1 failed). No runtime changes were made as
+  part of this Kubernetes deployment. The full integration suite is therefore **not fully green**.
+
+The optional guardrail suite was then run with `TEST_NEMO=true` and both NeMo and Garak enabled:
+**all 18 tests passed, with no skips**, covering the four cases skipped by the default command.
 
 Hosted CI remains disabled. See [README.md](README.md) for deployment, TLS replacement, backups,
 validation commands and the single-replica storage limitation.
