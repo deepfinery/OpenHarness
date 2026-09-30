@@ -9,3 +9,10 @@ playwright-report
 test-results
 
 product-screenshots
+
+# Never send runtime credentials or generated deployment material to a builder.
+.env
+.env.*
+!.env.example
+.test-env
+deploy/k8s/.local

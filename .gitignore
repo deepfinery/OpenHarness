@@ -30,3 +30,6 @@ __pycache__/
 deploy/openshell/.env
 deploy/openshell/certs/*
 !deploy/openshell/certs/.gitkeep
+
+# Kubernetes credentials, TLS keys and rendered local overlays
+deploy/k8s/.local/

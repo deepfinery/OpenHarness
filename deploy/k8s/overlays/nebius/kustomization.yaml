@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: openharness
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: Service
+      name: proxy
+    patch: |-
+      - op: add
+        path: /spec/type
+        value: LoadBalancer
+      - op: replace
+        path: /spec/ports/0/port
+        value: 443
+images:
+  - name: openharness
+    newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/openharness
+    digest: sha256:7532efd9f51df34ab698efe179d7828673f4d36cb5033f75ea90872af27ce51a
+  - name: openharness-gateway
+    newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/gateway
+    digest: sha256:be08dab65b1a55c68ca16326036fc4d2b4ca1eaa4c48de0f3cc7796905adf273
+  - name: openharness-guardrails
+    newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/guardrails
+    digest: sha256:c5dd36ac1d3ca11a21102f3f431c787ab62e4ddf07c4732be17dc678aa4e93e7
+  - name: openharness-garak-probes
+    newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/garak-probes
+    digest: sha256:c678e58e392ccd3b9feda964300d527c93eb188d02aac1b7543eb12503e4d2f4

@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openharness-proxy
+  labels:
+    app.kubernetes.io/name: openharness-proxy
+    app.kubernetes.io/part-of: openharness
+data:
+  Caddyfile: >
+    # TLS front for the studio and the device gateway with your own certificate
+    (scripts/enable-tls.sh makes a
+
+    # self-signed one). One origin serves both: https://<host>:8443 is the
+    studio and API, wss://<host>:8443/connect is
+
+    # where machines dial in, and https://<host>:8443/mcp/<machine> is the
+    gateway's per-machine MCP endpoint.
+
+    {
+      auto_https off
+      admin off
+    }
+
+
+    :8443 {
+      tls /certs/server.crt /certs/server.key
+      encode zstd gzip
+      # Only the device paths reach the gateway; its admin API stays internal.
+      @gateway path /connect /mcp/*
+      handle @gateway {
+        reverse_proxy gateway:8090 {
+          header_up X-Forwarded-Proto {scheme}
+          transport http {
+            read_timeout 0
+            write_timeout 0
+          }
+        }
+      }
+      handle {
+        reverse_proxy api:8088 {
+          header_up X-Forwarded-Proto {scheme}
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy
+  labels:
+    app.kubernetes.io/name: proxy
+    app.kubernetes.io/part-of: openharness
+spec:
+  selector:
+    app.kubernetes.io/name: proxy
+    app.kubernetes.io/part-of: openharness
+  ports:
+    - name: https
+      port: 8443
+      targetPort: 8443
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy
+  labels:
+    app.kubernetes.io/name: proxy
+    app.kubernetes.io/part-of: openharness
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: proxy
+      app.kubernetes.io/part-of: openharness
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: proxy
+        app.kubernetes.io/part-of: openharness
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 1000
+      containers:
+        - name: proxy
+          image: caddy:2.10-alpine
+          ports:
+            - containerPort: 8443
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+          volumeMounts:
+            - name: config
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: tls
+              mountPath: /certs
+              readOnly: true
+            - name: data
+              mountPath: /data
+            - name: runtime
+              mountPath: /config
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8443
+              scheme: HTTPS
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8443
+            periodSeconds: 15
+      volumes:
+        - name: config
+          configMap:
+            name: openharness-proxy
+        - name: tls
+          secret:
+            secretName: openharness-tls
+            items:
+              - key: tls.crt
+                path: server.crt
+              - key: tls.key
+                path: server.key
+        - name: data
+          emptyDir: {}
+        - name: runtime
+          emptyDir: {}
