@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/part-of: openharness
+spec:
+  selector:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/part-of: openharness
+  ports:
+    - name: http
+      port: 8090
+      targetPort: 8090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/part-of: openharness
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+      app.kubernetes.io/part-of: openharness
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gateway
+        app.kubernetes.io/part-of: openharness
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: openharness-gateway:local
+          ports:
+            - containerPort: 8090
+          env:
+            - name: PORT
+              value: '8090'
+            - name: TRUST_PROXY
+              value: '1'
+            - name: GATEWAY_ALLOW_INSECURE_WS
+              value: 'false'
+            - name: GATEWAY_MONGODB_DATABASE
+              value: agentic_gateway
+            - name: GATEWAY_APPROVAL_PROVIDER
+              value: studio
+            - name: GATEWAY_PUBLIC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: openharness-config
+                  key: GATEWAY_PUBLIC_URL
+            - name: GATEWAY_API_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: openharness-secrets
+                  key: GATEWAY_API_TOKENS
+            - name: GATEWAY_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openharness-secrets
+                  key: GATEWAY_ADMIN_TOKEN
+            - name: GATEWAY_MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: openharness-secrets
+                  key: GATEWAY_MONGODB_URI
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6

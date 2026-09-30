@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: files
+  labels:
+    app.kubernetes.io/name: files
+    app.kubernetes.io/part-of: openharness
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: openharness
+spec:
+  selector:
+    app.kubernetes.io/name: app
+    app.kubernetes.io/part-of: openharness
+  ports:
+    - name: http
+      port: 8088
+      targetPort: 8088
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  labels:
+    app.kubernetes.io/name: app
+    app.kubernetes.io/part-of: openharness
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app
+      app.kubernetes.io/part-of: openharness
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: app
+        app.kubernetes.io/part-of: openharness
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: openharness:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8088
+          envFrom:
+            - configMapRef:
+                name: openharness-config
+            - secretRef:
+                name: openharness-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: &a1
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: files
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 8088
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8088
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 8088
+            periodSeconds: 15
+            failureThreshold: 6
+        - name: runner
+          image: openharness:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - node
+            - dist/apps/runner/src/worker.js
+          envFrom:
+            - configMapRef:
+                name: openharness-config
+            - secretRef:
+                name: openharness-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: *a1
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: files
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            exec: &a2
+              command:
+                - node
+                - -e
+                - const
+                  fs=require('fs');process.exit(Date.now()-Number(fs.readFileSync('/tmp/openharness-worker-heartbeat','utf8'))<20000?0:1)
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 40
+          readinessProbe: &a3
+            exec: *a2
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          livenessProbe: *a3
+      volumes:
+        - name: files
+          persistentVolumeClaim:
+            claimName: files
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 45
