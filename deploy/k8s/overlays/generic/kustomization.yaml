@@ -1,0 +1,30 @@
+# Copy the registry path and release tag from your image build. See ../../INSTALL.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: openharness
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: Service
+      name: proxy
+    patch: |-
+      - op: add
+        path: /spec/type
+        value: LoadBalancer
+      - op: replace
+        path: /spec/ports/0/port
+        value: 443
+images:
+  - name: openharness
+    newName: registry.example.com/openharness/openharness
+    newTag: replace-me
+  - name: openharness-gateway
+    newName: registry.example.com/openharness/gateway
+    newTag: replace-me
+  - name: openharness-guardrails
+    newName: registry.example.com/openharness/guardrails
+    newTag: replace-me
+  - name: openharness-garak-probes
+    newName: registry.example.com/openharness/garak-probes
+    newTag: replace-me

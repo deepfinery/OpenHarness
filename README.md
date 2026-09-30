@@ -61,7 +61,8 @@ _These screenshots show the earlier “Workflows” label, now called “Harness
 
 ## Quick start
 
-For a Kubernetes installation, see the [complete Kubernetes / Nebius deployment guide](deploy/k8s/README.md).
+For a Kubernetes installation, follow the [step-by-step Kubernetes installation guide](deploy/k8s/INSTALL.md).
+The [Kubernetes / Nebius reference](deploy/k8s/README.md) covers the existing deployment tooling.
 
 Install Docker with Docker Compose and OpenSSL, then run:
 

@@ -1,5 +1,9 @@
 # Kubernetes deployment
 
+For a new installation on a standard Linux Kubernetes cluster, follow the
+[step-by-step installation guide](INSTALL.md). It includes a generic registry/cluster overlay,
+private image pulls, storage selection, LoadBalancer or local access, TLS, and first login.
+
 This directory deploys the complete server stack: Studio/API and runner, device gateway,
 MongoDB, RabbitMQ, Weaviate, NeMo Guardrails, Garak evaluation service, and a Caddy TLS proxy.
 The Nebius overlay publishes only HTTPS (443); device WebSockets and MCP use the same origin.
@@ -8,6 +12,7 @@ Database, queue, gateway administration and guardrail ports remain internal.
 ## Layout and storage
 
 - `base/`: portable Kubernetes resources. Uses the cluster's default dynamic StorageClass.
+- `overlays/generic/`: editable provider-neutral example; replace its image placeholders before use.
 - `overlays/nebius/`: LoadBalancer and the published Linux AMD64 application images.
 - `scripts/`: image publishing, secret/TLS preparation, deployment and smoke checks.
 - `.local/`: ignored local credentials, certificate and installation-specific overlay. Never commit it.
@@ -94,6 +99,9 @@ For an evaluation install, replace the two TLS variables with `SELF_SIGNED_TLS=1
 self-signed public certificate is embedded into Studio's generated connector instructions.
 Never distribute `.local/tls.key`. If changing the hostname or certificate, explicitly provide
 `TLS_CERT` and `TLS_KEY` again; preparation preserves an existing TLS secret otherwise.
+
+`prepare.sh` defaults to the Nebius overlay. Set `KUSTOMIZE_BASE=../overlays/generic`
+to select the generic example; the path is relative to `deploy/k8s/.local`.
 
 `prepare.sh` creates random secrets only if the Secret is absent. It preserves existing database
 passwords and encryption keys. Do not delete/recreate this Secret while retaining the databases;
