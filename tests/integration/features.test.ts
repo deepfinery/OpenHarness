@@ -336,12 +336,7 @@ test('a model whose tokenizer counts more than the estimate still gets a prompt 
   assert.equal((await ok(`/providers/${dense.id}`)).contextWindow, 12000);
 });
 test('effort budgets cap the tokens an agent may spend and auto effort resolves a level per request', async () => {
-  const providers = await ok('/providers');
-  const provider = providers.find((p: any) => p.baseUrl === 'http://fixtures:9090/v1') ?? providers[0];
-  const connection = (await ok('/connections')).find((c: any) =>
-    c.tools?.some((t: any) => t.name === 'lookup'),
-  );
-  assert.ok(connection, 'a fixture MCP connection with the lookup tool exists');
+  // Use this suite's test-chat fixture; a preceding test creates a dense-tokenizer provider.
   const frugal = await ok('/agents', {
     name: `Frugal ${suffix}`,
     providerId: provider.id,
