@@ -17,7 +17,7 @@ patches:
 images:
   - name: openharness
     newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/openharness
-    digest: sha256:25dc1f6f431860c7e7a884a176e0049ab646ad6913feb33f1cc67584ec883421
+    digest: sha256:ffb3b7b7e4f2a0f447eb26bc4b7a4b8ed913ac5a6255b9892e893897b0ea3ad2
   - name: openharness-gateway
     newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/gateway
     digest: sha256:be08dab65b1a55c68ca16326036fc4d2b4ca1eaa4c48de0f3cc7796905adf273

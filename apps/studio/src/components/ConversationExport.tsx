@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Copy, Download, Printer } from 'lucide-react';
+import { Check, Copy, Download, Printer, Settings2 } from 'lucide-react';
 import { displayAnswer } from '../../../../packages/core/src/finalAnswer.js';
-import { Button } from './ui';
+import { Button, IconButton } from './ui';
 import { Markdown } from './Markdown';
 import './conversationExport.css';
 
@@ -33,11 +33,13 @@ function CopyButton({
   contentRef,
   label,
   disabled = false,
+  compact = false,
 }: {
   text: string;
   contentRef: RefObject<HTMLElement | null>;
   label: string;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   const [status, setStatus] = useState('');
   useEffect(() => {
@@ -78,16 +80,18 @@ function CopyButton({
     }
   }
   return (
-    <span className="conversation-copy">
+    <span className={`conversation-copy ${compact ? 'compact-copy' : ''}`}>
       <Button
         type="button"
         variant="ghost"
         disabled={disabled}
         onClick={() => void copy()}
         aria-label={label}
+        className={compact ? 'header-export-button' : ''}
+        title={status || label}
       >
         {status === 'Copied' ? <Check size={14} /> : <Copy size={14} />}
-        {status === 'Copied' ? 'Copied' : label}
+        {!compact && (status === 'Copied' ? 'Copied' : label)}
       </Button>
       <span className="copy-status" role="status">
         {status}
@@ -142,6 +146,7 @@ export function ConversationExport({
   busy: boolean;
 }) {
   const transcript = useRef<HTMLElement>(null);
+  const optionsId = useId();
   const [orientation, setOrientation] = useState('portrait');
   const markdown =
     [
@@ -162,29 +167,56 @@ export function ConversationExport({
   }
   return (
     <>
-      <div className="conversation-export" role="group" aria-label="Conversation export">
-        <CopyButton text={markdown} contentRef={transcript} label="Copy conversation" disabled={disabled} />
-        <Button type="button" variant="ghost" onClick={download} disabled={disabled}>
-          <Download size={14} /> Download Markdown
-        </Button>
-        <select
-          aria-label="Print page layout"
-          value={orientation}
-          onChange={(event) => setOrientation(event.target.value)}
+      <div
+        className="conversation-export"
+        role="group"
+        aria-label="Conversation export"
+        title={busy ? 'Export is available when the response finishes.' : undefined}
+      >
+        <CopyButton
+          text={markdown}
+          contentRef={transcript}
+          label="Copy conversation"
+          disabled={disabled}
+          compact
+        />
+        <IconButton
+          className="icon-button header-export-button"
+          title="Download Markdown"
+          onClick={download}
+          disabled={disabled}
         >
-          <option value="portrait">Portrait</option>
-          <option value="landscape">Landscape (wide tables)</option>
-        </select>
-        <Button
-          type="button"
-          variant="ghost"
+          <Download size={16} />
+        </IconButton>
+        <IconButton
+          className="icon-button header-export-button"
           onClick={() => window.print()}
           disabled={disabled}
-          title="Print the conversation, or choose Save as PDF in the print dialog"
+          title="Print / Save as PDF"
         >
-          <Printer size={14} /> Print / Save as PDF
-        </Button>
-        {busy && <small>Export is available when the response finishes.</small>}
+          <Printer size={16} />
+        </IconButton>
+        <IconButton
+          className="icon-button header-export-button"
+          title="Print options"
+          popoverTarget={optionsId}
+        >
+          <Settings2 size={16} />
+        </IconButton>
+        <div id={optionsId} popover="auto" className="print-options" role="dialog" aria-label="Print options">
+          <label>
+            Page layout
+            <select
+              aria-label="Print page layout"
+              value={orientation}
+              onChange={(event) => setOrientation(event.target.value)}
+            >
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape (wide tables)</option>
+            </select>
+          </label>
+          <small>Choose landscape for wide tables, then print or save as PDF.</small>
+        </div>
       </div>
       {messages.length > 0 &&
         createPortal(
