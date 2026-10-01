@@ -42,6 +42,7 @@ import {
   promoteTaskNote,
   readTaskNote,
   searchTaskNotes,
+  synthesisTaskNotes,
   taskMemoryPrompt,
   writeTaskNote,
 } from './memory.js';
@@ -77,7 +78,13 @@ import {
   isContextLengthError,
 } from './context.js';
 import { responseLanguagePolicy, responseLanguageSource } from './responseLanguage.js';
-import { finalAnswerMessages, incompleteAnswer, readableToolEvidence } from './finalAnswer.js';
+import {
+  finalAnswerMessages,
+  incompleteAnswer,
+  readableToolEvidence,
+  type EvidenceNote,
+} from './finalAnswer.js';
+import { withLoadedSkills } from './skillContext.js';
 import { budgetedAgent, effortPresets } from './patterns.js';
 import { timeContext, timeContextPrompt } from './timeContext.js';
 import {
@@ -273,6 +280,8 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
     elapsedMs?: number;
     completed: string[];
     notes?: { note_id: string; path: string }[];
+    loadedSkillIds?: string[];
+    usedWorkspacePaths?: string[];
     terminalAnswer?: string;
     active?: {
       dialog: ChatMessage[];
@@ -437,6 +446,14 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         : `\n\nYou are operating the machine "${ctx.device.name}" (${ctx.device.platform}${ctx.device.hostname ? `, ${ctx.device.hostname}` : ''}). Its tools are attached to you. Inspect before you act, prefer read-only commands when they answer the question, and report the exact commands you ran and their results. Never claim a command succeeded unless its result says so. The machine's current state (what is running, resource and GPU usage, health, configuration) comes only from tool results you get for this request. Past experience, notebook notes and your own earlier answers describe the past: use them to decide what to check, re-check with tools before stating anything as current, and when tool results disagree with them, the tool results are correct. If the request names a machine other than "${ctx.device.name}", say so before doing anything else: this run is bound to "${ctx.device.name}" and cannot reach another machine, so do not carry out the request here as if it were that machine.`
       : '';
     const skills = (agent.skills ?? []).filter((s) => s.enabled !== false);
+    const loadedSkillIds = new Set(progress?.loadedSkillIds ?? []);
+    const usedWorkspacePaths = new Set(progress?.usedWorkspacePaths ?? []);
+    // Older continuations can recover explicit skill loads from their durable dialog.
+    for (const message of progress?.active?.dialog ?? [])
+      if (message.role === 'tool' && message.name === SKILL_TOOL)
+        for (const skill of skills)
+          if (message.content.startsWith(`<skill name="${skill.name}">`)) loadedSkillIds.add(skill.id);
+    const loadedSkills = () => skills.filter((skill) => loadedSkillIds.has(skill.id));
     const skillNote = skills.length
       ? '\n\nYou have skills: packaged instructions for specific kinds of task. When a request matches a skill, call load_skill with its name before you start, then follow the loaded instructions. Load only the skills you need; do not mention skills that do not apply.\n<skills>\n' +
         skills.map((s) => `- ${s.name}: ${s.description}`).join('\n') +
@@ -512,10 +529,15 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           },
           {
             name: 'workspace_read',
-            description: 'Read a text file from this harness workspace.',
+            description:
+              'Read a text file from this harness workspace. Returns content, total_chars and next_offset; page through the whole state file before claiming full coverage.',
             inputSchema: {
               type: 'object',
-              properties: { path: { type: 'string', maxLength: 500 } },
+              properties: {
+                path: { type: 'string', maxLength: 500 },
+                offset: { type: 'integer', minimum: 0 },
+                limit: { type: 'integer', minimum: 200, maximum: 20000 },
+              },
               required: ['path'],
               additionalProperties: false,
             },
@@ -620,11 +642,25 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
     ];
 
     // Keep a concrete synthesis allowance out of both analysis calls and delegated work.
-    const finalReserve = Math.min(
+    let finalReserve = Math.min(
       Math.floor(agent.tokenBudget / 3),
       contextAllowance(provider.contextWindow ?? 128000, recoveryOutputLimit(provider.maxOutputTokens, 2))
         .maxOutputTokens + 8000,
     );
+    const reserveForSkills = () => {
+      if (loadedSkillIds.size)
+        finalReserve = Math.min(
+          Math.floor(agent.tokenBudget / 3),
+          recoveryOutputLimit(provider.maxOutputTokens, 2) +
+            28000 +
+            estimateTokens(
+              loadedSkills()
+                .map((s) => s.instructions)
+                .join('\n'),
+            ),
+        );
+    };
+    reserveForSkills();
     let terminalAnswer: string | undefined = progress?.terminalAnswer;
     let rejectedToolBatches = progress?.rejectedToolBatches ?? 0;
     // Calls whose effect could not be confirmed in this run; an identical call is refused, never repeated blindly.
@@ -646,6 +682,10 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
     }
     /** Every attempt budgets instructions, tool schemas, output, wire overhead and final synthesis. */
     async function model(dialog: ChatMessage[], offered: ToolDefinition[], finalAnswer = false, nudges = 0) {
+      const checkedSkills = [];
+      for (const skill of loadedSkills())
+        checkedSkills.push({ ...skill, instructions: await checkRail(ctx, 'retrieval', skill.instructions) });
+      dialog = withLoadedSkills(dialog, checkedSkills);
       // Refresh per call so judges and retries use their own provider, and include it in compaction budgets.
       const identity = modelIdentity(provider);
       dialog =
@@ -982,6 +1022,8 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         completed,
         elapsedMs: elapsedMs(),
         notes: ctx.notes,
+        loadedSkillIds: [...loadedSkillIds],
+        usedWorkspacePaths: [...usedWorkspacePaths],
         terminalAnswer,
         active,
         toolCalls,
@@ -1003,7 +1045,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         { _id: ctx.runId, ownerId: ctx.ownerId },
         { $set: { summaryUnavailable: true } },
       );
-      return incompleteAnswer(notes);
+      return (loadedSkillIds.size ? 'RUN INCOMPLETE\n\n' : '') + incompleteAnswer(notes);
     }
     async function converse(messages: ChatMessage[], useTools: boolean, label: string): Promise<string> {
       const index = passIndex++;
@@ -1125,7 +1167,11 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
             planned.maxOutputTokens +
             Math.min(
               planned.promptTokens,
-              Math.ceil((dialogTokens(dialog) + estimateTokens(JSON.stringify(offered))) * estimateScale),
+              Math.ceil(
+                (dialogTokens(withLoadedSkills(dialog, loadedSkills())) +
+                  estimateTokens(JSON.stringify(offered))) *
+                  estimateScale,
+              ),
             );
           if (tokensUsed + finalReserve + analysisCost >= agent.tokenBudget) {
             stopPatterns = true;
@@ -1140,11 +1186,52 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
             }
           }
           const globalLimit = tokensUsed + finalReserve >= agent.tokenBudget || modelTurns >= totalTurnBudget;
-          const notes = finalizing ? (await searchTaskNotes(memoryScope, { limit: 12 })).notes : [];
+          const reporting = finalizing || (label === 'Final answer' && loadedSkillIds.size > 0);
+          const notes: EvidenceNote[] = reporting ? await synthesisTaskNotes(memoryScope) : [];
+          for (const note of notes) {
+            try {
+              note.snippet = await checkRail(ctx, 'retrieval', note.snippet);
+            } catch (error) {
+              if (!(error instanceof GuardrailBlocked)) throw error;
+              note.snippet = '[Saved evidence withheld by safety policy]';
+            }
+          }
+          if (reporting && ctx.harnessId) {
+            let remaining = 48000;
+            const stateNotes: EvidenceNote[] = [];
+            for (const path of [...usedWorkspacePaths].reverse().slice(0, 4)) {
+              try {
+                const file = await getHarnessFile(ctx.ownerId, ctx.harnessId, path);
+                const content = await checkRail(
+                  ctx,
+                  'retrieval',
+                  (await readHarnessFile(file)).toString('utf8'),
+                );
+                const snippet = excerpt(content, remaining);
+                remaining -= snippet.length;
+                stateNotes.push({
+                  title: `Workspace ${path}`,
+                  kind: 'state',
+                  snippet,
+                  fullContent: true,
+                  totalChars: content.length,
+                });
+              } catch (error) {
+                signal.throwIfAborted();
+                stateNotes.push({
+                  title: `Workspace ${path}`,
+                  kind: 'state',
+                  snippet: 'State unavailable for final reporting. Do not infer its contents.',
+                  fullContent: true,
+                });
+              }
+            }
+            notes.unshift(...stateNotes);
+          }
           currentActive = { dialog, turn, finalizing, stopPatterns, callIndex: 0 };
           try {
             response = await model(
-              finalizing
+              reporting
                 ? finalAnswerMessages(
                     agent.systemPrompt + clockNote,
                     input,
@@ -1153,13 +1240,13 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                     ctx.responseLanguageRequest,
                   )
                 : dialog,
-              finalizing ? [] : offered,
-              finalizing,
+              reporting ? [] : offered,
+              reporting,
               emptyReplies,
             );
           } catch (error) {
             signal.throwIfAborted();
-            if (!finalizing) {
+            if (!reporting) {
               if (
                 !(error instanceof ContextCapacityError) &&
                 !(error instanceof ToolSelectionRecoveryError) &&
@@ -1201,8 +1288,11 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                 message: 'Preserved the available answer after bounded continuation attempts',
                 data: { reason: error.details.reason, tokensUsed },
               });
-              terminalAnswer = partial;
-              return partial;
+              terminalAnswer =
+                loadedSkillIds.size && !/^\s*(?:#+\s*)?(?:\*\*)?RUN INCOMPLETE\b/.test(partial)
+                  ? 'RUN INCOMPLETE\n\n' + partial
+                  : partial;
+              return terminalAnswer;
             }
             await ctx.event({
               type: 'summary_unavailable',
@@ -1219,11 +1309,11 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
             message: `${label}: model turn ${turn + 1}`,
             data: { model: provider.model, usage: response.usage, tokensUsed },
           });
-          if (!response.toolCalls.length || finalizing) {
-            if (!response.text.trim() || (finalizing && response.toolCalls.length)) {
+          if (!response.toolCalls.length || reporting) {
+            if (!response.text.trim() || (reporting && response.toolCalls.length)) {
               // Retry an empty or tool-only reply with a nudge (and more output room for the final answer)
               // before giving up: reasoning models can spend the output limit before writing anything.
-              if (emptyReplies < 2 && !(finalizing && response.toolCalls.length)) {
+              if (emptyReplies < 2 && !(reporting && response.toolCalls.length)) {
                 emptyReplies++;
                 await ctx.event({
                   type: 'model_retry',
@@ -1240,7 +1330,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                 pending = undefined;
                 continue;
               }
-              if (!finalizing) {
+              if (!reporting) {
                 finalizing = true;
                 stopPatterns = true;
                 pending = undefined;
@@ -1256,8 +1346,18 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
               if (stopPatterns || globalLimit) terminalAnswer = fallback;
               return fallback;
             }
+            if (finalizing && loadedSkillIds.size) {
+              await ctx.event({
+                type: 'skill_incomplete',
+                message:
+                  'Execution limit reached during a skill task; report requires an explicit completion audit',
+                data: { skills: loadedSkills().map((s) => s.name) },
+              });
+              if (!/^\s*(?:#+\s*)?(?:\*\*)?RUN INCOMPLETE\b/.test(response.text))
+                response.text = `RUN INCOMPLETE\n\nExecution reached its analysis limit. The report below uses saved evidence; mandatory skill work has not been verified complete.\n\n${response.text}`;
+            }
             if (stopPatterns || globalLimit) terminalAnswer = response.text;
-            return atTurnLimit
+            return atTurnLimit && !loadedSkillIds.size
               ? `Analysis turn limit reached. This response summarizes the available evidence; unfinished checks are listed below.\n\n${response.text}`
               : response.text;
           }
@@ -1367,6 +1467,10 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
               const skill =
                 skills.find((s) => s.name === requested) ??
                 skills.find((s) => s.name.toLowerCase() === requested.toLowerCase());
+              if (skill) {
+                loadedSkillIds.add(skill.id);
+                reserveForSkills();
+              }
               await ctx.event(
                 skill
                   ? { type: 'skill_loaded', message: `Skill: ${skill.name}`, data: { skill: skill.name } }
@@ -1588,15 +1692,22 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                       .limit(1000)
                       .toArray()
                   ).map(fileInfo);
-                else if (call.name === 'workspace_read')
-                  result = (
+                else if (call.name === 'workspace_read') {
+                  const content = (
                     await readHarnessFile(
                       await getHarnessFile(ctx.ownerId, ctx.harnessId ?? ctx.agentId!, args.path),
                     )
-                  )
-                    .toString('utf8')
-                    .slice(0, 12000);
-                else if (call.name === 'workspace_write')
+                  ).toString('utf8');
+                  const offset = args.offset ?? 0;
+                  const end = Math.min(content.length, offset + (args.limit ?? 12000));
+                  result = {
+                    path: args.path,
+                    content: content.slice(offset, end),
+                    offset,
+                    total_chars: content.length,
+                    ...(end < content.length ? { next_offset: end } : {}),
+                  };
+                } else if (call.name === 'workspace_write')
                   result = await writeHarnessFile(
                     ctx.ownerId,
                     ctx.harnessId ?? ctx.agentId!,
@@ -1673,6 +1784,8 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                 message: `Task memory / ${call.name}`,
                 data: { callId: call.id, tool: call.name, result: text.slice(0, 6000) },
               });
+              if (!isError && ['workspace_read', 'workspace_write'].includes(call.name))
+                usedWorkspacePaths.add(String((call.arguments as { path: string }).path));
               dialog.push({ role: 'tool', content: text, toolCallId: call.id, name: call.name });
               continue;
             }
