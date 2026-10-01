@@ -156,12 +156,13 @@ Resource cards never advance execution: an agent's bound tools are available thr
 
 Every trigger — playground, API, conversation, webhook, schedule or embed — creates a **run**: an immutable snapshot of the agents and tool grants at submission time, queued to a runner. The run's **trace** records model turns, tool calls and results, retrieved passages, pattern passes, and step outputs as they happen; the playground shows it live and the Executions page keeps it. A **conversation** keeps server-side history across turns for one target, so follow-up questions work from the studio or the API.
 
-In **Playground**, use **Copy message** for one answer or **Copy conversation** for the whole chat.
+In **Playground**, use **Copy message** for one answer or the **Copy conversation** icon in the top header
+for the whole chat. Hover over the compact header icons to see their labels.
 Pasting into a rich-text editor preserves headings, lists, and tables; plain-text editors receive
 Markdown. **Download Markdown** saves the conversation as a `.md` file (attached images are links
 that require access to this installation). **Print / Save as PDF** opens the browser print dialog
-with only the conversation, excluding both side panels and chat controls. Select **Landscape (wide
-tables)** for wider reports, then choose your printer or **Save as PDF**. The browser's normal Print
+with only the conversation, excluding both side panels and chat controls. Open the header's **Print options**
+and select **Landscape (wide tables)** for wider reports, then choose your printer or **Save as PDF**. The browser's normal Print
 shortcut uses the same clean layout. Messages and tables expand with the window; on narrow screens,
 wide tables scroll horizontally. Conversation exports become available when the response finishes.
 

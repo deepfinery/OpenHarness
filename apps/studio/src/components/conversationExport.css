@@ -1,13 +1,24 @@
+.playground-header-actions,
 .conversation-export {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  padding: 8px 48px 8px 16px;
-  border-bottom: 1px solid var(--border);
+  gap: 2px;
   flex-shrink: 0;
 }
-.conversation-export .button,
+.playground-header-actions > .icon-button,
+.conversation-export .header-export-button {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+.playground-header .breadcrumbs {
+  min-width: 0;
+}
+.playground-header .topbar-select {
+  max-width: 100%;
+}
 .conversation-copy .button {
   font-size: 12px;
   padding: 6px 8px;
@@ -24,14 +35,58 @@
 .copy-status:empty {
   display: none;
 }
-.conversation-export small {
-  color: var(--muted);
+.compact-copy {
+  position: relative;
 }
-.conversation-export select {
-  width: auto;
-  max-width: 190px;
-  font-size: 12px;
-  padding: 6px;
+.compact-copy .copy-status:not(:empty) {
+  position: fixed;
+  top: 66px;
+  right: 16px;
+  width: max-content;
+  max-width: min(260px, 80vw);
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px #0001;
+  z-index: 30;
+}
+.print-options {
+  position: fixed;
+  inset: 62px 16px auto auto;
+  margin: 0;
+  width: 250px;
+  max-width: calc(100vw - 32px);
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 8px 30px #0002;
+}
+.print-options label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.print-options select {
+  width: 100%;
+  font-size: 13px;
+  padding: 8px;
+}
+.print-options small {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+@media (max-width: 680px) {
+  .playground-header .system-status {
+    display: none;
+  }
+  .playground-header .topbar-right {
+    margin-left: 6px;
+  }
 }
 .chat-playground .chat-message {
   max-width: none;
@@ -61,6 +116,9 @@
 }
 
 @media print {
+  .print-options {
+    display: none !important;
+  }
   @page playgroundPortrait {
     size: A4 portrait;
     margin: 18mm 16mm;

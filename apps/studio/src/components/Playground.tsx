@@ -453,10 +453,26 @@ export function Playground({
     <div className={`playground chat-playground ${showTrace ? '' : 'trace-hidden'}`}>
       {actionsContainer &&
         createPortal(
-          <Button variant="secondary" className="topbar-action" aria-label="New conversation" onClick={reset}>
-            <Plus size={15} />
-            <span>New conversation</span>
-          </Button>,
+          <div className="playground-header-actions">
+            <ConversationExport
+              messages={messages}
+              title={
+                conversations.find((c) => c.id === conversationId)?.title ||
+                `${current?.name ?? 'Playground'} conversation`
+              }
+              agentName={current?.name ?? 'Agent'}
+              busy={busy || restoring}
+            />
+            <IconButton title="New conversation" onClick={reset}>
+              <Plus size={16} />
+            </IconButton>
+            <IconButton
+              title={showTrace ? 'Hide trace panel' : 'Show trace panel'}
+              onClick={() => setShowTrace(!showTrace)}
+            >
+              <Terminal size={16} />
+            </IconButton>
+          </div>,
           actionsContainer,
         )}
       <div
@@ -477,24 +493,6 @@ export function Playground({
         }}
       >
         {dragging && <div className="image-drop-hint">Drop images to attach</div>}
-        <div className="playground-float">
-          <span className="grow" />
-          <IconButton
-            title={showTrace ? 'Hide trace panel' : 'Show trace panel'}
-            onClick={() => setShowTrace(!showTrace)}
-          >
-            <Terminal size={17} />
-          </IconButton>
-        </div>
-        <ConversationExport
-          messages={messages}
-          title={
-            conversations.find((c) => c.id === conversationId)?.title ||
-            `${current?.name ?? 'Playground'} conversation`
-          }
-          agentName={current?.name ?? 'Agent'}
-          busy={busy || restoring}
-        />
         <div className="chat-scroll">
           {!messages.length && !busy ? (
             <div className="chat-welcome">

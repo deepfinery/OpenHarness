@@ -61,7 +61,10 @@ test('copy a message and the complete conversation with rich text and Markdown f
   expect(rich).toContain('<strong>formatted</strong>');
   expect(rich).not.toContain('View activity');
   await page.getByRole('button', { name: 'Copy conversation', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Copy conversation', exact: true })).toHaveText('Copied');
+  await expect(page.getByRole('button', { name: 'Copy conversation', exact: true })).toHaveAttribute(
+    'title',
+    'Copied',
+  );
   const transcript = await page.evaluate(() => navigator.clipboard.readText());
   expect(transcript).toContain('# Capacity review');
   expect(transcript).toContain('## You\n\nPlease produce');
@@ -99,6 +102,10 @@ test('download contains all messages and clipboard denial provides recovery', as
 
 test('conversation and tables expand with the window and remain usable on mobile', async ({ page }) => {
   await fixture(page);
+  await expect(page.locator('.topbar').getByRole('group', { name: 'Conversation export' })).toBeVisible();
+  await expect(page.locator('.playground-main .conversation-export')).toHaveCount(0);
+  const header = (await page.locator('.topbar').boundingBox())!;
+  expect((await page.locator('.chat-scroll').boundingBox())!.y).toBeCloseTo(header.y + header.height, 0);
   await page.getByRole('button', { name: 'Hide trace panel' }).click();
   const message = page.locator('.chat-message.assistant');
   await page.setViewportSize({ width: 1200, height: 900 });
@@ -113,6 +120,15 @@ test('conversation and tables expand with the window and remain usable on mobile
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   const table = message.locator('.markdown-table');
   expect(await table.evaluate((el) => el.scrollWidth > el.clientWidth)).toBeTruthy();
+  await expect(page.locator('.sidebar')).not.toBeInViewport();
+  await page.screenshot({ path: test.info().outputPath('mobile-playground.png') });
+  await page.setViewportSize({ width: 320, height: 700 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  await expect(page.getByRole('button', { name: 'New conversation', exact: true })).toBeInViewport();
+  await page.getByRole('button', { name: 'Print options', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Print options' })).toBeInViewport();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Print options' })).toBeHidden();
 });
 
 test('print and PDF include the full formatted transcript without application panels', async ({ page }) => {
@@ -142,7 +158,9 @@ test('print and PDF include the full formatted transcript without application pa
   });
   expect(pdf.length).toBeGreaterThan(10000);
   await page.emulateMedia({ media: 'screen' });
+  await page.getByRole('button', { name: 'Print options', exact: true }).click();
   await page.getByLabel('Print page layout').selectOption('landscape');
+  await page.keyboard.press('Escape');
   await page.emulateMedia({ media: 'print' });
   await page.pdf({
     path: test.info().outputPath('landscape.pdf'),
