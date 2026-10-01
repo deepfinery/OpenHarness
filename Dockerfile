@@ -1,4 +1,5 @@
-FROM node:22-alpine AS build
+# The compiled JS and Studio assets are portable; run build tools natively when cross-building.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund

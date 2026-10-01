@@ -1,0 +1,194 @@
+.conversation-export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 48px 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.conversation-export .button,
+.conversation-copy .button {
+  font-size: 12px;
+  padding: 6px 8px;
+}
+.conversation-copy {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.copy-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+.copy-status:empty {
+  display: none;
+}
+.conversation-export small {
+  color: var(--muted);
+}
+.conversation-export select {
+  width: auto;
+  max-width: 190px;
+  font-size: 12px;
+  padding: 6px;
+}
+.chat-playground .chat-message {
+  max-width: none;
+  width: 100%;
+}
+.chat-playground .chat-message.user {
+  width: 88%;
+}
+.markdown-table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.chat-playground .markdown table {
+  display: table;
+  width: 100%;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.chat-playground .markdown th,
+.chat-playground .markdown td {
+  min-width: 110px;
+  padding: 10px 12px;
+  vertical-align: top;
+}
+.playground-print {
+  display: none;
+}
+
+@media print {
+  @page playgroundPortrait {
+    size: A4 portrait;
+    margin: 18mm 16mm;
+  }
+  @page playgroundLandscape {
+    size: A4 landscape;
+    margin: 16mm;
+  }
+  .playground-print[data-orientation='portrait'] {
+    page: playgroundPortrait;
+  }
+  .playground-print[data-orientation='landscape'] {
+    page: playgroundLandscape;
+  }
+  /* A separate, unscrolled transcript also handles the browser's Print shortcut. */
+  body:has(> .playground-print) > :not(.playground-print) {
+    display: none !important;
+  }
+  html:has(.playground-print),
+  body:has(> .playground-print) {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .playground-print {
+    display: block;
+    font:
+      11pt/1.55 Arial,
+      sans-serif;
+    color: #111;
+    background: white;
+    overflow-wrap: anywhere;
+  }
+  .playground-print h1 {
+    font-size: 22pt;
+    margin: 0 0 8pt;
+  }
+  .playground-print h2 {
+    font-size: 14pt;
+    margin: 0 0 8pt;
+  }
+  .playground-print h1,
+  .playground-print h2,
+  .playground-print h3 {
+    break-after: avoid;
+  }
+  .playground-print .transcript-subtitle {
+    color: #555;
+    margin-bottom: 20pt;
+  }
+  .playground-print .transcript-message {
+    border-top: 1px solid #ccc;
+    padding-top: 12pt;
+    margin-top: 18pt;
+  }
+  .playground-print .markdown {
+    font: inherit;
+    color: inherit;
+    overflow: visible;
+    max-width: none;
+  }
+  .playground-print p,
+  .playground-print li {
+    orphans: 3;
+    widows: 3;
+  }
+  .playground-print .markdown pre,
+  .playground-print .markdown code {
+    font-family: monospace;
+    font-size: 9pt;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: #111;
+    background: #f5f5f5;
+  }
+  .playground-print .markdown pre {
+    overflow: visible;
+    border: 1px solid #ddd;
+    padding: 8pt;
+  }
+  .playground-print .markdown table {
+    display: table;
+    table-layout: auto;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+    line-height: 1.45;
+  }
+  .playground-print .markdown-table {
+    overflow: visible;
+  }
+  .playground-print .markdown thead {
+    display: table-header-group;
+  }
+  .playground-print .markdown tr,
+  .playground-print img {
+    break-inside: avoid;
+  }
+  .playground-print .markdown th,
+  .playground-print .markdown td {
+    border: 1px solid #bbb;
+    padding: 5pt;
+    color: #111;
+    min-width: 5em;
+    vertical-align: top;
+  }
+  .playground-print .markdown blockquote {
+    color: #444;
+    border-left: 2pt solid #aaa;
+  }
+  .playground-print .markdown a {
+    color: #111;
+    text-decoration: underline;
+  }
+  .playground-print img {
+    max-width: 100%;
+    max-height: 200mm;
+    object-fit: contain;
+  }
+  .playground-print .chat-images {
+    display: block;
+  }
+  .playground-print .chat-images img {
+    width: auto;
+    height: auto;
+    border-radius: 0;
+  }
+}

@@ -22,26 +22,15 @@ import {
   Trash2,
   UserRound,
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { Markdown } from './Markdown';
+export { Markdown } from './Markdown';
+import { ConversationExport, CopyableMessage, type ChatMessage } from './ConversationExport';
 import { api, errorMessage, send, timestamp, type Data, type Entity } from '../api';
 import { Button, Empty, ErrorNotice, IconButton, Modal, Status } from './ui';
 import { TaskMemory } from './TaskMemory';
 
-export function Markdown({ text }: { text: string }) {
-  return (
-    <div className="markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{ a: (props) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
-  );
-}
 const terminal = ['succeeded', 'failed', 'cancelled', 'interrupted'];
-type Message = { role: 'user' | 'assistant'; content: string; attachments?: string[]; runId?: string };
+type Message = ChatMessage;
 type Conversation = {
   id: string;
   title: string;
@@ -497,6 +486,15 @@ export function Playground({
             <Terminal size={17} />
           </IconButton>
         </div>
+        <ConversationExport
+          messages={messages}
+          title={
+            conversations.find((c) => c.id === conversationId)?.title ||
+            `${current?.name ?? 'Playground'} conversation`
+          }
+          agentName={current?.name ?? 'Agent'}
+          busy={busy || restoring}
+        />
         <div className="chat-scroll">
           {!messages.length && !busy ? (
             <div className="chat-welcome">
@@ -536,16 +534,7 @@ export function Playground({
                   </div>
                   <div className="message-body">
                     <strong>{m.role === 'user' ? 'You' : (current?.name ?? 'Agent')}</strong>
-                    {m.attachments?.length ? (
-                      <div className="chat-images">
-                        {m.attachments.map((id) => (
-                          <a key={id} href={`/api/images/${id}`} target="_blank" rel="noopener noreferrer">
-                            <img src={`/api/images/${id}`} alt="Attached image" />
-                          </a>
-                        ))}
-                      </div>
-                    ) : null}
-                    <Markdown text={m.role === 'assistant' ? displayAnswer(m.content) : m.content} />
+                    <CopyableMessage message={m} />
                     {m.role === 'assistant' && m.runId && <FeedbackBar runId={m.runId} />}
                     {m.role === 'assistant' && m.runId && (
                       <button className="text-button" onClick={() => setActivityRunId(m.runId)}>
