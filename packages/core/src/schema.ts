@@ -2,6 +2,7 @@ import type { GuardrailSnapshot } from './guardrailPolicy.js';
 import { z } from 'zod';
 import { vectorStoreKinds } from './vectorstores/types.js';
 import { validTimeZone } from './timeContext.js';
+import { MAX_SKILL_INSTRUCTION_CHARS } from './skillLimits.js';
 
 export const id = z.string().uuid();
 const name = z.string().trim().min(1).max(100);
@@ -79,7 +80,10 @@ export const patternConfigSchema = z.object({
 export const skillSchema = z.object({
   name: z.string().trim().min(1).max(64),
   description: z.string().trim().min(1).max(500),
-  instructions: z.string().min(1).max(32000),
+  instructions: z
+    .string()
+    .min(1)
+    .max(MAX_SKILL_INSTRUCTION_CHARS, 'Skill instructions must be 256,000 characters or fewer'),
   enabled: z.boolean().default(true),
 });
 export type Skill = z.infer<typeof skillSchema>;

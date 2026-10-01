@@ -1299,6 +1299,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     await new Promise((r) => setTimeout(r, 2000));
   // Behave like a 32k-class model that rejects oversized prompts, so context compaction can be tested.
   const promptChars = req.body.messages.reduce((n, m) => n + String(m.content ?? '').length, 0);
+  const fixtureContextWindow = req.body.model === 'test-large-skill' ? 128000 : 6000;
   // test-dense counts about 2.5 characters per token and includes the tool definitions, as vLLM does with URL- and
   // JSON-heavy search results, so the studio's character-based estimate undershoots it.
   if (req.body.model === 'test-dense') {
@@ -1315,11 +1316,11 @@ app.post('/v1/chat/completions', async (req, res) => {
         },
       });
     }
-  } else if (!req.body.model.startsWith('test-context-') && promptChars > 24000) {
+  } else if (!req.body.model.startsWith('test-context-') && promptChars > fixtureContextWindow * 4) {
     stats.contextRejections = (stats.contextRejections ?? 0) + 1;
     return res.status(400).json({
       error: {
-        message: `This model's maximum context length is 6000 tokens. However, you requested ${req.body.max_tokens ?? 4096} output tokens and your prompt contains at least ${Math.ceil(promptChars / 4)} input tokens. Please reduce the length of the input prompt or the number of requested output tokens.`,
+        message: `This model's maximum context length is ${fixtureContextWindow} tokens. However, you requested ${req.body.max_tokens ?? 4096} output tokens and your prompt contains at least ${Math.ceil(promptChars / 4)} input tokens. Please reduce the length of the input prompt or the number of requested output tokens.`,
         type: 'invalid_request_error',
         code: 'context_length_exceeded',
       },
@@ -1444,6 +1445,29 @@ app.post('/v1/chat/completions', async (req, res) => {
           ? 'Final revised answer with verified evidence.'
           : 'Initial draft for review. ' + 'Draft evidence. '.repeat(400) + ' DRAFT END',
     };
+  }
+  if (req.body.model === 'test-large-skill') {
+    const loaded = req.body.messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+      .join('\n')
+      .match(/BEGIN-LARGE-SKILLx*END-LARGE-SKILL!/)?.[0];
+    const skillTool = req.body.tools?.find((t) => t.function.name === 'load_skill');
+    message = loaded
+      ? { content: JSON.stringify({ chars: loaded.length, complete: true }) }
+      : {
+          content: '',
+          tool_calls: [
+            {
+              id: randomUUID(),
+              type: 'function',
+              function: {
+                name: 'load_skill',
+                arguments: JSON.stringify({ name: skillTool.function.parameters.properties.name.enum[0] }),
+              },
+            },
+          ],
+        };
   }
   if (req.body.model === 'test-loop-blocked') {
     const messages = req.body.messages;

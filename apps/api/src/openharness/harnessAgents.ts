@@ -143,7 +143,7 @@ export function scopedAgentOperation(original: Operation): Operation {
                 description: z.string().max(1000).default(''),
               }),
               files: z
-                .array(z.object({ path: z.string(), content: z.string().max(32000) }))
+                .array(z.object({ path: z.string(), content: z.string().max(2_000_000) }))
                 .max(100)
                 .default([]),
             })

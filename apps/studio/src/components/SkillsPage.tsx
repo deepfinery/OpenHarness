@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
+import { MAX_SKILL_INSTRUCTION_CHARS } from '../../../../packages/core/src/skillLimits';
 import { api, send, type Data, type Entity } from '../api';
 import { Button, Empty, Field, IconButton, Modal, PageTitle, SaveForm } from './ui';
 
@@ -37,6 +38,10 @@ export function SkillEditor({
         label="Save skill"
         onCancel={onClose}
         onSave={async () => {
+          if (form.instructions.length > MAX_SKILL_INSTRUCTION_CHARS)
+            throw new Error(
+              `Skill instructions must be ${MAX_SKILL_INSTRUCTION_CHARS.toLocaleString()} characters or fewer.`,
+            );
           const saved = await send(`/skills${value ? `/${value.id}` : ''}`, form, value ? 'PUT' : 'POST');
           await onSaved(saved);
           onClose();
@@ -67,7 +72,7 @@ export function SkillEditor({
         </Field>
         <Field
           label="Instructions"
-          hint="Loaded and followed when the skill applies. Steps, checklists, formats, examples."
+          hint={`Loaded when the skill applies. ${form.instructions.length.toLocaleString()} / ${MAX_SKILL_INSTRUCTION_CHARS.toLocaleString()} characters.`}
         >
           <textarea
             aria-label="Skill instructions"

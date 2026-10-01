@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import JSZip from 'jszip';
 import { parse } from 'yaml';
+import { MAX_SKILL_INSTRUCTION_CHARS } from '../../packages/core/src/skillLimits.js';
 
 // Open Harness agents (#3) and tools (#4) on the real stack: OAF create/import/export, update, clone, delete,
 // tool listing and direct invocation.
@@ -172,6 +173,68 @@ test('multipart create accepts AGENTS.md files and falls back to the default mod
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.agent.config.system_prompt, 'Answer briefly.');
   assert.ok(r.data.warnings.some((w: string) => /no-such-model-anywhere/.test(w)));
+});
+
+test('maximum-size skills round-trip through create, update and bundle registration, including escaped JSON', async () => {
+  const instructions = 'START' + '\u0001'.repeat(MAX_SKILL_INSTRUCTION_CHARS - 8) + 'END';
+  const skill = await studio('/skills', {
+    name: `Large skill ${suffix}`,
+    description: 'Large skill regression',
+    instructions,
+  });
+  assert.equal((await studio(`/skills/${skill.id}`)).instructions, instructions);
+  const updated = 'EDIT!' + instructions.slice(5);
+  await studio(`/skills/${skill.id}`, { ...skill, instructions: updated }, 'PUT');
+  assert.equal((await studio(`/skills/${skill.id}`)).instructions, updated);
+  const tooLarge = await call(`${base}/api/skills/${skill.id}`, 'PUT', {
+    ...skill,
+    instructions: updated + '!',
+  });
+  assert.equal(tooLarge.status, 400);
+  assert.equal(
+    (await studio(`/skills/${skill.id}`)).instructions,
+    updated,
+    'rejection leaves saved text intact',
+  );
+  const registered = await call(`${harness}/skills`, 'POST', {
+    files: [
+      {
+        path: 'SKILL.md',
+        content: frontmatter({ name: `Large registered ${suffix}`, description: 'Full body' }, instructions),
+      },
+    ],
+  });
+  assert.equal(registered.status, 201, JSON.stringify(registered.data));
+  assert.equal((await studio(`/skills/${registered.data.skill.id}`)).instructions, instructions);
+});
+
+test('agent bundles preserve large skill instructions and reject oversized skills without truncation', async () => {
+  const instructions = 'START' + '\u0001'.repeat(MAX_SKILL_INSTRUCTION_CHARS - 8) + 'END';
+  const makeBody = (name: string, text: string) => ({
+    metadata: { name },
+    files: [
+      { path: 'AGENTS.md', content: frontmatter({ name, skills: [name] }, 'Follow the skill.') },
+      {
+        path: `skills/large/SKILL.md`,
+        content: frontmatter({ name, description: 'Preserve full instructions' }, text),
+      },
+    ],
+  });
+  const imported = await call(`${harness}/agents`, 'POST', makeBody(`Large import ${suffix}`, instructions));
+  assert.equal(imported.status, 201, JSON.stringify(imported.data));
+  const skillId = imported.data.agent.skills[0].skill_id;
+  assert.equal((await studio(`/skills/${skillId}`)).instructions, instructions);
+  const scopedUrl = `${base}/openharness/v1/harnesses/${imported.data.agent.id}/agents`;
+  const scoped = await call(scopedUrl, 'POST', makeBody(`Large scoped ${suffix}`, instructions));
+  assert.equal(scoped.status, 201, JSON.stringify(scoped.data));
+  assert.equal((await studio(`/skills/${scoped.data.agent.skills[0].skill_id}`)).instructions, instructions);
+  const tooLarge = await call(
+    `${harness}/agents`,
+    'POST',
+    makeBody(`Oversized import ${suffix}`, instructions + '!'),
+  );
+  assert.equal(tooLarge.status, 400, JSON.stringify(tooLarge.data));
+  assert.ok(!(await studio('/skills')).some((s: any) => s.name === `Oversized import ${suffix}`));
 });
 
 test('agents are listed, read, updated and cloned', async () => {

@@ -16,6 +16,7 @@ import { config } from '../../../../packages/core/src/config.js';
 import { collection } from '../../../../packages/core/src/db.js';
 import {
   agentSchema,
+  skillSchema,
   workflowSchema,
   type Agent,
   type AgentIdentity,
@@ -235,7 +236,7 @@ async function resolveSkills(ctx: ImportContext, names: string[]) {
       ownerId: ctx.tenantId,
       name: String(frontmatter.name ?? name).slice(0, 64),
       description: String(frontmatter.description ?? `Imported skill ${name}`).slice(0, 500),
-      instructions: body.slice(0, 32000) || String(frontmatter.description ?? name),
+      instructions: skillSchema.shape.instructions.parse(body || String(frontmatter.description ?? name)),
       enabled: true,
       createdBy: ctx.req.principal!.user._id,
       createdAt: now,
