@@ -104,12 +104,14 @@ export const humanSettingsSchema = z.object({
   notifyEmail: z.boolean().default(false),
 });
 export type HumanSettings = z.infer<typeof humanSettingsSchema>;
+/** An IANA timezone name, validated by the ICU data of the running Node.js. */
+export const timezoneSchema = z.string().trim().min(1).max(64).refine(validTimeZone, 'Unknown time zone');
 export const agentSchema = z.object({
   name,
   description: z.string().max(1000).default(''),
   systemPrompt: z.string().min(1).max(32000),
-  /** Runtime clock timezone; absent means workflow schedule timezone, then UTC. */
-  timezone: z.string().trim().min(1).max(64).refine(validTimeZone, 'Unknown time zone').optional(),
+  /** Runtime clock timezone; absent means the request's timezone, then the workflow schedule timezone, then UTC. */
+  timezone: timezoneSchema.optional(),
   /** Builtin clarification requests; enabled unless explicitly disabled. */
   humanInput: z.boolean().optional(),
   approvals: humanSettingsSchema.optional(),
@@ -417,6 +419,11 @@ export const runSchema = z
     payload: z.record(z.unknown()).optional(),
     /** A registered machine whose tools every agent in the run receives. */
     deviceId: z.string().regex(deviceIdPattern).optional(),
+    /**
+     * The requester's timezone for the runtime clock, so "today" means the requester's calendar day.
+     * An agent's explicit timezone still wins; without either, the workflow schedule timezone, then UTC applies.
+     */
+    timezone: timezoneSchema.optional(),
     history: z
       .array(
         z.object({

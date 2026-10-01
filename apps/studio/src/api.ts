@@ -14,6 +14,14 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
 }
 export const send = <T = any>(path: string, body?: unknown, method = 'POST') =>
   api<T>(path, { method, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+/** The viewer's IANA timezone, sent with a request so "today" means the viewer's calendar day, not UTC. */
+export function browserTimezone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
 export type Entity = { id: string; name: string; [key: string]: any };
 export type User = {
   id: string;

@@ -24,6 +24,7 @@ async function run(
   input: string,
   history: unknown[] = [],
   workflowTimezone?: string,
+  requestTimezone?: string,
 ) {
   const config = {
     name: 'Clock probe',
@@ -50,7 +51,12 @@ async function run(
     target = { agentId: agent.id };
     assert.equal((await ok(`/agents/${agent.id}`)).timezone, settings.timezone);
   }
-  const started = await ok('/runs', { ...target, input, history });
+  const started = await ok('/runs', {
+    ...target,
+    input,
+    history,
+    ...(requestTimezone ? { timezone: requestTimezone } : {}),
+  });
   for (let i = 0; i < 160; i++) {
     const result = await ok(`/runs/${started.id}`);
     if (!['queued', 'running'].includes(result.status)) {
@@ -108,7 +114,14 @@ test('server clock reaches the model despite stale history, survives compaction,
   const clock = clocks(result)[0];
   assert.ok(Date.parse(clock.referenceTime) >= before && Date.parse(clock.referenceTime) <= Date.now());
   assert.deepEqual(clock, timeContext(clock.referenceTime));
+  assert.equal(clock.fallback, true);
+  const event = result.events.find((e: any) => e.type === 'runtime_clock');
+  assert.match(
+    event.message,
+    /UTC default because neither the agent, the request nor a schedule set a timezone/,
+  );
   assert.match(result.output, /\[Runtime clock\]/);
+  assert.match(result.output, /No timezone was configured or sent with this request/);
   assert.ok(result.output.includes(clock.referenceTime));
   assert.ok(!result.output.includes('March 17'));
   assert.ok(result.events.some((e: any) => e.type === 'context_compacted'));
@@ -150,6 +163,42 @@ test('subagents inherit the parent clock and timezone', async () => {
   assert.equal(observed[0].timezone, 'Asia/Kathmandu');
   assert.deepEqual(observed[0], clocks(child)[0]);
   assert.ok(child.output.includes(observed[0].referenceTime));
+});
+
+test('the request timezone sets the clock unless the agent pins one, and beats a schedule timezone', async () => {
+  const requested = await run({}, 'clock-probe', [], undefined, 'America/New_York');
+  const clock = clocks(requested)[0];
+  assert.deepEqual(clock, timeContext(clock.referenceTime, 'America/New_York'));
+  assert.equal(clock.fallback, false);
+  assert.ok(requested.output.includes('(America/New_York)'));
+  assert.ok(!requested.output.includes('No timezone was configured'));
+  assert.equal(requested.timezone, 'America/New_York');
+  const pinned = await run({ timezone: 'Asia/Tokyo' }, 'clock-probe', [], undefined, 'America/New_York');
+  assert.equal(clocks(pinned)[0].timezone, 'Asia/Tokyo');
+  const scheduled = await run({}, 'clock-probe', [], 'Asia/Tokyo', 'America/New_York');
+  assert.equal(clocks(scheduled)[0].timezone, 'America/New_York');
+  const rejected = await fetch(base + '/api/runs', {
+    method: 'POST',
+    headers: { Origin: base, Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agentId: requested.agentId, input: 'x', timezone: 'Mars/Olympus' }),
+  });
+  assert.equal(rejected.status, 400);
+  assert.match(JSON.stringify(await rejected.json()), /Unknown time zone/);
+});
+
+test('Playground chat turns send the browser timezone to the run', async () => {
+  const agent = await ok('/agents', { name: 'Chat clock', providerId, systemPrompt: 'Research accurately.' });
+  const turn = await ok('/chat', { agentId: agent.id, message: 'clock-probe', timezone: 'Europe/Berlin' });
+  let result;
+  for (let i = 0; i < 160; i++) {
+    result = await ok(`/runs/${turn.runId}`);
+    if (!['queued', 'running'].includes(result.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  assert.equal(result.status, 'succeeded', result.error);
+  assert.equal(result.timezone, 'Europe/Berlin');
+  assert.equal(clocks(result)[0].timezone, 'Europe/Berlin');
+  assert.ok(result.output.includes('(Europe/Berlin)'));
 });
 
 test('workflow schedule timezone is inherited unless the agent explicitly overrides it', async () => {

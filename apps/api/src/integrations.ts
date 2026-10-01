@@ -5,7 +5,7 @@ import { collection } from '../../../packages/core/src/db.js';
 import { config } from '../../../packages/core/src/config.js';
 import { hash, HttpError, randomToken } from '../../../packages/core/src/security.js';
 import { createRun } from '../../../packages/core/src/runs.js';
-import { id, type Run } from '../../../packages/core/src/schema.js';
+import { id, timezoneSchema, type Run } from '../../../packages/core/src/schema.js';
 import { rateLimit, type ApiToken, type User } from './auth.js';
 
 export type Embed = {
@@ -187,6 +187,7 @@ embedApi.post('/:id/runs', async (req, res) => {
         .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(16000) }))
         .max(10)
         .default([]),
+      timezone: timezoneSchema.optional(),
     })
     .parse(req.body);
   const run = await createRun(

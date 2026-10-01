@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { collection } from '../../../packages/core/src/db.js';
 import { config } from '../../../packages/core/src/config.js';
 import { hash, HttpError, randomToken } from '../../../packages/core/src/security.js';
-import { id, type Run } from '../../../packages/core/src/schema.js';
+import { id, timezoneSchema, type Run } from '../../../packages/core/src/schema.js';
 import { createRun } from '../../../packages/core/src/runs.js';
 import { settleConversation, type Conversation } from '../../../packages/core/src/conversations.js';
 import { checkTokenScope, rateLimit, type User } from './auth.js';
@@ -159,6 +159,8 @@ conversationApi.post('/chat', async (req, res) => {
         .optional(),
       message: z.string().min(1).max(32000),
       attachments: z.array(id).max(4).optional(),
+      // The browser's zone, so "today" in the message means the user's calendar day, not the server's.
+      timezone: timezoneSchema.optional(),
     })
     .parse(req.body);
   const principal = req.principal!;
@@ -232,6 +234,7 @@ conversationApi.post('/chat', async (req, res) => {
           .slice(-20)
           .map(({ role, content, attachments }) => ({ role, content, attachments })),
         ...(deviceId ? { deviceId } : {}),
+        ...(body.timezone ? { timezone: body.timezone } : {}),
       },
       {
         runId,

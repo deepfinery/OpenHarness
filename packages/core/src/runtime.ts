@@ -144,7 +144,7 @@ export type AgentContext = {
   lessons?: string;
   /** Server-owned execution anchor, shared with children; refreshed when an execution resumes. */
   referenceTime?: string;
-  /** Workflow schedule timezone, used only when the agent has no explicit timezone. */
+  /** Request or workflow schedule timezone, used only when the agent has no explicit timezone. */
   timezone?: string;
 };
 /** Tool results longer than this are saved in the workspace and summarised in the context. */
@@ -339,7 +339,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
   try {
     await ctx.event({
       type: 'runtime_clock',
-      message: `Time reference: ${clock.localTime} (${clock.timezone})`,
+      message: `Time reference: ${clock.localTime} (${clock.timezone}${clock.fallback ? '; UTC default because neither the agent, the request nor a schedule set a timezone' : ''})`,
       data: clock,
     });
     const context: string[] = [];
@@ -2332,7 +2332,8 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
     resumeFromHuman: Boolean(run.resumeFromHuman || run.resumeCount),
     approvals: run.snapshot.workflow?.approvals,
     depth: run.parentRunId ? 1 : 0,
-    timezone: run.snapshot.workflow?.schedule?.timezone,
+    // The requester's timezone decides what "today" means; a schedule's timezone covers unattended runs.
+    timezone: run.timezone ?? run.snapshot.workflow?.schedule?.timezone,
     ownerId: run.ownerId,
     runId: run._id,
     taskId: run.taskId ?? run._id,

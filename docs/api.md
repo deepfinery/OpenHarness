@@ -173,12 +173,17 @@ Create run:
   "history": [
     { "role": "user", "content": "Previous question" },
     { "role": "assistant", "content": "Previous answer" }
-  ]
+  ],
+  "timezone": "America/New_York"
 }
 ```
 
 Specify exactly one of `agentId` and `workflowId`. History is optional, up to 20
 messages. These runs are independent; use `/chat` for server-managed history.
+`timezone` (optional, an IANA name) sets the runtime clock for the run so relative dates
+such as "today" follow the caller's calendar day; an agent's explicit timezone still takes
+precedence, and without either the harness schedule timezone, then UTC, applies. `POST /chat`
+accepts the same field per turn; the Studio sends the browser's zone automatically.
 An optional `payload` object exposes structured fields to workflow templates. An `Idempotency-Key` header reuses the existing run
 for an identical request. Reusing it for a different payload returns 409.
 
@@ -291,7 +296,9 @@ With a session or a target-scoped bearer API key, submit:
 
 `POST /chat` returns `202 { "id": "RUN_UUID", "runId": "RUN_UUID",
 "conversationId": "CONVERSATION_UUID", "status": "queued" }`. Use `agentId`
-instead for an agent. Poll `/runs/:id` as usual. The next turn sends:
+instead for an agent. An optional `timezone` (IANA name) sets that turn's runtime
+clock, as for `POST /runs`; the Studio sends the browser's zone. Poll `/runs/:id`
+as usual. The next turn sends:
 
 ```json
 { "conversationId": "CONVERSATION_UUID", "message": "Which sources support that?" }
