@@ -432,7 +432,7 @@ function answer(messages, tools) {
       return memoryCall('kb_write', {
         title: 'Cedar conversation preference',
         kind: 'conversation',
-        content: String(last.content).includes('NOTEBOOK_RULE')
+        content: JSON.stringify(messages).includes('NOTEBOOK_RULE')
           ? 'cedar user preference: include confidence and evidence sources.'
           : 'SKILL MISSING',
       });
@@ -605,7 +605,16 @@ function answer(messages, tools) {
           ],
         };
     }
-    return { content: `Tool completed: ${last.content}` };
+    return {
+      content: `Tool completed: ${
+        lastToolName === 'load_skill'
+          ? messages
+              .filter((m) => m.role === 'system' && m.content.includes('Loaded skill '))
+              .map((m) => m.content)
+              .join('\n') || last.content
+          : last.content
+      }`,
+    };
   }
   if (String(input).includes('use strict tool') && tools?.length) {
     const strict = tools.find((t) => t.function.description.includes('/ strict:')) ?? tools[0];
@@ -976,6 +985,66 @@ app.post('/context-upgrade/release', (req, res) => {
   res.sendStatus(204);
 });
 app.post('/v1/chat/completions', async (req, res) => {
+  if (req.body.model === 'test-skill-report') {
+    const { messages, tools = [] } = req.body;
+    const key = /skill report regression ([a-f0-9-]{36})/.exec(
+      messages.map((m) => m.content).join('\n'),
+    )?.[1];
+    stats.skillReportSteps ??= {};
+    const step = stats.skillReportSteps[key] ?? 0;
+    stats.skillReportSteps[key] = step + 1;
+    const pinned = messages.some((m) => m.role === 'system' && m.content.includes('FINAL-SKILL-CONTRACT'));
+    const call = (name, args) => ({
+      id: randomUUID(),
+      type: 'function',
+      function: { name, arguments: JSON.stringify(args) },
+    });
+    let message = { role: 'assistant', content: '' };
+    if (!tools.length) {
+      const evidence = messages
+        .filter((m) => m.role !== 'system')
+        .map((m) => m.content)
+        .join('\n');
+      message.content = [
+        pinned ? 'SKILL-RETAINED' : 'SKILL-LOST',
+        evidence.includes('WHOLE-NOTE-END') ? 'FINDING-RETAINED' : 'FINDING-LOST',
+        evidence.includes('WHOLE-STATE-END') ? 'STATE-RETAINED' : 'STATE-LOST',
+      ].join(' ');
+    } else if (step > 0 && !pinned) message.content = 'SKILL-LOST';
+    else if (step === 0)
+      message.tool_calls = [
+        call('load_skill', {
+          name: tools.find((t) => t.function.name === 'load_skill').function.parameters.properties.name
+            .enum[0],
+        }),
+      ];
+    else if (step === 1)
+      message.tool_calls = [
+        call('memory_write', {
+          title: 'Full authored analysis',
+          kind: 'finding',
+          content: 'Verified row\n'.repeat(1300) + 'WHOLE-NOTE-END',
+        }),
+      ];
+    else if (step === 2)
+      message.tool_calls = [
+        call('workspace_write', {
+          path: 'state.json',
+          content: JSON.stringify({ padding: 'state-row '.repeat(1900), marker: 'WHOLE-STATE-END' }),
+        }),
+      ];
+    else if (step === 3)
+      message.tool_calls = Array.from({ length: 16 }, (_, i) =>
+        call(tools.find((t) => t.function.description.includes('/ lookup:')).function.name, {
+          query: 'Recent raw result ' + i,
+        }),
+      );
+    else message.tool_calls = [call('workspace_read', { path: 'state.json', offset: 12000, limit: 4000 })];
+    return res.json({
+      choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }],
+      usage: { prompt_tokens: 500, completion_tokens: 100 },
+    });
+  }
   if (req.body.model.startsWith('test-output-')) {
     const { model, messages, tools = [] } = req.body;
     const requested = req.body.max_tokens ?? req.body.max_completion_tokens;

@@ -5,6 +5,74 @@ import { readFile } from 'node:fs/promises';
 
 const base = process.env.TEST_BASE_URL ?? 'http://localhost:8088';
 const fixture = process.env.TEST_FIXTURE_URL ?? 'http://localhost:19090';
+
+test('loaded skill, complete authored notes and workspace state survive compaction and forced reporting', async () => {
+  const skill = await ok('/skills', {
+    name: 'Complete report contract',
+    description: 'Use for skill report regression.',
+    instructions:
+      'Mandatory phase C: cover the exact list.\n' +
+      'Preserve the scope.\n'.repeat(500) +
+      'FINAL-SKILL-CONTRACT: RUN INCOMPLETE with no ratings if coverage is below 90%.',
+  });
+  const { provider } = await agent(
+    'test-skill-report',
+    {},
+    { contextWindow: 24000, maxOutputTokens: 2000, streaming: false },
+  );
+  const connection = await ok('/connections', {
+    name: 'Skill evidence MCP',
+    url: 'http://fixtures:9090/mcp',
+  });
+  await ok(`/connections/${connection.id}/discover`, {});
+  const workflow = await ok('/workflows', {
+    name: 'Skill reporting regression',
+    startAt: 'agent',
+    nodes: [
+      {
+        id: 'agent',
+        name: 'Research',
+        type: 'agent',
+        prompt: '{{input}}',
+        next: 'finish',
+        config: {
+          name: 'Skill reporter',
+          providerId: provider.id,
+          systemPrompt: 'Follow the applicable skill and record evidence.',
+          skillIds: [skill.id],
+          connections: [{ connectionId: connection.id, tools: ['lookup'] }],
+          maxTurns: 5,
+          tokenBudget: 300000,
+        },
+      },
+      { id: 'finish', name: 'Finish', type: 'finish', template: '{{last}}' },
+    ],
+  });
+  const started = await ok('/runs', {
+    workflowId: workflow.id,
+    input: `skill report regression ${randomUUID()}`,
+  });
+  let result: any;
+  for (let i = 0; i < 120; i++) {
+    result = await ok(`/runs/${started.id}`);
+    if (!['queued', 'running'].includes(result.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  assert.equal(result.status, 'succeeded', result.error);
+  assert.match(result.output, /^RUN INCOMPLETE/);
+  assert.match(result.output, /SKILL-RETAINED FINDING-RETAINED STATE-RETAINED/);
+  assert.ok(result.events.some((e: any) => e.type === 'context_compacted'));
+  assert.ok(result.events.some((e: any) => e.type === 'skill_incomplete'));
+  const read = result.events.find(
+    (e: any) => e.type === 'tool_completed' && e.data?.tool === 'workspace_read',
+  );
+  assert.ok(read, 'state was read through the paged workspace tool');
+  const resultPage = JSON.parse(read.data.result);
+  assert.equal(resultPage.offset, 12000);
+  assert.equal(resultPage.next_offset, 16000);
+  assert.equal(resultPage.content.length, 4000);
+  assert.ok(resultPage.total_chars > 19000);
+});
 let cookie = '';
 async function ok(path: string, body?: unknown, method = body ? 'POST' : 'GET') {
   const response = await fetch(base + '/api' + path, {

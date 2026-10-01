@@ -8,6 +8,28 @@ import {
 } from '../../packages/core/src/finalAnswer.js';
 import type { ChatMessage } from '../../packages/core/src/llm.js';
 
+test('reporting preserves authored state beyond search snippet boundaries and marks partial evidence', () => {
+  const state = 'State rows\n' + 'AAA 10\n'.repeat(2000) + 'LAST-SYMBOL BBB 20';
+  const messages = finalAnswerMessages(
+    'Report accurately.',
+    'Report all symbols.',
+    [],
+    [
+      { title: 'State file', kind: 'state', snippet: state, fullContent: true, totalChars: state.length },
+      {
+        title: 'Missing state page',
+        kind: 'state',
+        snippet: 'partial',
+        fullContent: true,
+        totalChars: 50000,
+      },
+    ],
+  );
+  assert.match(messages.at(-1)!.content, /LAST-SYMBOL BBB 20/);
+  assert.match(messages.at(-1)!.content, /INCOMPLETE EXCERPT/);
+  assert.doesNotMatch(messages[0].content, /LAST-SYMBOL/);
+});
+
 test('follow-up synthesis retains the original requested items and previous coverage after many tool results', () => {
   const dialog: ChatMessage[] = [
     { role: 'user', content: 'Analyze AAA, BBB and CCC.' },

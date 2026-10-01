@@ -281,6 +281,8 @@ With a workspace set, turn on **Learn from experience** in the harness settings.
 
 At run time the agent's system prompt lists only each skill's name and description, and the agent gets a built-in `load_skill` tool. When a request matches, the model loads that skill's full instructions and follows them; when nothing matches, no skill is loaded. This keeps prompts short with many skills attached. Each load is recorded as a `skill_loaded` trace event, skills are snapshotted when the run is accepted (editing one never changes a run in flight), disabled skills are not offered, and a skill cannot be deleted while an agent uses it.
 
+Once loaded, skill instructions remain protected through context compression, pattern passes, runner continuation and final reporting. They count against the context and job budget; they are never silently shortened to fit. Final reporting receives authored task findings before recent raw tool snippets and bounded contents of workspace files used by the agent. `workspace_read` returns `content`, `total_chars` and `next_offset` so large state files can be read in pages. Omitted evidence is marked explicitly. A skill task forced to report at an execution limit is labeled **RUN INCOMPLETE** and emits `skill_incomplete`. Domain completion rules remain in the skill and guide the model's audit; they are not a deterministic validator of every generated claim. See the [watchlist run-contract example](docs/watchlist-run-contract.md) for coverage gates and restrictions on incomplete reports.
+
 ### 7b. Operate a machine
 
 **Inventory → Add resource** registers one of four resource types: a Linux machine (service or container), an

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { collection } from './db.js';
+import { excerpt } from './context.js';
 import type { ToolDefinition } from './llm.js';
 import { agentNote, cleanFolder, createNote, folderFor, noteFilename, notePath } from './workspace.js';
 
@@ -121,6 +122,32 @@ export async function readTaskNote(scope: MemoryScope, noteId: string, offset = 
     total_chars: note.content.length,
     ...(end < note.content.length ? { next_offset: end } : {}),
   };
+}
+
+/** Reporting needs authored findings, not just the most recent raw-tool search snippets. */
+export async function synthesisTaskNotes(scope: MemoryScope) {
+  const authored = await notes()
+    .find({ ...live(scope), kind: { $nin: ['tool-result', 'context'] } })
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(12)
+    .toArray();
+  const recent = await notes()
+    .find({ ...live(scope), kind: 'tool-result' })
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(4)
+    .toArray();
+  let remaining = 48000;
+  return [...authored, ...recent].map((note) => {
+    const chars = Math.max(0, Math.min(remaining, note.kind === 'tool-result' ? 1500 : 20000));
+    remaining -= Math.min(chars, note.content.length);
+    return {
+      ...taskNoteRef(note),
+      title: note.title,
+      snippet: excerpt(note.content, chars),
+      fullContent: true,
+      totalChars: note.content.length,
+    };
+  });
 }
 /** Promotion is explicit and copies the note; a later task never reads another task's notebook. */
 export async function promoteTaskNote(scope: MemoryScope, noteId: string, knowledgeBaseId: string) {
