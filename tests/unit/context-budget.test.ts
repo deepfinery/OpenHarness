@@ -1,7 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compactDialog, contextAllowance, dialogTokens } from '../../packages/core/src/context.js';
+import {
+  compactDialog,
+  contextAllowance,
+  dialogTokens,
+  recoveryOutputLimit,
+} from '../../packages/core/src/context.js';
 import type { ChatMessage } from '../../packages/core/src/llm.js';
+
+test('response recovery grows the per-call output allowance without bypassing context or job bounds', () => {
+  assert.deepEqual(
+    [0, 1, 2, 3].map((n) => recoveryOutputLimit(4096, n)),
+    [4096, 8192, 16384, 16384],
+  );
+  assert.equal(recoveryOutputLimit(16384, 2), 32768);
+  for (const remaining of [1000, 6000, 50000]) {
+    const allowance = contextAllowance(8192, recoveryOutputLimit(4096, 2), remaining);
+    assert.ok(allowance.maxOutputTokens + allowance.promptTokens <= remaining);
+    assert.ok(allowance.maxOutputTokens + allowance.promptTokens < 8192);
+  }
+});
 
 test('oversized output settings cannot consume the context or the run budget', () => {
   for (const window of [2048, 6000, 32768, 128000]) {

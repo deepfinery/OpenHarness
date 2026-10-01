@@ -976,6 +976,77 @@ app.post('/context-upgrade/release', (req, res) => {
   res.sendStatus(204);
 });
 app.post('/v1/chat/completions', async (req, res) => {
+  if (req.body.model.startsWith('test-output-')) {
+    const { model, messages, tools = [] } = req.body;
+    const requested = req.body.max_tokens ?? req.body.max_completion_tokens;
+    const final = !tools.length;
+    const hasEvidence = messages.some((m) => m.role === 'tool');
+    const parts = messages.filter(
+      (m) => m.role === 'assistant' && m.content?.startsWith('Verified section'),
+    ).length;
+    let finish = 'stop';
+    let message = { content: '' };
+    if (!final && !hasEvidence) {
+      message.tool_calls = [
+        {
+          id: randomUUID(),
+          type: 'function',
+          function: {
+            name: 'memory_write',
+            arguments: JSON.stringify({
+              title: 'Verified evidence',
+              content: 'AAA, BBB and CCC source observations verified.',
+              kind: 'finding',
+            }),
+          },
+        },
+      ];
+      finish = 'tool_calls';
+    } else if (!final && (model !== 'test-output-grow' || requested < 4096)) {
+      finish = 'length';
+      message.tool_calls = [
+        {
+          id: randomUUID(),
+          type: 'function',
+          function: { name: 'memory_write', arguments: '{"title":"Must not execute","content":"unfinished' },
+        },
+      ];
+    } else if (
+      final &&
+      ['test-output-continue', 'test-output-partial', 'test-output-small'].includes(model)
+    ) {
+      message.content = `Verified section ${parts + 1}.\n\n`;
+      finish = model === 'test-output-continue' && parts > 0 ? 'stop' : 'length';
+    } else {
+      message.content = 'Recovered analysis: all requested items have been addressed from saved evidence.';
+      if (final && !JSON.stringify(messages).includes('AAA, BBB and CCC'))
+        message.content = 'MISSING ORIGINAL SCOPE';
+    }
+    const usage = { prompt_tokens: 200, completion_tokens: finish === 'length' ? requested : 40 };
+    stats.outputRequests ??= [];
+    stats.outputRequests.push({
+      model,
+      requested,
+      final,
+      stream: req.body.stream,
+      includeUsage: req.body.stream_options?.include_usage,
+      usage,
+    });
+    if (req.body.stream) {
+      res.set({ 'Content-Type': 'text/event-stream' });
+      res.write(
+        `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: message.content, ...(message.tool_calls ? { tool_calls: message.tool_calls.map((c, index) => ({ ...c, index })) } : {}) }, finish_reason: null }] })}\n\n`,
+      );
+      res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: finish }] })}\n\n`);
+      if (req.body.stream_options?.include_usage)
+        res.write(`data: ${JSON.stringify({ choices: [], usage })}\n\n`);
+      return res.end('data: [DONE]\n\n');
+    }
+    return res.json({
+      choices: [{ message: { role: 'assistant', ...message }, finish_reason: finish }],
+      usage,
+    });
+  }
   if (req.body.model === 'test-vision') {
     if (
       req.body.tools?.some((t) => t.function.name === 'spawn_agents') &&

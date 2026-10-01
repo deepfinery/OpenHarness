@@ -78,6 +78,72 @@ before(async () => {
   cookie = session.headers.get('set-cookie')!.split(';')[0];
 });
 
+test('output-limit retries grow the reply allowance, account streamed usage, and never execute truncated tools', async () => {
+  const { agent: a } = await agent('test-output-grow', {}, { maxOutputTokens: 1024 });
+  const result = await run(a.id, 'Analyze AAA, BBB and CCC');
+  assert.equal(result.status, 'succeeded', result.error);
+  assert.match(result.output, /all requested items/);
+  const retries = result.events.filter((e: any) => e.type === 'model_retry');
+  assert.deepEqual(
+    retries.map((e: any) => e.data.maxOutputTokens),
+    [1024, 2048],
+  );
+  const notes = (await ok(`/runs/${result.id}/memory`)).notes;
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].title, 'Verified evidence');
+  const stats = await (await fetch(fixture + '/stats')).json();
+  const calls = stats.outputRequests.filter((r: any) => r.model === 'test-output-grow');
+  assert.equal(calls[0].includeUsage, true);
+  assert.equal(
+    result.tokensUsed,
+    calls.reduce((n: number, r: any) => n + r.usage.prompt_tokens + r.usage.completion_tokens, 0),
+  );
+});
+
+test('persistent output limits finish through saved-evidence synthesis with follow-up scope intact', async () => {
+  const { agent: a } = await agent('test-output-persistent', {}, { maxOutputTokens: 1024 });
+  const result = await run(a.id, 'Please provide the rest', [
+    { role: 'user', content: 'Analyze AAA, BBB and CCC' },
+    { role: 'assistant', content: 'AAA is covered; BBB and CCC remain.' },
+  ]);
+  assert.equal(result.status, 'succeeded', result.error);
+  assert.match(result.output, /Recovered analysis/);
+  assert.ok(result.events.some((e: any) => e.type === 'recovery_limit'));
+  assert.ok(
+    result.events.some(
+      (e: any) => e.type === 'model_request' && e.data.finalAnswer && e.data.toolCount === 0,
+    ),
+  );
+  assert.equal(result.events.filter((e: any) => e.type === 'tool_started').length, 1);
+  assert.ok(result.tokensUsed <= 200000);
+});
+
+test('truncated final prose continues without losing earlier sections', async () => {
+  const { agent: a } = await agent('test-output-continue', {}, { maxOutputTokens: 1024 });
+  const result = await run(a.id, 'Analyze AAA, BBB and CCC');
+  assert.equal(result.status, 'succeeded', result.error);
+  assert.match(result.output, /Verified section 1/);
+  assert.match(result.output, /Verified section 2/);
+  assert.equal(result.output.match(/Verified section 1/g)?.length, 1);
+  assert.ok(!result.summaryUnavailable);
+});
+
+test('bounded final continuation preserves available text and discloses incompleteness instead of a raw model error', async () => {
+  for (const [model, budget] of [
+    ['test-output-partial', 200000],
+    ['test-output-small', 6000],
+  ] as const) {
+    const { agent: a } = await agent(model, { tokenBudget: budget }, { maxOutputTokens: 1024 });
+    const result = await run(a.id, 'Analyze AAA, BBB and CCC');
+    assert.equal(result.status, 'succeeded', result.error);
+    assert.match(result.output, /Verified section 1/);
+    assert.match(result.output, /unfinished sections remain incomplete/);
+    assert.ok(result.tokensUsed <= budget, `${result.tokensUsed} exceeded ${budget}`);
+    assert.ok(result.events.filter((e: any) => e.type === 'model_request' && e.data.finalAnswer).length <= 3);
+    assert.ok(!result.summaryUnavailable);
+  }
+});
+
 test('32k rejection learns dense tokenizer usage and archives a large current request', async () => {
   const { agent: a, provider } = await agent('test-context-32k');
   const input =

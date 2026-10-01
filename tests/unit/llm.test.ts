@@ -40,6 +40,79 @@ const request = (streaming = true) =>
     () => {},
   );
 
+test('OpenAI streaming requests usage and retains billed truncation usage and visible text, excluding tool arguments', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    assert.deepEqual(JSON.parse(String(init?.body)).stream_options, { include_usage: true });
+    return stream(
+      frame({ content: 'Visible draft.' }) +
+        frame(call('{"secret":"private unfinished')) +
+        frame({}, 'length') +
+        'data: {"choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":4096}}\n\ndata: [DONE]\n\n',
+    );
+  });
+  await assert.rejects(request(), (error: unknown) => {
+    assert.ok(error instanceof ModelResponseError);
+    assert.equal(error.response?.text, 'Visible draft.');
+    assert.equal(error.response?.hasToolCalls, true);
+    assert.deepEqual(error.response?.usage, { input: 1200, output: 4096 });
+    assert.ok(!JSON.stringify(error).includes('private unfinished'));
+    return true;
+  });
+});
+
+for (const [kind, body] of [
+  [
+    'openai-compatible',
+    {
+      choices: [{ finish_reason: 'length', message: { content: 'Visible draft.' } }],
+      usage: { prompt_tokens: 100, completion_tokens: 512 },
+    },
+  ],
+  [
+    'anthropic',
+    {
+      stop_reason: 'max_tokens',
+      content: [{ type: 'text', text: 'Visible draft.' }],
+      usage: { input_tokens: 100, output_tokens: 512 },
+    },
+  ],
+  [
+    'gemini',
+    {
+      candidates: [
+        {
+          finishReason: 'MAX_TOKENS',
+          content: { parts: [{ text: 'Hidden reasoning', thought: true }, { text: 'Visible draft.' }] },
+        },
+      ],
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 12, thoughtsTokenCount: 500 },
+    },
+  ],
+  [
+    'ollama',
+    {
+      done_reason: 'length',
+      message: { content: 'Visible draft.' },
+      prompt_eval_count: 100,
+      eval_count: 512,
+    },
+  ],
+] as const) {
+  test(`${kind} non-streaming truncation retains prose and usage for bounded recovery`, async (t) => {
+    t.mock.method(globalThis, 'fetch', async () => Response.json(body));
+    await assert.rejects(
+      chat({ ...provider, kind, streaming: false }, [{ role: 'user', content: 'Answer' }], []),
+      (error: unknown) => {
+        assert.ok(error instanceof ModelResponseError);
+        assert.equal(error.response?.text, 'Visible draft.');
+        assert.equal(error.response?.hasToolCalls, false);
+        assert.deepEqual(error.response?.usage, { input: 100, output: 512 });
+        return true;
+      },
+    );
+  });
+}
+
 test('streamed tool arguments survive transport splits, comments, multiline SSE and interleaved calls', async (t) => {
   const body =
     ': keep-alive\r\n\r\n' +

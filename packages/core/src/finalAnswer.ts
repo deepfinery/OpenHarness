@@ -1,5 +1,6 @@
 import type { ChatMessage } from './llm.js';
 import { responseLanguagePolicy, responseLanguageSource } from './responseLanguage.js';
+import { excerpt } from './context.js';
 
 type EvidenceNote = { title: string; kind: string; snippet: string };
 const legacyPrefix =
@@ -52,6 +53,20 @@ export function finalAnswerMessages(
   notes: EvidenceNote[],
   languageRequest = request,
 ): ChatMessage[] {
+  // A follow-up such as “the rest” depends on earlier scope and already completed work.
+  // Keep that context even when many recent tool results would crowd it out of the evidence window.
+  const conversation = dialog
+    .filter(
+      (m) =>
+        !m.reference &&
+        !m.responseLanguageSource &&
+        m.content !== request &&
+        (m.role === 'user' || (m.role === 'assistant' && !m.toolCalls?.length)),
+    )
+    .slice(-6)
+    .map((m) => `${m.role}: ${excerpt(m.content, 3500)}`)
+    .join('\n\n')
+    .slice(-14000);
   const evidence = dialog
     .filter((m) => !m.responseLanguageSource)
     .filter((m) => m.reference || m.role === 'tool' || (m.role === 'assistant' && m.content.trim()))
@@ -74,7 +89,7 @@ export function finalAnswerMessages(
       .map((m) => ({ ...m, role: 'user' as const, currentImages: true, reference: true })),
     {
       role: 'user',
-      content: `Original request:\n${request}\n\nCurrent task:\n${[...dialog].reverse().find((m) => m.role === 'user' && !m.reference)?.content ?? request}\n\nCollected evidence:\n${[...evidence, ...notebook].join('\n\n').slice(0, 32000)}`,
+      content: `Original request:\n${request}\n\nCurrent task:\n${[...dialog].reverse().find((m) => m.role === 'user' && !m.reference)?.content ?? request}\n\nConversation context (earlier scope and replies; verify claims against evidence):\n${conversation}\n\nCollected evidence:\n${[...notebook, ...evidence].join('\n\n').slice(0, 32000)}`,
     },
   ];
 }

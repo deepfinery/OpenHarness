@@ -192,10 +192,19 @@ export class ModelResponseError extends Error {
       argumentChars?: number;
       finishReason?: string;
     },
+    public response?: Omit<ChatResult, 'toolCalls'> & { hasToolCalls: boolean },
   ) {
     super(message);
     this.name = 'ModelResponseError';
   }
+}
+/** Keep usage and visible prose, but never expose or execute a truncated tool batch. */
+function outputLimit(response: Omit<ChatResult, 'toolCalls'> & { hasToolCalls: boolean }) {
+  return new ModelResponseError(
+    'Model response reached its output limit',
+    { reason: 'output_limit', finishReason: 'length' },
+    response,
+  );
 }
 function argumentsObject(input: unknown, tool?: string, finishReason?: string): Record<string, unknown> {
   const invalid = () =>
@@ -374,10 +383,7 @@ export async function chat(
           }
         }
         if (stopReason === 'max_tokens')
-          throw new ModelResponseError(
-            'Model output limit reached; use shorter tool arguments or increase the provider output budget',
-            { reason: 'output_limit', finishReason: 'length' },
-          );
+          throw outputLimit({ text, hasToolCalls: blocks.size > 0, usage, ...metadata });
         return {
           ...metadata,
           text,
@@ -463,14 +469,12 @@ export async function chat(
           if (data.usageMetadata)
             usage = {
               input: data.usageMetadata.promptTokenCount ?? usage.input,
-              output: data.usageMetadata.candidatesTokenCount ?? usage.output,
+              output:
+                (data.usageMetadata.candidatesTokenCount ?? 0) + (data.usageMetadata.thoughtsTokenCount ?? 0),
             };
         }
         if (finish === 'MAX_TOKENS')
-          throw new ModelResponseError(
-            'Model output limit reached; use shorter tool arguments or increase the provider output budget',
-            { reason: 'output_limit', finishReason: finish },
-          );
+          throw outputLimit({ text, hasToolCalls: toolCalls.length > 0, usage, ...metadata });
         if (['SAFETY', 'RECITATION'].includes(finish)) throw new Error(`Model did not complete: ${finish}`);
         return { text, toolCalls, usage, ...metadata };
       }
@@ -509,6 +513,7 @@ export async function chat(
     model: p.model,
     messages: dialog,
     stream: streaming,
+    ...(streaming && !nativeOllama ? { stream_options: { include_usage: true } } : {}),
     ...(nativeOllama
       ? { options: { num_predict: p.maxOutputTokens } }
       : { [p.outputTokenParameter ?? 'max_tokens']: p.maxOutputTokens }),
@@ -564,10 +569,7 @@ export async function chat(
         },
       );
     if (doneReason === 'length')
-      throw new ModelResponseError(
-        'Model output limit reached; use shorter tool arguments or increase the provider output budget',
-        { reason: 'output_limit', finishReason: 'length' },
-      );
+      throw outputLimit({ text, hasToolCalls: toolCalls.length > 0, usage, ...metadata });
     return { text, toolCalls, usage, ...metadata };
   }
   if (!nativeOllama && isStream(response, 'text/event-stream')) {
@@ -605,11 +607,7 @@ export async function chat(
         'Model provider stream ended before completion. No tools from this response were executed.',
         { reason: 'incomplete_stream' },
       );
-    if (finish === 'length')
-      throw new ModelResponseError(
-        'Model output limit reached; use shorter tool arguments or increase the provider output budget',
-        { reason: 'output_limit', finishReason: finish },
-      );
+    if (finish === 'length') throw outputLimit({ text, hasToolCalls: pending.size > 0, usage, ...metadata });
     if (!['stop', 'tool_calls', 'function_call'].includes(finish))
       throw new Error(`Model did not complete: ${finish}`);
     return {
@@ -628,10 +626,15 @@ export async function chat(
 }
 function anthropicResult(data: any): ChatResult {
   if (data.stop_reason === 'max_tokens')
-    throw new ModelResponseError(
-      'Model output limit reached; use shorter tool arguments or increase the provider output budget',
-      { reason: 'output_limit', finishReason: 'length' },
-    );
+    throw outputLimit({
+      ...responseMetadata(data),
+      text: (data.content ?? [])
+        .filter((c: any) => c.type === 'text')
+        .map((c: any) => c.text)
+        .join('\n'),
+      hasToolCalls: (data.content ?? []).some((c: any) => c.type === 'tool_use'),
+      usage: { input: data.usage?.input_tokens ?? 0, output: data.usage?.output_tokens ?? 0 },
+    });
   return {
     ...responseMetadata(data),
     text: (data.content ?? [])
@@ -647,10 +650,19 @@ function anthropicResult(data: any): ChatResult {
 function geminiResult(data: any): ChatResult {
   const candidate = data.candidates?.[0];
   if (candidate?.finishReason === 'MAX_TOKENS')
-    throw new ModelResponseError(
-      'Model output limit reached; use shorter tool arguments or increase the provider output budget',
-      { reason: 'output_limit', finishReason: candidate.finishReason },
-    );
+    throw outputLimit({
+      ...responseMetadata(data),
+      text: (candidate.content?.parts ?? [])
+        .filter((c: any) => typeof c.text === 'string' && !c.thought)
+        .map((c: any) => c.text)
+        .join('\n'),
+      hasToolCalls: (candidate.content?.parts ?? []).some((c: any) => c.functionCall),
+      usage: {
+        input: data.usageMetadata?.promptTokenCount ?? 0,
+        output:
+          (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
+      },
+    });
   if (!candidate || ['SAFETY', 'RECITATION'].includes(candidate.finishReason))
     throw new Error(`Model did not complete: ${candidate?.finishReason ?? 'no candidate'}`);
   const parts = candidate.content?.parts ?? [];
@@ -670,17 +682,22 @@ function geminiResult(data: any): ChatResult {
       })),
     usage: {
       input: data.usageMetadata?.promptTokenCount ?? 0,
-      output: data.usageMetadata?.candidatesTokenCount ?? 0,
+      output: (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
     },
   };
 }
 function openAiResult(data: any, nativeOllama: boolean): ChatResult {
-  if (data.choices?.[0]?.finish_reason === 'length' || data.done_reason === 'length')
-    throw new ModelResponseError(
-      'Model output limit reached; use shorter tool arguments or increase the provider output budget',
-      { reason: 'output_limit', finishReason: 'length' },
-    );
   const message = nativeOllama ? data.message : data.choices?.[0]?.message;
+  if (data.choices?.[0]?.finish_reason === 'length' || data.done_reason === 'length')
+    throw outputLimit({
+      ...responseMetadata(data),
+      text: typeof message?.content === 'string' ? message.content : '',
+      hasToolCalls: Boolean(message?.tool_calls?.length),
+      usage: {
+        input: data.usage?.prompt_tokens ?? data.prompt_eval_count ?? 0,
+        output: data.usage?.completion_tokens ?? data.eval_count ?? 0,
+      },
+    });
   if (!message) throw new Error('Model provider returned no message');
   return {
     ...responseMetadata(data),

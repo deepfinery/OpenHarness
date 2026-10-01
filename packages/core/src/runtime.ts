@@ -68,6 +68,7 @@ import {
   compactDialog,
   ContextCapacityError,
   contextAllowance,
+  recoveryOutputLimit,
   excerpt,
   contextLimitFromError,
   promptTokensFromError,
@@ -621,7 +622,8 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
     // Keep a concrete synthesis allowance out of both analysis calls and delegated work.
     const finalReserve = Math.min(
       Math.floor(agent.tokenBudget / 3),
-      contextAllowance(provider.contextWindow ?? 128000, provider.maxOutputTokens).maxOutputTokens + 8000,
+      contextAllowance(provider.contextWindow ?? 128000, recoveryOutputLimit(provider.maxOutputTokens, 2))
+        .maxOutputTokens + 8000,
     );
     let terminalAnswer: string | undefined = progress?.terminalAnswer;
     let rejectedToolBatches = progress?.rejectedToolBatches ?? 0;
@@ -653,6 +655,15 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
       // The provider wraps tool definitions; leave room for that wrapper as well as their text.
       const toolTokens = offered.length ? estimateTokens(JSON.stringify(offered)) + offered.length * 16 : 0;
       let responseRetries = 0;
+      let continuedText = '';
+      const capacityFailure = (message: string) =>
+        continuedText
+          ? new ModelResponseError(
+              message,
+              { reason: 'output_limit' },
+              { text: continuedText, hasToolCalls: false },
+            )
+          : new ContextCapacityError(message);
       let contextRetries = 0;
       let toolCorrection: string | undefined;
       let checkpoint: ChatMessage | undefined;
@@ -665,33 +676,35 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         // A retried final answer gets more room: reasoning models can spend the limit before writing the answer.
         const outputLimit = finalAnswer
           ? Math.min(
-              Math.min(32768, provider.maxOutputTokens * (1 + Math.max(responseRetries, nudges))),
+              recoveryOutputLimit(provider.maxOutputTokens, Math.max(responseRetries, nudges)),
               Math.max(
                 128,
                 Math.min(
-                  Math.floor(remaining / 4),
+                  Math.floor(remaining / 2),
                   remaining - Math.ceil(synthesisPromptFloor * estimateScale),
                 ),
               ),
             )
-          : provider.maxOutputTokens;
+          : recoveryOutputLimit(provider.maxOutputTokens, responseRetries);
         const allowance = contextAllowance(provider.contextWindow ?? 128000, outputLimit, remaining);
         const promptBudget = Math.min(allowance.promptTokens, learnedPromptBudget);
         const budget = Math.floor(promptBudget / estimateScale) - toolTokens;
         if (allowance.maxOutputTokens < 128 || budget < 64)
-          throw new ContextCapacityError('Insufficient context or token allowance for this model call');
+          throw capacityFailure('Insufficient context or token allowance for this model call');
         const retryMessages = [...dialog];
         const budgetMessage: ChatMessage = {
           role: 'system',
-          content: `Job budget (all agents): ${tokensUsed}/${agent.tokenBudget} tokens used; reserve ${finalReserve} for the answer. Plan remaining work accordingly. Per-call context: ${provider.contextWindow ?? 128000}, compact independently.`,
+          content: `Job budget (all agents): ${tokensUsed}/${agent.tokenBudget} tokens used; reserve ${finalReserve} for the answer. Plan remaining work accordingly. Cover the requested items before optional depth; track what is done and what remains. Reuse collected evidence and avoid repeating unavailable tool requests. Finish with a concise, evidence-grounded answer within the remaining budget; identify unavailable data rather than inventing it. Per-call context: ${provider.contextWindow ?? 128000}, compact independently.`,
         };
         if (!finalAnswer) retryMessages.splice(retryMessages[0]?.role === 'system' ? 1 : 0, 0, budgetMessage);
         if (responseRetries || nudges) {
-          const guidance = finalAnswer
-            ? '\n\nYour previous reply contained no answer text: it was empty, or its output limit was reached before the answer. Write the final answer now, directly and concisely, without preliminary reasoning or a restatement of the evidence.'
-            : responseRetries
-              ? '\n\nYour previous response could not be decoded and none of its tool calls ran. Return complete JSON objects for tool arguments. Keep arguments short, request one tool at a time, and do not copy large listings or reports into arguments.'
-              : '\n\nYour previous reply was empty: no text and no tool call. Continue the task now: call the next tool you need, or write your answer.';
+          const guidance = continuedText
+            ? '\n\nContinue the final answer from the supplied assistant draft. Do not repeat its introduction or completed sections. Finish the remaining requested items concisely, using only the supplied evidence.'
+            : finalAnswer
+              ? '\n\nYour previous reply contained no answer text: it was empty, or its output limit was reached before the answer. Write the final answer now, directly and concisely, without preliminary reasoning or a restatement of the evidence.'
+              : responseRetries
+                ? '\n\nYour previous response could not be decoded and none of its tool calls ran. Return complete JSON objects for tool arguments. Keep arguments short, request one tool at a time, and do not copy large listings or reports into arguments.'
+                : '\n\nYour previous reply was empty: no text and no tool call. Continue the task now: call the next tool you need, or write your answer.';
           if (retryMessages[0]?.role === 'system')
             retryMessages[0] = { ...retryMessages[0], content: retryMessages[0].content + guidance };
           else retryMessages.unshift({ role: 'system', content: guidance.trim() });
@@ -764,9 +777,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         if (!finalAnswer && offered.length && originalRequest?.content !== retainedRequest?.content)
           throw new ContextCapacityError('The current request cannot fit intact; continuing without tools');
         if (!fitted.fits || (fitted.tokens + toolTokens) * estimateScale > promptBudget)
-          throw new ContextCapacityError(
-            'Protected instructions or tool definitions exceed the available context',
-          );
+          throw capacityFailure('Protected instructions or tool definitions exceed the available context');
         if (fitted.changed) {
           await ctx.event({
             type: 'context_compacted',
@@ -811,7 +822,14 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           await ctx.event({
             type: 'model_request',
             message: 'Calling configured model provider',
-            data: route,
+            data: {
+              ...route,
+              maxOutputTokens: allowance.maxOutputTokens,
+              estimatedPromptTokens: reservedAttempt - allowance.maxOutputTokens,
+              remainingTokens: remaining,
+              finalAnswer,
+              toolCount: offered.length,
+            },
           });
           const response = await chat(requestProvider, checkedMessages, offered, signal, ctx.onDelta);
           await ctx.event({
@@ -837,6 +855,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
                   estimateTokens(response.text) +
                   estimateTokens(JSON.stringify(response.toolCalls)),
           );
+          if (continuedText) response.text = await checkRail(ctx, 'output', continuedText + response.text);
           const rejected = !finalAnswer && validateToolSelection(response.toolCalls, offered);
           if (rejected) {
             rejectedToolBatches++;
@@ -882,16 +901,45 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         } catch (error) {
           signal.throwIfAborted();
           if (error instanceof ModelResponseError) {
-            // The failed in-flight attempt was already reserved before sending.
+            // Truncation is still a billed completion. Reconcile known usage rather than charging
+            // the estimated prompt/output reservation on every retry (including hidden reasoning).
+            const reported = error.response?.usage;
+            if (reservedAttempt && reported && (reported.input || reported.output)) {
+              usage(reported.input + reported.output - reservedAttempt);
+              reservedAttempt = 0;
+              if (reported.input) await learnScale(reported.input, fitted.tokens + toolTokens);
+            }
+            if (finalAnswer && error.response?.text.trim() && !error.response.hasToolCalls) {
+              const piece = await checkRail(ctx, 'output', error.response.text);
+              continuedText += piece;
+              dialog.push({ role: 'assistant', content: piece });
+              // Never turn a continuation instruction into fresh authorization for tools.
+              dialog.push({
+                role: 'user',
+                reference: true,
+                content: 'Continue the answer from where it stopped; do not repeat completed sections.',
+              });
+              error.response.text = continuedText;
+            }
             // The final answer is retried too: an output limit hit by reasoning gets more room next time.
             const retry =
               responseRetries < 2 && (finalAnswer || tokensUsed < agent.tokenBudget - finalReserve);
             await ctx.event({
               type: retry ? 'model_retry' : 'model_error',
               message: `${error.message}${retry ? ' Retrying this model turn without streaming.' : ' Model response recovery exhausted.'}`,
-              data: { model: provider.model, ...error.details, attempt: responseRetries + 1, tokensUsed },
+              data: {
+                model: provider.model,
+                ...error.details,
+                attempt: responseRetries + 1,
+                tokensUsed,
+                usage: reported,
+                maxOutputTokens: allowance.maxOutputTokens,
+                nextOutputTokens: retry
+                  ? recoveryOutputLimit(provider.maxOutputTokens, responseRetries + 1)
+                  : undefined,
+              },
             });
-            ctx.onDelta?.('', true);
+            ctx.onDelta?.(continuedText, true);
             if (!retry) throw error;
             responseRetries++;
             continue;
@@ -924,7 +972,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
             },
           });
           ctx.onDelta?.('', true);
-          if (contextRetries >= 3) throw new ContextCapacityError('Provider context recovery exhausted');
+          if (contextRetries >= 3) throw capacityFailure('Provider context recovery exhausted');
         }
       }
     }
@@ -1112,19 +1160,49 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           } catch (error) {
             signal.throwIfAborted();
             if (!finalizing) {
-              if (!(error instanceof ContextCapacityError) && !(error instanceof ToolSelectionRecoveryError))
+              if (
+                !(error instanceof ContextCapacityError) &&
+                !(error instanceof ToolSelectionRecoveryError) &&
+                !(error instanceof ModelResponseError)
+              )
                 throw error;
+              if (
+                error instanceof ModelResponseError &&
+                error.response?.text.trim() &&
+                !error.response.hasToolCalls
+              )
+                dialog.push({
+                  role: 'assistant',
+                  reference: true,
+                  content: await checkRail(ctx, 'output', error.response.text),
+                });
               finalizing = true;
               stopPatterns = true;
               await ctx.event({
-                type: error instanceof ToolSelectionRecoveryError ? 'recovery_limit' : 'context_limit',
+                type: error instanceof ContextCapacityError ? 'context_limit' : 'recovery_limit',
                 message:
-                  error instanceof ToolSelectionRecoveryError
-                    ? 'Tool selection recovery exhausted; synthesizing saved evidence without tools'
+                  error instanceof ToolSelectionRecoveryError || error instanceof ModelResponseError
+                    ? 'Model response recovery exhausted; synthesizing saved evidence without tools'
                     : 'Context capacity reached; synthesizing saved evidence without tools',
               });
               ctx.onDelta?.('', true);
               continue;
+            }
+            if (
+              error instanceof ModelResponseError &&
+              error.response?.text.trim() &&
+              !error.response.hasToolCalls
+            ) {
+              const partial =
+                error.response.text +
+                '\n\n---\nThe response reached its length allowance. The analysis above is preserved; any unfinished sections remain incomplete.';
+              await ctx.event({
+                type: 'answer_incomplete',
+                message: 'Preserved the available answer after bounded continuation attempts',
+                data: { reason: error.details.reason, tokensUsed },
+              });
+              terminalAnswer = partial;
+              return partial;
             }
             await ctx.event({
               type: 'summary_unavailable',
@@ -1145,7 +1223,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
             if (!response.text.trim() || (finalizing && response.toolCalls.length)) {
               // Retry an empty or tool-only reply with a nudge (and more output room for the final answer)
               // before giving up: reasoning models can spend the output limit before writing anything.
-              if (emptyReplies < 2) {
+              if (emptyReplies < 2 && !(finalizing && response.toolCalls.length)) {
                 emptyReplies++;
                 await ctx.event({
                   type: 'model_retry',

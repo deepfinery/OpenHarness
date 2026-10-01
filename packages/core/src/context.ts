@@ -4,6 +4,11 @@ import type { ChatMessage } from './llm.js';
 /** Signals a capacity problem, never a credentials, transport or cancellation failure. */
 export class ContextCapacityError extends Error {}
 
+/** Grow a truncated response within the supported per-call ceiling; job/context limits still apply. */
+export function recoveryOutputLimit(configured: number, attempt: number) {
+  return Math.min(32768, configured * 2 ** Math.min(2, Math.max(0, attempt)));
+}
+
 /** Reserve output and tokenizer/wire-format headroom before allocating the prompt. */
 export function contextAllowance(window: number, output: number, remaining = Infinity) {
   const margin = Math.max(256, Math.ceil(window * 0.08));

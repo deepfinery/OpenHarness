@@ -213,7 +213,10 @@ test('MCP evidence stays in memory when final synthesis is unavailable, and a cl
     const unavailable = result.events.filter((e: any) => e.type === 'summary_unavailable');
     assert.equal(unavailable.length, 1);
     assert.equal(unavailable[0].data.reason, ending === 'malformed' ? 'model_error' : 'tool_call');
-    assert.equal(result.events.filter((e: any) => e.type === 'model_retry').length, 0);
+    assert.equal(
+      result.events.filter((e: any) => e.type === 'model_retry').length,
+      ending === 'malformed' ? 2 : 0,
+    );
     const notes = (await ok(`/runs/${result.id}/memory`)).notes;
     assert.equal(notes.length, 2, 'the final turn does not execute another tool');
     const saved = await ok(`/runs/${result.id}/memory/${notes[0].note_id}`);
