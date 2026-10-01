@@ -8,6 +8,42 @@ import {
 } from '../../packages/core/src/finalAnswer.js';
 import type { ChatMessage } from '../../packages/core/src/llm.js';
 
+test('reporting indexes early requested items even when their results leave the recent evidence window', () => {
+  const dialog: ChatMessage[] = [];
+  for (let i = 0; i < 138; i++)
+    dialog.push(
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: `call${i}`, name: 'prices', arguments: { symbol: `EXACT-${i}` } }],
+      },
+      {
+        role: 'tool',
+        toolCallId: `call${i}`,
+        name: 'prices',
+        content: i === 1 ? 'Tool reported no data' : JSON.stringify({ date: '2026-09-30', price: i + 1 }),
+      },
+    );
+  const messages = finalAnswerMessages('Follow the skill.', 'Daily report', dialog, []);
+  const prompt = messages.at(-1)!.content;
+  assert.match(prompt, /138 of 138 calls listed/);
+  for (let i = 0; i < 138; i++) assert.ok(prompt.includes(`"EXACT-${i}"`));
+  assert.match(prompt, /Tool reported no data/);
+  assert.match(prompt, /does not prove fresh coverage/);
+  assert.ok(!messages[0].content.includes('EXACT-0'));
+});
+
+test('bounded tool indexes disclose omitted or unconfirmed calls instead of silently claiming complete coverage', () => {
+  const dialog: ChatMessage[] = Array.from({ length: 500 }, (_, i) => ({
+    role: 'assistant' as const,
+    content: '',
+    toolCalls: [{ id: `${i}`, name: 'lookup', arguments: { query: 'value '.repeat(150) } }],
+  }));
+  const prompt = finalAnswerMessages('Follow the skill.', 'Report', dialog, []).at(-1)!.content;
+  assert.match(prompt, /INDEX INCOMPLETE/);
+  assert.match(prompt, /No result recorded: do not assume execution/);
+});
+
 test('reporting preserves authored state beyond search snippet boundaries and marks partial evidence', () => {
   const state = 'State rows\n' + 'AAA 10\n'.repeat(2000) + 'LAST-SYMBOL BBB 20';
   const messages = finalAnswerMessages(

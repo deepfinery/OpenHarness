@@ -59,6 +59,33 @@ export function finalAnswerMessages(
   notes: EvidenceNote[],
   languageRequest = request,
 ): ChatMessage[] {
+  // Recent excerpts alone cannot establish which requested items were attempted. Preserve
+  // the input/result pairing across the whole analysis, independently of the recent evidence window.
+  const results = new Map(
+    dialog.filter((m) => m.role === 'tool' && m.toolCallId).map((m) => [m.toolCallId, m.content]),
+  );
+  const calls = dialog
+    .flatMap((m) => (m.role === 'assistant' ? (m.toolCalls ?? []) : []))
+    .filter(
+      (call) => !['load_skill', 'memory_write', 'workspace_write', 'core_memory_write'].includes(call.name),
+    );
+  const rows: string[] = [];
+  let indexChars = 0;
+  for (const call of calls) {
+    const result = results.get(call.id);
+    const note = result?.match(/^\[Task note (\S+)/)?.[1];
+    const preview =
+      result === undefined
+        ? 'No result recorded: do not assume execution.'
+        : excerpt(readableToolEvidence(result.replace(/^\[Task note [^\n]+\]\s*/, '')), 220);
+    const row = `${call.name} ${excerpt(JSON.stringify(call.arguments), 500)}\nResult recorded: ${result !== undefined}${note ? `; task note ${note}` : ''}. ${preview}`;
+    if (indexChars + row.length > 48000) break;
+    rows.push(row);
+    indexChars += row.length;
+  }
+  const coverageIndex = calls.length
+    ? `Tool coverage index: ${rows.length} of ${calls.length} calls listed${rows.length < calls.length ? '; INDEX INCOMPLETE: omitted calls must not be labeled unattempted' : ''}. A recorded result may contain an error or stale data; it does not prove fresh coverage. Consult the state and result evidence before counting a success.\n${rows.join('\n\n')}`
+    : '';
   // A follow-up such as “the rest” depends on earlier scope and already completed work.
   // Keep that context even when many recent tool results would crowd it out of the evidence window.
   const conversation = dialog
@@ -96,7 +123,7 @@ export function finalAnswerMessages(
       .map((m) => ({ ...m, role: 'user' as const, currentImages: true, reference: true })),
     {
       role: 'user',
-      content: `Original request:\n${request}\n\nCurrent task:\n${[...dialog].reverse().find((m) => m.role === 'user' && !m.reference)?.content ?? request}\n\nConversation context (earlier scope and replies; verify claims against evidence):\n${conversation}\n\nCollected evidence:\n${excerpt([...notebook, ...evidence].join('\n\n'), 80000)}`,
+      content: `Original request:\n${request}\n\nCurrent task:\n${[...dialog].reverse().find((m) => m.role === 'user' && !m.reference)?.content ?? request}\n\nConversation context (earlier scope and replies; verify claims against evidence):\n${conversation}\n\n${coverageIndex}\n\nCollected evidence:\n${excerpt([...notebook, ...evidence].join('\n\n'), 80000)}`,
     },
   ];
 }
