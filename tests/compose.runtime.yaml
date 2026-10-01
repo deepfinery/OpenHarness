@@ -1,0 +1,28 @@
+# Focused runtime tests use real MongoDB, RabbitMQ, Weaviate and the deterministic MCP/model fixture.
+# Always use an isolated project: docker compose -p openharness-test-runtime -f compose.yaml -f tests/compose.runtime.yaml up --build -d --wait api runner fixtures
+services:
+  api:
+    image: openharness:runtime-test
+    environment: &runtime-test-environment
+      ALLOWED_PRIVATE_HOSTS: fixtures,host.docker.internal
+      SMTP_TRANSPORT: json
+      LOGIN_RATE_LIMIT: 500
+  runner:
+    image: openharness:runtime-test
+    environment: *runtime-test-environment
+  fixtures:
+    image: openharness:runtime-test
+    pull_policy: never
+    command: ['node', 'tests/fixtures/server.mjs']
+    volumes: ['./tests/fixtures:/app/tests/fixtures:ro']
+    ports: ['127.0.0.1:${TEST_FIXTURE_PORT:-19090}:9090']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      retries: 10

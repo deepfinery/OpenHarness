@@ -324,7 +324,10 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
         <details className="advanced" hidden={form.modelType === 'embedding'}>
           <summary>Advanced</summary>
           <div className="two-columns">
-            <Field label="Maximum output tokens">
+            <Field
+              label="Maximum output tokens"
+              hint="Initial allowance per response, including reasoning. Recovery can raise it up to 32,768 tokens within the agent's total job budget and the model's context window."
+            >
               <input
                 aria-label="Maximum output tokens"
                 type="number"

@@ -8,6 +8,18 @@ import {
 } from '../../packages/core/src/finalAnswer.js';
 import type { ChatMessage } from '../../packages/core/src/llm.js';
 
+test('follow-up synthesis retains the original requested items and previous coverage after many tool results', () => {
+  const dialog: ChatMessage[] = [
+    { role: 'user', content: 'Analyze AAA, BBB and CCC.' },
+    { role: 'assistant', content: 'AAA completed; BBB and CCC remain.' },
+    { role: 'user', content: 'Please provide the rest.' },
+    ...Array.from({ length: 25 }, () => ({ role: 'tool' as const, content: 'Recent source observations.' })),
+  ];
+  const final = finalAnswerMessages('Use evidence.', 'Please provide the rest.', dialog, []);
+  assert.match(final.at(-1)!.content, /Analyze AAA, BBB and CCC/);
+  assert.match(final.at(-1)!.content, /AAA completed; BBB and CCC remain/);
+});
+
 test('summary evidence decodes MCP envelopes without treating command execution as success', () => {
   const result = readableToolEvidence(
     JSON.stringify({
