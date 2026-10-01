@@ -2,9 +2,31 @@ import { before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { MAX_SKILL_INSTRUCTION_CHARS } from '../../packages/core/src/skillLimits.js';
 
 const base = process.env.TEST_BASE_URL ?? 'http://localhost:8088';
 const fixture = process.env.TEST_FIXTURE_URL ?? 'http://localhost:19090';
+
+test('a maximum-size saved skill reaches the model intact through the run snapshot and load tool', async () => {
+  const start = 'BEGIN-LARGE-SKILL',
+    end = 'END-LARGE-SKILL!';
+  const instructions = start + 'x'.repeat(MAX_SKILL_INSTRUCTION_CHARS - start.length - end.length) + end;
+  assert.equal(instructions.length, MAX_SKILL_INSTRUCTION_CHARS);
+  const skill = await ok('/skills', {
+    name: 'Large runtime skill',
+    description: 'Load for the large skill test.',
+    instructions,
+  });
+  const { agent: a } = await agent(
+    'test-large-skill',
+    { skillIds: [skill.id], tokenBudget: 300000 },
+    { contextWindow: 128000 },
+  );
+  const result = await run(a.id, 'Read the large skill completely');
+  assert.equal(result.status, 'succeeded', result.error);
+  assert.deepEqual(JSON.parse(result.output), { chars: MAX_SKILL_INSTRUCTION_CHARS, complete: true });
+  assert.ok(result.events.some((e: any) => e.type === 'skill_loaded'));
+});
 
 test('loaded skill, complete authored notes and workspace state survive compaction and forced reporting', async () => {
   const skill = await ok('/skills', {

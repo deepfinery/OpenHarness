@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getHarnessFile, readHarnessFile } from '../../../../packages/core/src/harnessFiles.js';
 import { collection } from '../../../../packages/core/src/db.js';
 import { skillSchema } from '../../../../packages/core/src/schema.js';
+import { MAX_SKILL_INSTRUCTION_CHARS } from '../../../../packages/core/src/skillLimits.js';
 import {
   snapshotSkill,
   skillVersion,
@@ -89,6 +90,7 @@ export function skillOperations(registry: OperationRegistry): Operation[] {
     limitations: [
       'Discover searches supplied workspace paths, never host filesystem paths',
       'Skill bundles are limited to 10 MiB and 100 text files; versions use major.minor.patch',
+      `Skill instructions are limited to ${MAX_SKILL_INSTRUCTION_CHARS} characters and are never silently truncated`,
     ],
   });
   return [

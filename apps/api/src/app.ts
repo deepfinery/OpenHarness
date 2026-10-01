@@ -82,6 +82,17 @@ app.use(
   }),
 );
 app.use(cookieParser());
+// A maximum-size skill can exceed 1 MiB when JSON escapes its characters;
+// editing an exported record may also include its bundled SKILL.md copy.
+// Keep the larger body allowance scoped to skill editing and bundle imports.
+app.use(
+  [
+    '/api/skills',
+    '/openharness/v1/harnesses/:harnessId/skills',
+    '/openharness/v1/harnesses/:harnessId/agents',
+  ],
+  express.json({ limit: '4mb' }),
+);
 app.use(express.json({ limit: '1mb' }));
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');

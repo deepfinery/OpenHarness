@@ -279,6 +279,8 @@ With a workspace set, turn on **Learn from experience** in the harness settings.
 
 ### 7. Give agents skills
 
+Skill instructions can contain up to **256,000 characters**. The editor displays the character count; saves and imports reject larger instructions instead of truncating them. The full loaded skill still needs to fit the selected model's context window alongside the request and other instructions.
+
 **Skills → New skill**: name it, write one line saying _when_ it applies (“Use when someone reports an outage or error spike”), and the instructions to follow — steps, checklists, output formats, examples. In any agent's settings, **Skills** lists the library; tick as many as the agent should have, or create one in place.
 
 At run time the agent's system prompt lists only each skill's name and description, and the agent gets a built-in `load_skill` tool. When a request matches, the model loads that skill's full instructions and follows them; when nothing matches, no skill is loaded. This keeps prompts short with many skills attached. Each load is recorded as a `skill_loaded` trace event, skills are snapshotted when the run is accepted (editing one never changes a run in flight), disabled skills are not offered, and a skill cannot be deleted while an agent uses it.
