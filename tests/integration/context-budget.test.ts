@@ -61,6 +61,7 @@ test('loaded skill, complete authored notes and workspace state survive compacti
   assert.equal(result.status, 'succeeded', result.error);
   assert.match(result.output, /^RUN INCOMPLETE/);
   assert.match(result.output, /SKILL-RETAINED FINDING-RETAINED STATE-RETAINED/);
+  assert.match(result.output, /INDEX-RETAINED/);
   assert.ok(result.events.some((e: any) => e.type === 'context_compacted'));
   assert.ok(result.events.some((e: any) => e.type === 'skill_incomplete'));
   const read = result.events.find(

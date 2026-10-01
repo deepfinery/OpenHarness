@@ -1009,6 +1009,11 @@ app.post('/v1/chat/completions', async (req, res) => {
         pinned ? 'SKILL-RETAINED' : 'SKILL-LOST',
         evidence.includes('WHOLE-NOTE-END') ? 'FINDING-RETAINED' : 'FINDING-LOST',
         evidence.includes('WHOLE-STATE-END') ? 'STATE-RETAINED' : 'STATE-LOST',
+        evidence.includes('17 of 17 calls listed') &&
+        evidence.includes('Recent raw result 0') &&
+        evidence.includes('Recent raw result 15')
+          ? 'INDEX-RETAINED'
+          : 'INDEX-LOST',
       ].join(' ');
     } else if (step > 0 && !pinned) message.content = 'SKILL-LOST';
     else if (step === 0)
