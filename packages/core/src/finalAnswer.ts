@@ -77,9 +77,9 @@ export function finalAnswerMessages(
     const preview =
       result === undefined
         ? 'No result recorded: do not assume execution.'
-        : excerpt(readableToolEvidence(result.replace(/^\[Task note [^\n]+\]\s*/, '')), 220);
+        : excerpt(readableToolEvidence(result.replace(/^\[Task note [^\n]+\]\s*/, '')), 80);
     const row = `${call.name} ${excerpt(JSON.stringify(call.arguments), 500)}\nResult recorded: ${result !== undefined}${note ? `; task note ${note}` : ''}. ${preview}`;
-    if (indexChars + row.length > 48000) break;
+    if (indexChars + row.length > 64000) break;
     rows.push(row);
     indexChars += row.length;
   }
