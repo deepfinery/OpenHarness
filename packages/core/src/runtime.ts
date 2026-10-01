@@ -85,6 +85,7 @@ import {
   type EvidenceNote,
 } from './finalAnswer.js';
 import { withLoadedSkills } from './skillContext.js';
+import { LOOP_BLOCKED_MARKER, loopResult } from './loopControl.js';
 import { budgetedAgent, effortPresets } from './patterns.js';
 import { timeContext, timeContextPrompt } from './timeContext.js';
 import {
@@ -176,7 +177,7 @@ export async function runAgent(
     ...ctx,
     guardrails,
     onDelta:
-      stored.pattern === 'reflection' || guardrails.some((p) => p.stages.includes('output'))
+      ['reflection', 'loop'].includes(stored.pattern) || guardrails.some((p) => p.stages.includes('output'))
         ? undefined
         : ctx.onDelta,
   };
@@ -1049,15 +1050,14 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
     }
     async function converse(messages: ChatMessage[], useTools: boolean, label: string): Promise<string> {
       const index = passIndex++;
-      const activityId =
-        agent.pattern === 'reflection'
-          ? await startAgentActivity(ctx.ownerId, ctx.runId, `${executionKey}:${index}`, {
-              agent: agent.name,
-              nodeId: ctx.nodeId,
-              label,
-              model: provider.model,
-            })
-          : undefined;
+      const activityId = ['reflection', 'loop'].includes(agent.pattern)
+        ? await startAgentActivity(ctx.ownerId, ctx.runId, `${executionKey}:${index}`, {
+            agent: agent.name,
+            nodeId: ctx.nodeId,
+            label,
+            model: provider.model,
+          })
+        : undefined;
       if (index < completed.length) {
         if (activityId) await completeAgentActivity(ctx.ownerId, ctx.runId, activityId, completed[index]);
         return completed[index];
@@ -2196,39 +2196,44 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         const marker = options.doneMarker;
         let progress = '';
         let output = '';
+        const loopPolicy: ChatMessage = {
+          role: 'system',
+          content: `Work on this in iterations within the same agent run. Earlier assistant progress is your own saved work, not a message from another model or incarnation. Preserve its evidence and continue only unfinished, actionable work. Do not put iteration bookkeeping or unsupported claims about model identity in the user-facing report. When the task is fully complete, end with ${marker} on its own line. If a mandatory skill stop condition is met, or further work requires unavailable access or user input, provide the final blocker report (completed work, missing work, evidence and specific blocker), then end with ${LOOP_BLOCKED_MARKER} on its own line. Respect all restrictions on incomplete reports. RUN INCOMPLETE is a final report, not an intermediate progress heading. Otherwise report progress and the concrete next work for another iteration. Never retry a known terminal blocker just to produce a different answer.`,
+        };
         for (let iteration = 1; iteration <= options.iterations; iteration++) {
           output = await converse(
             [
               ...base,
-              user(
-                `${input}\n\nWork on this in iterations. When the task is fully complete, end your message with the word ${marker} on its own line. Otherwise report what you accomplished and what remains.${
-                  progress ? `\n\nProgress from earlier iterations:\n${progress}` : ''
-                }`,
-              ),
+              loopPolicy,
+              user(input),
+              ...(progress
+                ? [
+                    assistant(progress),
+                    user(`${input}\n\nContinue the remaining actionable work for the original request.`),
+                  ]
+                : []),
             ],
             true,
             `Iteration ${iteration}`,
           );
           if (terminalAnswer !== undefined) return terminalAnswer;
-          const done = new RegExp(`\\b${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b\\s*$`).test(
-            output.trim(),
-          );
-          await ctx.event({ type: 'iteration', message: `Iteration ${iteration}${done ? ' (done)' : ''}` });
-          if (done)
-            return (
-              output
-                .trim()
-                .replace(new RegExp(`\\s*${marker}\\s*$`), '')
-                .trim() || output
-            );
-          progress = `${progress}\n\nIteration ${iteration}:\n${output}`.slice(-24000);
+          const result = loopResult(output, marker, loadedSkillIds.size > 0);
+          await ctx.event({
+            type: 'iteration',
+            message: `Iteration ${iteration}${result.status === 'continue' ? '' : ` (${result.status})`}`,
+            data: { outcome: result.status },
+          });
+          if (result.status !== 'continue') return result.content;
+          progress = `${progress}\n\nIteration ${iteration}:\n${result.content}`.slice(-24000);
         }
         await ctx.event({ type: 'loop_limit', message: `Stopped after ${options.iterations} iterations` });
         return await converse(
           [
             ...base,
+            user(`Original request: ${input}`),
+            assistant(progress),
             user(
-              `Original request: ${input}\n\nIteration results:\n${progress}\n\nWrite the final answer to the original request. State completed work and unfinished checks; do not claim the task is complete without supporting evidence.`,
+              'Write the final answer to the original request using your saved progress above. State completed work and unfinished checks; do not claim the task is complete without supporting evidence. Do not include iteration bookkeeping, control markers or unsupported claims about model identity.',
             ),
           ],
           false,
