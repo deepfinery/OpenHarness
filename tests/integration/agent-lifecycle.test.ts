@@ -156,6 +156,67 @@ test('pattern passes follow configured iteration limits independently of a conte
   assert.ok(result.tokensUsed < 2000000);
 });
 
+test('autonomous loop stops at a skill gate instead of rewriting the blocked report', async () => {
+  const skill = await ok('/skills', {
+    name: 'Coverage gate',
+    description: 'Required for the coverage request.',
+    instructions:
+      'If fewer than 90% of required prices are available, stop with RUN INCOMPLETE and no ratings.',
+  });
+  for (const skillIds of [[skill.id], []]) {
+    const { agent: a } = await agent('test-loop-blocked', {
+      pattern: 'loop',
+      patternConfig: { iterations: 6 },
+      skillIds,
+    });
+    const result = await run(a.id, 'Check required price coverage');
+    assert.equal(result.status, 'succeeded', result.error);
+    assert.equal(
+      result.output,
+      skillIds.length
+        ? '# RUN INCOMPLETE — Coverage check\n\n121/138 fresh prices. 14 access denied; 3 unavailable. Mandatory 90% gate failed. No ratings.'
+        : 'Required access is unavailable. Restore access to continue.',
+    );
+    const iterations = result.events.filter((e: any) => e.type === 'iteration');
+    assert.equal(iterations.length, 1);
+    assert.equal(iterations[0].data.outcome, 'blocked');
+    assert.equal(
+      result.events.some((e: any) => e.type === 'loop_limit'),
+      false,
+    );
+    const history = await ok(`/runs/${result.id}/activity`);
+    assert.deepEqual(
+      history.entries.map((e: any) => e.label),
+      ['Iteration 1'],
+    );
+    const saved = await ok(`/runs/${result.id}/activity/${history.entries[0].id}`);
+    assert.ok(saved.content.startsWith(result.output));
+  }
+});
+
+test('autonomous loop continues actionable progress and removes its final control footer', async () => {
+  const { agent: a } = await agent('test-chat', { pattern: 'loop' });
+  const started = await ok('/runs', { agentId: a.id, input: 'Complete the two halves' });
+  let result: any;
+  for (let i = 0; i < 120; i++) {
+    result = await ok(`/runs/${started.id}`);
+    if (!['queued', 'running'].includes(result.status)) break;
+    assert.ok(!result.partial, 'iteration drafts and control footers must not stream into the answer');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(result.status, 'succeeded', result.error);
+  assert.equal(result.output, 'Finished the task.');
+  assert.deepEqual(
+    result.events.filter((e: any) => e.type === 'iteration').map((e: any) => e.data.outcome),
+    ['continue', 'done'],
+  );
+  const history = await ok(`/runs/${started.id}/activity`);
+  assert.deepEqual(
+    history.entries.map((e: any) => e.label),
+    ['Iteration 1', 'Iteration 2'],
+  );
+});
+
 test('reflection keeps intermediate text out of chat and exposes complete tenant-scoped stage history', async () => {
   const { agent: a } = await agent('test-reflection-history', { pattern: 'reflection' });
   const started = await ok('/runs', { agentId: a.id, input: 'Prepare a reviewed answer' });

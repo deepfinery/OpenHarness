@@ -132,9 +132,11 @@ Choosing a level sets these budgets in one move; **Limits** in the agent setting
 | **ReAct** (default)  | Each turn the model either calls tools or answers. Tool results feed the next turn, bounded by the agent's turn limit.                      | Assistants, most harness steps                   |
 | **Plan and execute** | One pass writes a short numbered plan without tools; each step then runs with tools and records its result; a final pass writes the answer. | Multi-step research, comparisons, reports        |
 | **Reflection**       | Draft, critique as a strict reviewer, revise with tools for verification. One to three rounds.                                              | Writing, analysis, anything that must be checked |
-| **Autonomous loop**  | Work in iterations, carrying progress forward, until the agent ends a message with the done marker or hits the iteration limit.             | Long tasks with a clear completion condition     |
+| **Autonomous loop**  | Carry saved assistant progress forward until completion, a terminal blocker, a mandatory skill stop condition, or the iteration limit.      | Long tasks with a clear completion condition     |
 
 Patterns beyond ReAct receive up to four times the agent's turn limit in total model calls. Every pass is visible in the trace as `plan`, `plan_step`, `reflection`, and `iteration` events.
+
+Autonomous iterations distinguish `continue`, `done`, and `blocked` outcomes. A loaded skill's final `RUN INCOMPLETE` report ends the loop without another summarizing pass. This recognizes the reporting contract; it does not independently validate the model's domain calculations. Intermediate reports and control footers stay out of the streamed chat answer; full iteration outputs are available in the run's activity history. Prior progress remains assistant-authored context, rather than becoming a new user instruction.
 
 ### Harnesses
 

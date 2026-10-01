@@ -885,13 +885,23 @@ function answer(messages, tools) {
     };
   if (String(input).includes('Write the final answer to the original request'))
     return {
-      content: `Planned answer: ${String(input).split('Original request:')[1].split('\n')[0].trim()}`,
+      content: `Planned answer: ${String(
+        messages.find((m) => m.role === 'user' && m.content.includes('Original request:'))?.content ?? input,
+      )
+        .split('Original request:')[1]
+        .split('\n')[0]
+        .trim()}`,
     };
   if (String(input).startsWith('Critique the answer above')) return { content: 'Critique: add a source.' };
   if (String(input).startsWith('Revise your answer using this critique'))
     return { content: 'Revised answer with a source.' };
-  if (String(input).includes('Work on this in iterations')) {
-    const iterations = String(input).match(/Iteration \d+:/g)?.length ?? 0;
+  if (String(input).includes('Work on this in iterations') || system.includes('Work on this in iterations')) {
+    const iterations =
+      messages
+        .filter((m) => m.role === 'assistant')
+        .map((m) => m.content)
+        .join('\n')
+        .match(/Iteration \d+:/g)?.length ?? 0;
     return { content: iterations >= 1 ? 'Finished the task.\nDONE' : 'Did the first half.' };
   }
   return {
@@ -1434,6 +1444,35 @@ app.post('/v1/chat/completions', async (req, res) => {
           ? 'Final revised answer with verified evidence.'
           : 'Initial draft for review. ' + 'Draft evidence. '.repeat(400) + ' DRAFT END',
     };
+  }
+  if (req.body.model === 'test-loop-blocked') {
+    const messages = req.body.messages;
+    const skillTool = req.body.tools?.find((t) => t.function.name === 'load_skill');
+    const loaded = messages.some((m) => m.role === 'system' && m.content.includes('Loaded skill '));
+    const previousReport = messages.some(
+      (m) => m.role === 'assistant' && m.content.includes('RUN INCOMPLETE'),
+    );
+    message = previousReport
+      ? { content: 'Bad second iteration: another model or incarnation.\nDONE' }
+      : skillTool && !loaded
+        ? {
+            content: '',
+            tool_calls: [
+              {
+                id: randomUUID(),
+                type: 'function',
+                function: {
+                  name: 'load_skill',
+                  arguments: JSON.stringify({ name: skillTool.function.parameters.properties.name.enum[0] }),
+                },
+              },
+            ],
+          }
+        : {
+            content: loaded
+              ? '# RUN INCOMPLETE — Coverage check\n\n121/138 fresh prices. 14 access denied; 3 unavailable. Mandatory 90% gate failed. No ratings.'
+              : 'Required access is unavailable. Restore access to continue.\n<harness_status>blocked</harness_status>',
+          };
   }
   // Fail only after a real MCP result, so recovery must preserve already completed tool calls.
   if (
