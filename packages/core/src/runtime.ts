@@ -19,7 +19,22 @@ import type { GuardrailSnapshot } from './guardrailPolicy.js';
 import { signApprovalCall } from '../../../connector-core/src/approvalProof.js';
 import { recordToolArtifacts, recordMachineFile } from './artifacts.js';
 // Durable execution harness: agent patterns, attached MCP tools, context, and resumable workflows.
-import type { Agent, Run, RunCheckpoint, RunEvent, Workflow } from './schema.js';
+import {
+  humanSettingsSchema,
+  type Agent,
+  type Run,
+  type RunCheckpoint,
+  type RunEvent,
+  type Workflow,
+} from './schema.js';
+import { jobTimeoutSeconds, runCodeJob, type CodeJobOutcome } from './codeJobs.js';
+import {
+  PYTHON_TOOL,
+  pythonNote,
+  pythonToolDefinition,
+  summarizeJob,
+  type PythonToolArguments,
+} from './pythonTool.js';
 import { collection } from './db.js';
 import { config } from './config.js';
 import {
@@ -258,6 +273,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
           tokenBudget: 8000,
           effort: 'light',
           humanInput: false,
+          codeExecution: { enabled: false, timeoutSeconds: 0, requireApproval: false, secrets: [] },
           delegation: { enabled: false, maxAgents: 1 },
           approvals: {
             ...stored.approvals,
@@ -571,6 +587,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
 
     // Only agents a run starts may delegate; sub-agents do their task themselves.
     const delegates = Boolean(agent.delegation?.enabled) && !ctx.depth;
+    const codeExecution = Boolean(agent.codeExecution?.enabled);
     let spawned = progress?.spawned ?? 0;
     const remember = (doc: { _id: string; folder?: string; filename: string }) => {
       const entry = { note_id: doc._id, path: notePath(doc) };
@@ -595,7 +612,8 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         : '') +
       (delegates
         ? `\n\nFor independent parts of a larger task, you can start up to ${agent.delegation?.maxAgents ?? 4} sub-agents with spawn_agents. Each works in parallel with a fresh context and a share of your budget, and reports back a summary and note ids. Give each a self-contained task, pick an effort that fits, and combine their results yourself.`
-        : '');
+        : '') +
+      (codeExecution ? pythonNote(jobTimeoutSeconds(agent.codeExecution?.timeoutSeconds || undefined)) : '');
     let recalledText = agentMemory?.text ?? ctx.lessons ?? '';
     try {
       recalledText = await checkRail(ctx, 'retrieval', recalledText);
@@ -1122,6 +1140,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         ...(useTools ? notebookTools : []),
         ...(useTools && workspace ? workspaceToolDefinitions : []),
         ...(useTools && delegates ? [spawnToolDefinition(skills.map((s) => s.name))] : []),
+        ...(useTools && codeExecution ? [pythonToolDefinition] : []),
         ...(provider === judgeProvider && provider !== workerProvider ? [] : skillTool),
       ];
       let finalizing = active?.finalizing ?? false;
@@ -1399,7 +1418,15 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
               });
               continue;
             }
-            const policy = agent.approvals ?? ctx.approvals;
+            const basePolicy = agent.approvals ?? ctx.approvals;
+            // An agent whose Python must be approved gets an explicit 'always' entry for run_python.
+            const policy =
+              codeExecution && agent.codeExecution?.requireApproval && call.name === PYTHON_TOOL
+                ? {
+                    ...(basePolicy ?? humanSettingsSchema.parse({})),
+                    tools: { ...(basePolicy?.tools ?? {}), [PYTHON_TOOL]: 'always' as const },
+                  }
+                : basePolicy;
             if (
               !handlers.has(call.name) &&
               call.name !== askHumanTool.name &&
@@ -1789,6 +1816,79 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
               if (!isError && ['workspace_read', 'workspace_write'].includes(call.name))
                 usedWorkspacePaths.add(String((call.arguments as { path: string }).path));
               dialog.push({ role: 'tool', content: text, toolCallId: call.id, name: call.name });
+              continue;
+            }
+            if (codeExecution && call.name === PYTHON_TOOL) {
+              await ctx.event({
+                type: 'tool_started',
+                message: `Python / ${PYTHON_TOOL}`,
+                data: {
+                  callId: call.id,
+                  tool: PYTHON_TOOL,
+                  arguments: asText(call.arguments).slice(0, 6000),
+                },
+              });
+              let text: string;
+              let isError = false;
+              try {
+                const invalid = validateToolArguments(pythonToolDefinition.inputSchema, call.arguments);
+                if (invalid) throw new Error(invalid);
+                const args = call.arguments as unknown as PythonToolArguments;
+                const callKey = `${executionKey}:${passIndex}:${turn}:${callIndex}`;
+                // One job per parameter set, all in parallel; a resumed run reattaches to the same jobs.
+                const variants = args.params_list?.length ? args.params_list : [args.params ?? {}];
+                const outcomes: CodeJobOutcome[] = await Promise.all(
+                  variants.map((params, index) =>
+                    runCodeJob(
+                      {
+                        ownerId: ctx.ownerId,
+                        runId: ctx.runId,
+                        nodeId: ctx.nodeId,
+                        key: variants.length > 1 ? `${callKey}:${index}` : callKey,
+                        signal,
+                      },
+                      {
+                        code: args.code,
+                        params,
+                        timeoutSeconds:
+                          args.timeout_seconds || agent.codeExecution?.timeoutSeconds || undefined,
+                        purpose: args.purpose,
+                        secrets: agent.codeExecution?.secrets,
+                      },
+                    ),
+                  ),
+                );
+                toolCalls++;
+                const summaries = outcomes.map(summarizeJob);
+                text = JSON.stringify(variants.length > 1 ? summaries : summaries[0]);
+                isError = outcomes.every((o) => o.status !== 'succeeded');
+              } catch (error) {
+                if (error instanceof HumanPause) throw error;
+                signal.throwIfAborted();
+                text = `Python error: ${error instanceof Error ? error.message : String(error)}`.slice(
+                  0,
+                  1000,
+                );
+                isError = true;
+              }
+              try {
+                text = await checkRail(ctx, 'tool_output', text, call.name);
+              } catch (error) {
+                if (!(error instanceof GuardrailBlocked)) throw error;
+                text = '[Tool result withheld by safety policy]';
+                isError = true;
+              }
+              await ctx.event({
+                type: isError ? 'tool_error' : 'tool_completed',
+                message: `Python / ${PYTHON_TOOL}`,
+                data: { callId: call.id, tool: PYTHON_TOOL, result: text.slice(0, 6000) },
+              });
+              dialog.push({
+                role: 'tool',
+                content: text.slice(0, 12000),
+                toolCallId: call.id,
+                name: call.name,
+              });
               continue;
             }
             const handler = handlers.get(call.name);
@@ -2258,6 +2358,7 @@ export function nodeHasSideEffects(run: Run, nodeId: string): boolean {
   const hasTools = (agent?: Agent) => Boolean(agent?.connections.some((c) => c.tools.length));
   switch (node.type) {
     case 'tool':
+    case 'code':
     case 'email':
       return true;
     case 'agent':
@@ -2652,6 +2753,73 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
         } finally {
           await session.close();
         }
+        current = node.next;
+        break;
+      }
+      case 'code': {
+        // A Python step: the code runs in a fresh executor container with the rendered parameters.
+        const params = render(node.params, scope) as Record<string, unknown>;
+        const callId = `${node.id}:${attempt}`;
+        const toolId = `builtin.${PYTHON_TOOL}`;
+        if (run.evaluation) {
+          result = 'Safety evaluation: Python step simulated';
+          current = node.next;
+          break;
+        }
+        if (needsApproval(node.approvals ?? workflow.approvals, toolId, undefined, 0)) {
+          const decision = await requestHuman(
+            run.ownerId,
+            run._id,
+            `${node.id}:${attempt}:code`,
+            {
+              kind: 'approval',
+              prompt: `Approve the Python step ${node.name}?`,
+              tool: toolId,
+              arguments: { params, code: node.code },
+              inputSchema: pythonToolDefinition.inputSchema,
+            },
+            node.approvals ?? workflow.approvals,
+          );
+          if (decision.decision !== 'approve') {
+            result = { denied: true, feedback: decision.feedback ?? 'Human denied this Python step' };
+            current = node.next;
+            break;
+          }
+        }
+        await event({
+          type: 'tool_started',
+          message: `${node.name} / python`,
+          data: { callId, tool: PYTHON_TOOL, arguments: asText({ params, code: node.code }).slice(0, 6000) },
+        });
+        const outcome = await runCodeJob(
+          {
+            ownerId: run.ownerId,
+            runId: run._id,
+            nodeId: node.id,
+            key: `node:${node.id}:${attempt}`,
+            signal,
+          },
+          {
+            code: node.code,
+            params,
+            timeoutSeconds: node.timeoutSeconds || undefined,
+            purpose: node.name,
+            secrets: node.secrets,
+          },
+        );
+        const summary = summarizeJob(outcome);
+        await event({
+          type: outcome.status === 'succeeded' ? 'tool_completed' : 'tool_error',
+          message: `${node.name} / python`,
+          data: { callId, tool: PYTHON_TOOL, result: JSON.stringify(summary).slice(0, 6000) },
+        });
+        if (outcome.status !== 'succeeded')
+          throw new Error(
+            `${node.name}: ${outcome.error ?? 'the Python code failed'}${outcome.stderr.trim() ? `\n${outcome.stderr.trim().slice(-2000)}` : ''}`,
+          );
+        // The step's value: what the code handed back with oh.result(), otherwise what it printed.
+        result =
+          outcome.result !== undefined && outcome.result !== null ? outcome.result : outcome.stdout.trim();
         current = node.next;
         break;
       }

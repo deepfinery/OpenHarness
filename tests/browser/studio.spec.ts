@@ -719,3 +719,67 @@ test('provider editor saves an exact decimal 1M context window', async ({ page }
   await expect(dialog).toBeHidden();
   expect((await api(page.request, `/providers/${p.id}`)).contextWindow).toBe(1000000);
 });
+
+test('a Python step runs in the executor and hands its result to Finish; agents can be allowed to run Python', async ({
+  page,
+}) => {
+  const name = `Browser python ${tag}`;
+  await newBlankWorkflow(page, name);
+  await page.getByRole('button', { name: 'Add Python code', exact: true }).click();
+  await page.locator('.harness-card.kind-code').dblclick();
+  const modal = page.locator('.modal');
+  await expect(modal.getByLabel('Python code')).toContainText('import oh');
+  await modal
+    .getByLabel('Python code')
+    .fill(
+      'import oh, numpy as np\nvalues = np.array(oh.params["values"])\noh.result({"total": int(values.sum()), "label": oh.params["label"]})\n',
+    );
+  await modal.getByLabel('Tool arguments JSON').fill('{"values": [40, 2], "label": "{{input}}"}');
+  await modal.getByRole('button', { name: 'Done' }).click();
+  await expect(page.locator('.harness-card.kind-code')).toContainText('lines');
+  await page.locator('.harness-card.kind-finish').dblclick();
+  await page.locator('.modal').getByLabel('Final response template').fill('{{last.label}}: {{last.total}}');
+  await page.locator('.modal').getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('button', { name: 'Save & test', exact: true }).click();
+  await expect(await chat(page, 'Sum check')).toContainText('Sum check: 42', { timeout: 90000 });
+  await expect(page.locator('.trace-meta')).toContainText('succeeded');
+  const saved = (await api(page.request, '/workflows')).find((w: any) => w.name === name);
+  const step = saved.nodes.find((n: any) => n.type === 'code');
+  expect(step.params).toEqual({ values: [40, 2], label: '{{input}}' });
+  // The agent setting lives with the other safety settings.
+  const agentHarness = `${name} agent`;
+  await newBlankWorkflow(page, agentHarness);
+  await page.getByRole('button', { name: 'Add AI agent', exact: true }).click();
+  await page.locator('.harness-card.kind-agent').dblclick();
+  const agentModal = page.locator('.modal');
+  await selectProvider(page, agentModal);
+  await agentModal.getByRole('tab', { name: 'Safety & human input', exact: true }).click();
+  await agentModal.getByRole('checkbox', { name: 'Can run Python' }).check();
+  await agentModal.getByLabel('Python seconds per job').fill('900');
+  await agentModal.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect
+    .poll(async () => {
+      const saved = (await api(page.request, '/workflows')).find((w: any) => w.name === agentHarness);
+      return saved?.nodes.find((n: any) => n.type === 'agent')?.config.codeExecution;
+    })
+    .toEqual({ enabled: true, timeoutSeconds: 900, requireApproval: false, secrets: [] });
+});
+
+test('Settings → Python secrets stores a key without ever showing it again', async ({ page }) => {
+  const name = `BROWSER_KEY_${tag.toUpperCase().replace(/[^A-Z0-9]/g, '')}`.slice(0, 60);
+  await navButton(page, 'Settings').click();
+  await page.getByRole('button', { name: 'Python secrets', exact: true }).click();
+  await page.getByLabel('Secret name').fill(name);
+  await page.getByLabel('Secret source').selectOption('value');
+  await page.getByLabel('Secret value').fill('browser-secret-value');
+  await page.getByRole('button', { name: 'Save secret' }).click();
+  const list = page.getByRole('list', { name: 'Python secrets' });
+  await expect(list).toContainText(name);
+  await expect(list).toContainText('Entered value');
+  await expect(page.locator('body')).not.toContainText('browser-secret-value');
+  const stored = await api(page.request, '/executor/secrets');
+  expect(stored.find((s: any) => s.name === name)).toBeTruthy();
+  expect(JSON.stringify(stored)).not.toContain('browser-secret-value');
+  await api(page.request, `/executor/secrets/${name}`, 'DELETE');
+});

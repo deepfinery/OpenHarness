@@ -8,6 +8,7 @@ resources:
   - gateway.yaml
   - mongo.yaml
   - mongodb-mcp.yaml
+  - python-executor.yaml
   - rabbitmq.yaml
   - weaviate.yaml
   - guardrails.yaml

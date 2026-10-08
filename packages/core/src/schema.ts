@@ -163,6 +163,24 @@ export const agentSchema = z.object({
    * Lets the agent hand focused tasks to sub-agents it spins up itself (the spawn_agents tool). Each sub-agent
    * gets a fresh context, a share of this agent's remaining budget, and reports back a summary and note ids.
    */
+  /**
+   * Lets the agent run Python it writes itself in a fresh container (the run_python tool): data processing over
+   * the workspace's MongoDB collections, API syncs, strategy backtests. Jobs run in parallel when asked.
+   */
+  codeExecution: z
+    .object({
+      enabled: z.boolean().default(false),
+      /** Default seconds per job when the agent does not say; 0 means the installation default. */
+      timeoutSeconds: z.number().int().min(0).max(2_592_000).default(0),
+      /** Run run_python only after a human approves the code (recommended for production data). */
+      requireApproval: z.boolean().default(false),
+      /** Python secrets (Settings → Python secrets) the code gets as environment variables. */
+      secrets: z
+        .array(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/))
+        .max(50)
+        .default([]),
+    })
+    .optional(),
   delegation: z
     .object({
       enabled: z.boolean().default(false),
@@ -244,6 +262,23 @@ export const nodeSchema = z.discriminatedUnion('type', [
     /** Saved agents (legacy); new workflows reference agent cards instead. */
     agentIds: z.array(id).max(8).default([]),
     prompt: z.string().max(32000).default('{{input}}'),
+    next,
+  }),
+  z.object({
+    ...baseNode,
+    type: z.literal('code'),
+    /** Python 3.12 run in a fresh executor container; `oh` helpers reach the workspace's collections. */
+    code: z.string().min(1).max(200_000),
+    /** Values the code reads as `oh.params`; templates such as {{last}} or {{payload.ticker}} are rendered. */
+    params: z.record(z.unknown()).default({}),
+    /** Seconds the code may run; 0 means the installation default. */
+    timeoutSeconds: z.number().int().min(0).max(2_592_000).default(0),
+    /** Python secrets (Settings → Python secrets) the code gets as environment variables. */
+    secrets: z
+      .array(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/))
+      .max(50)
+      .default([]),
+    approvals: humanSettingsSchema.optional(),
     next,
   }),
   z.object({

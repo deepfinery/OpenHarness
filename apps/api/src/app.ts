@@ -58,6 +58,7 @@ import { conversationApi, webhookApi, webhookSettings } from './triggers.js';
 import { clusters } from './clusters.js';
 import { devices } from './devices.js';
 import { mongodb } from './mongodb.js';
+import { codeJobsApi, executorJobs } from './executor.js';
 import { openshell } from './openshell.js';
 import { tenantView, type Tenant } from './tenant.js';
 import { openHarnessApi, openHarnessErrors } from './openharness/index.js';
@@ -152,6 +153,8 @@ app.post('/api/auth/setup', setup);
 app.post('/api/auth/login', login);
 app.use('/api/embed', embedApi);
 app.use('/api/hooks', webhookApi);
+// Python job containers fetch their code and report back with a one-time job token, not a session.
+app.use('/api/executor/jobs', executorJobs);
 app.use('/api', authenticate);
 // Public studio terminology; persisted workflow IDs and legacy routes stay compatible.
 app.use('/api', (req, _res, next) => {
@@ -667,6 +670,7 @@ app.use('/api/integrations/webhooks', requireSession, webhookSettings);
 app.use('/api/clusters', requireSession, clusters);
 app.use('/api/devices', requireSession, devices);
 app.use('/api/mongodb', requireSession, mongodb);
+app.use('/api', requireSession, codeJobsApi);
 app.use('/api/openshell', requireSession, openshell);
 app.use('/api', requireSession, guardrailApi);
 app.use('/api', requireSession, resources);

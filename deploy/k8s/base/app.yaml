@@ -49,12 +49,28 @@ spec:
         app.kubernetes.io/name: app
         app.kubernetes.io/part-of: openharness
     spec:
-      automountServiceAccountToken: false
+      # The runner creates Python executor Jobs through this account (deploy/k8s/base/python-executor.yaml).
+      serviceAccountName: openharness-app
+      automountServiceAccountToken: true
       securityContext:
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+      # Carries the digest-pinned executor image: the runner reads it from its own pod, so one `images:` entry in
+      # the overlay pins the image Jobs run. The container itself does nothing.
+      initContainers:
+        - name: executor-image
+          image: openharness-python-executor:local
+          command: ['python', '-c', 'pass']
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
       containers:
         - name: api
           image: openharness:local
@@ -66,6 +82,11 @@ spec:
                 name: openharness-config
             - secretRef:
                 name: openharness-secrets
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: &a1
@@ -116,6 +137,11 @@ spec:
                 name: openharness-config
             - secretRef:
                 name: openharness-secrets
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: *a1

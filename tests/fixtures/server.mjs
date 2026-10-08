@@ -351,6 +351,9 @@ function answer(messages, tools) {
     content: '',
     tool_calls: [{ id: randomUUID(), type: 'function', function: { name, arguments: JSON.stringify(args) } }],
   });
+  // Built-in tools keep their plain names; a call is only made when the tool is offered.
+  const builtin = (name, args) =>
+    tools?.some((t) => t.function.name === name) ? memoryCall(name, args) : undefined;
   if (String(input).includes('parallel human checkpoint')) {
     if (last?.role === 'tool') return { content: `Parallel result: ${last.content}` };
     if (messages.some((m) => m.role === 'system' && String(m.content).includes('human-question-member')))
@@ -566,6 +569,46 @@ function answer(messages, tools) {
     const visits = (cycleVisits.get(token) ?? 0) + 1;
     cycleVisits.set(token, visits);
     return { content: visits >= Number(target) ? `Visit ${visits}: DONE` : `Visit ${visits}: continue` };
+  }
+  if (String(input).includes('python roundtrip')) {
+    // run_python: a script that reads params, writes a collection and reports; then the agent summarises it.
+    if (lastToolName === 'run_python') return { content: `Python said: ${last.content}` };
+    return (
+      builtin('run_python', {
+        purpose: 'roundtrip',
+        params: { ticker: 'AAPL', n: 5 },
+        code: [
+          'import oh, numpy as np, pandas as pd',
+          'frame = pd.DataFrame({"ticker": [oh.params["ticker"]] * oh.params["n"], "close": np.arange(oh.params["n"]) * 1.5})',
+          'written = oh.write_df("python_prices", frame, mode="replace")',
+          'rows = oh.read("python_prices", {"ticker": oh.params["ticker"]})',
+          'print("mean close", float(frame["close"].mean()))',
+          'oh.result({"written": written, "read": len(rows), "collections": oh.collections()})',
+        ].join('\n'),
+      }) ?? { content: 'NO PYTHON TOOL' }
+    );
+  }
+  if (String(input).includes('python fan-out')) {
+    // One container per parameter set, in parallel; each writes its own row.
+    if (lastToolName === 'run_python') {
+      const jobs = JSON.parse(last.content);
+      return { content: `Fan-out finished: ${jobs.map((j) => j.result?.square).join(',')}` };
+    }
+    return (
+      builtin('run_python', {
+        purpose: 'fan-out',
+        params_list: [{ x: 2 }, { x: 3 }, { x: 4 }],
+        code: 'import oh\noh.write("python_squares", [{"x": oh.params["x"], "square": oh.params["x"] ** 2}])\noh.result({"square": oh.params["x"] ** 2})',
+      }) ?? { content: 'NO PYTHON TOOL' }
+    );
+  }
+  if (String(input).includes('python failure')) {
+    if (lastToolName === 'run_python') return { content: `Python outcome: ${last.content}` };
+    return (
+      builtin('run_python', { code: 'import sys\nprint("about to fail")\nraise SystemExit(3)' }) ?? {
+        content: 'NO PYTHON TOOL',
+      }
+    );
   }
   if (String(input).includes('inspect past forty')) {
     const count = messages.filter((m) => m.role === 'tool').length;
@@ -819,16 +862,6 @@ function answer(messages, tools) {
   if (/Count from 1 to 3/.test(prompt)) return { content: '1, 2, 3' };
   if (/pirate/i.test(messages.find((m) => m.role === 'system')?.content ?? ''))
     return { content: 'Arr, ahoy matey! Ye be welcome aboard.' };
-  // Knowledge workspace tools are built in, so they keep their plain names.
-  const builtin = (name, args) =>
-    tools?.some((t) => t.function.name === name)
-      ? {
-          content: '',
-          tool_calls: [
-            { id: randomUUID(), type: 'function', function: { name, arguments: JSON.stringify(args) } },
-          ],
-        }
-      : undefined;
   // Delegation: the spawn_agents tool is built in, so it keeps its plain name.
   const spawnTool = tools?.find((t) => t.function.name === 'spawn_agents');
   const spawn = (agents) => ({

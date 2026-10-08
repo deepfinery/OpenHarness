@@ -126,6 +126,7 @@ export function childAgent(
     contextCompaction: parent.contextCompaction,
     timezone: parent.timezone,
     humanInput: parent.humanInput,
+    codeExecution: parent.codeExecution,
     guardrailIds: parent.guardrailIds,
     approvals: parent.approvals,
     maxTurns: effortPresets[effort].maxTurns,
