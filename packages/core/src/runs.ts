@@ -75,8 +75,9 @@ export async function createRun(
     if (existing) return existing;
   }
   if (
+    config.MAX_ACTIVE_RUNS > 0 &&
     (await runs.countDocuments({ ownerId, status: { $in: ['queued', 'running', 'waiting_for_human'] } })) >=
-    config.MAX_ACTIVE_RUNS
+      config.MAX_ACTIVE_RUNS
   )
     throw new HttpError(429, 'Too many active runs. Wait for a run to finish.');
   const workflowRecord = input.workflowId

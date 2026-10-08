@@ -219,13 +219,13 @@ export function AgentFields({
                 aria-label="Sub-agents per run"
                 type="number"
                 min={1}
-                max={12}
+                max={10_000}
                 value={value.delegation.maxAgents ?? 4}
                 onChange={(e) =>
                   onChange({
                     delegation: {
                       enabled: true,
-                      maxAgents: Math.max(1, Math.min(12, Number(e.target.value) || 1)),
+                      maxAgents: Math.max(1, Math.min(10_000, Number(e.target.value) || 1)),
                     },
                   })
                 }
@@ -280,7 +280,7 @@ export function AgentFields({
           </label>
           <p className="field-help">
             Context guards and a final-answer reserve always apply. Sub-agents can read saved evidence when
-            delegation is enabled.
+            delegation is enabled. A limit of 0 means no limit: the agent works until it is done.
           </p>
           {effort === 'auto' ? (
             <p className="field-help">
@@ -291,33 +291,33 @@ export function AgentFields({
             </p>
           ) : (
             <div className="two-columns">
-              <Field label="Turns per pass">
+              <Field label="Turns per pass" hint="0 = unlimited.">
                 <input
                   aria-label="Maximum turns"
                   type="number"
-                  min={1}
-                  max={200}
+                  min={0}
+                  max={10_000_000}
                   value={value.maxTurns ?? 12}
                   onChange={(e) => onChange({ maxTurns: Number(e.target.value) })}
                 />
               </Field>
-              <Field label="Token budget" hint="Prompt and completion tokens per run.">
+              <Field label="Token budget" hint="Prompt and completion tokens per run. 0 = unlimited.">
                 <input
                   aria-label="Token budget"
                   type="number"
-                  min={1000}
-                  max={50_000_000}
+                  min={0}
+                  max={1_000_000_000_000}
                   step={1000}
                   value={value.tokenBudget ?? effortPresets[effort].tokenBudget}
                   onChange={(e) => onChange({ tokenBudget: Number(e.target.value) })}
                 />
               </Field>
-              <Field label="Time limit (seconds)">
+              <Field label="Time limit (seconds)" hint="0 = unlimited.">
                 <input
                   aria-label="Agent time limit"
                   type="number"
-                  min={10}
-                  max={7200}
+                  min={0}
+                  max={31_536_000}
                   value={value.timeoutSeconds ?? 300}
                   onChange={(e) => onChange({ timeoutSeconds: Number(e.target.value) })}
                 />

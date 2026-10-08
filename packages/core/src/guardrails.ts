@@ -129,20 +129,23 @@ export async function checkRail(ctx: GuardContext, stage: RailStage, content: st
     let reserved = false;
     const budgetId = `${ctx.runId}:${policy.id}`;
     try {
-      await collection<any>('guardrail_budgets').updateOne(
-        { _id: budgetId },
-        { $setOnInsert: { ownerId: ctx.ownerId, runId: ctx.runId, usedMs: 0, createdAt: new Date() } },
-        { upsert: true },
-      );
-      reserved = Boolean(
-        (
-          await collection<any>('guardrail_budgets').updateOne(
-            { _id: budgetId, usedMs: { $lte: policy.latencyBudgetMs - policy.timeoutMs } },
-            { $inc: { usedMs: policy.timeoutMs } },
-          )
-        ).modifiedCount,
-      );
-      if (!reserved) throw new Error('Guardrail latency budget exhausted');
+      // A latency budget of 0 means no budget: long runs check as often as they need to.
+      if (policy.latencyBudgetMs > 0) {
+        await collection<any>('guardrail_budgets').updateOne(
+          { _id: budgetId },
+          { $setOnInsert: { ownerId: ctx.ownerId, runId: ctx.runId, usedMs: 0, createdAt: new Date() } },
+          { upsert: true },
+        );
+        reserved = Boolean(
+          (
+            await collection<any>('guardrail_budgets').updateOne(
+              { _id: budgetId, usedMs: { $lte: policy.latencyBudgetMs - policy.timeoutMs } },
+              { $inc: { usedMs: policy.timeoutMs } },
+            )
+          ).modifiedCount,
+        );
+        if (!reserved) throw new Error('Guardrail latency budget exhausted');
+      }
       decision = await evaluateRail(policy, stage, text, tool, ctx.signal, ctx.ownerId);
     } catch (error) {
       ctx.signal?.throwIfAborted();

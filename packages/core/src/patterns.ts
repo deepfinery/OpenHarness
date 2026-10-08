@@ -1,4 +1,5 @@
 import type { Agent, AgentPattern } from './schema.js';
+import { effectiveLimit } from './limits.js';
 
 export const effortLevels = ['light', 'medium', 'high', 'extra-high', 'max', 'auto'] as const;
 export type EffortLevel = (typeof effortLevels)[number];
@@ -106,7 +107,18 @@ export function budgetedAgent(
       tokenBudget: preset.tokenBudget,
       resolvedEffort: level,
     };
-  return { ...agent, tokenBudget: agent.tokenBudget ?? preset.tokenBudget, resolvedEffort: level };
+  // A limit of 0 means no limit: turns, tokens and iterations become UNLIMITED; timeoutSeconds stays 0 and the
+  // runtime arms no timer for it.
+  return {
+    ...agent,
+    maxTurns: effectiveLimit(agent.maxTurns, preset.maxTurns),
+    patternConfig: {
+      ...agent.patternConfig,
+      iterations: effectiveLimit(agent.patternConfig.iterations, preset.patternConfig.iterations ?? 3),
+    },
+    tokenBudget: effectiveLimit(agent.tokenBudget, preset.tokenBudget),
+    resolvedEffort: level,
+  };
 }
 
 /** Browser-safe descriptions of the agentic patterns the runtime implements. */

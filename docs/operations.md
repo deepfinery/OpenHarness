@@ -88,6 +88,15 @@ service must be listening on an interface reachable from Docker. Do not use
   cannot override an ambiguous agent call journal; `never`
   always interrupts. `MAX_RESUMES` (default 3) caps automatic resumes; the
   trace records each `resumed` event.
+- Long runs: a run's queue message is acknowledged when the run ends, so the
+  broker's `consumer_timeout` is raised to 30 days (Compose and Kubernetes set
+  it; the default 30 minutes would close the channel under an hour-long run).
+  If the broker closes the channel anyway, the runner keeps its active runs on
+  their database leases and reconnects; redelivered messages for running runs
+  are acknowledged as already running. Runs have no installation-wide time cap
+  unless `RUN_TIMEOUT_SECONDS` sets one; agents' own limits (which may be 0 for
+  none) bound them. One model request may take `MODEL_REQUEST_TIMEOUT_SECONDS`
+  (default 600) before it is retried.
 - Indexer outage: expired indexing leases return to the queue. Deterministic
   vector IDs and replacement of partial vectors allow reindexing.
 - A malformed queue message goes to `agentic.jobs.dead`. Normal agent/model

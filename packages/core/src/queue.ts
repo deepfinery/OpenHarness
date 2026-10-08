@@ -10,6 +10,9 @@ export async function queueChannel(): Promise<ConfirmChannel> {
   if (channel) return channel;
   if (pending) return pending;
   pending = (async () => {
+    // A channel that closed on a connection still open is not reused; the connection goes with it.
+    await connection?.close().catch(() => {});
+    connection = undefined;
     const next = await amqp.connect(
       config.RABBITMQ_URL + (config.RABBITMQ_URL.includes('?') ? '&' : '?') + 'heartbeat=20',
       { timeout: 10000 },

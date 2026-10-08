@@ -66,7 +66,7 @@ export const DEFAULT_TOOL_CALL_TIMEOUT_MS = 150_000;
 export function toolCallTimeoutMs(args: unknown, fallback = DEFAULT_TOOL_CALL_TIMEOUT_MS) {
   const seconds = Number((args as { timeout_seconds?: unknown } | null | undefined)?.timeout_seconds);
   if (!Number.isFinite(seconds) || seconds <= 0) return fallback;
-  return Math.max(fallback, Math.min(seconds, 3600) * 1000 + 15_000);
+  return Math.max(fallback, Math.min(seconds, 86_400) * 1000 + 15_000);
 }
 
 /** Identifies "the same call" for the rest of a run: the tool and its exact arguments. */

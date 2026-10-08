@@ -338,6 +338,8 @@ app.post('/expire-token', (_req, res) => {
   currentAccess = `test-oauth-access-${++tokenVersion}`;
   res.json({ ok: true });
 });
+/** Visits per harness-cycle token, for the `cycle until` scenario. */
+const cycleVisits = new Map();
 function answer(messages, tools) {
   const last = messages.at(-1);
   const input = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
@@ -543,6 +545,27 @@ function answer(messages, tools) {
       content: 'Verified fixture finding with remaining checks.',
       kind: 'finding',
     });
+  }
+  if (String(input).includes('loop until iteration')) {
+    // The loop pattern: keep reporting progress until the requested iteration, then end with the done marker.
+    const target = Number(String(input).match(/loop until iteration (\d+)/)?.[1] ?? 20);
+    const done = (
+      messages
+        .filter((m) => m.role === 'assistant')
+        .map((m) => String(m.content))
+        .join('\n')
+        .match(/Iteration \d+:/g) ?? []
+    ).length;
+    if (done + 1 >= target)
+      return { content: `Processed item ${done + 1} of ${target}. Every item is done.\nDONE` };
+    return { content: `Processed item ${done + 1} of ${target}. Next: item ${done + 2}.` };
+  }
+  if (String(input).includes('cycle until')) {
+    // A harness cycle: the fixture counts visits per token (each visit is a fresh agent run) and ends at the target.
+    const [, target, token] = String(input).match(/cycle until (\d+) (\S+)/) ?? [];
+    const visits = (cycleVisits.get(token) ?? 0) + 1;
+    cycleVisits.set(token, visits);
+    return { content: visits >= Number(target) ? `Visit ${visits}: DONE` : `Visit ${visits}: continue` };
   }
   if (String(input).includes('inspect past forty')) {
     const count = messages.filter((m) => m.role === 'tool').length;

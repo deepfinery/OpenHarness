@@ -78,8 +78,8 @@ test('the runtime waits for a tool at least as long as the tool itself will', ()
   assert.equal(toolCallTimeoutMs({ timeout_seconds: 600 }), 615_000, 'the tool timeout plus a margin');
   assert.equal(
     toolCallTimeoutMs({ timeout_seconds: 99_999 }),
-    3_615_000,
-    'capped at the connectors’ one-hour maximum',
+    86_400_000 + 15_000,
+    'a tool may run for a day, not longer',
   );
 });
 

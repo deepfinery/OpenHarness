@@ -33,6 +33,7 @@ import {
   type ToolDefinition,
 } from './llm.js';
 import { connectMcp, ownedConnection, toolAlias } from './mcp.js';
+import { limitText, unlimited, withDeadline } from './limits.js';
 import { afterTool, beforeTool, loadHooks, type HookRecord } from './hooks.js';
 import { runSubagents, SPAWN_TOOL, spawnToolDefinition, type SpawnRequest } from './subagents.js';
 import { resolveNotebook } from './notebooks.js';
@@ -308,10 +309,10 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
   const executionKey = ctx.executionKey ?? 'agent';
   const progress = await loadContinuation<Progress>(ctx.ownerId, ctx.runId, executionKey);
   const elapsedMs = () => (progress?.elapsedMs ?? 0) + Date.now() - activeStartedAt;
-  const signal = AbortSignal.any([
-    ctx.signal,
-    AbortSignal.timeout(Math.max(1, agent.timeoutSeconds * 1000 - (progress?.elapsedMs ?? 0))),
-  ]);
+  // No timer at all without a time limit: a month-long run must not be ended by an overflowing timer.
+  const signal = unlimited(agent.timeoutSeconds)
+    ? ctx.signal
+    : withDeadline(ctx.signal, agent.timeoutSeconds * 1000 - (progress?.elapsedMs ?? 0));
   const completed = progress?.completed ?? [];
   if (ctx.notes && progress?.notes) ctx.notes.push(...progress.notes);
   const prepared = progress?.prepared ?? {};
@@ -333,7 +334,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
   if (stored.effort === 'auto')
     await ctx.event({
       type: 'effort',
-      message: `Auto effort: ${effortPresets[agent.resolvedEffort].label} (${agent.maxTurns} turns, ${agent.tokenBudget.toLocaleString()} tokens)`,
+      message: `Auto effort: ${effortPresets[agent.resolvedEffort].label} (${limitText(agent.maxTurns, 'turns')}, ${limitText(agent.tokenBudget, 'tokens')})`,
       data: { level: agent.resolvedEffort, maxTurns: agent.maxTurns, tokenBudget: agent.tokenBudget },
     });
   try {
@@ -735,7 +736,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         const retryMessages = [...dialog];
         const budgetMessage: ChatMessage = {
           role: 'system',
-          content: `Job budget (all agents): ${tokensUsed}/${agent.tokenBudget} tokens used; reserve ${finalReserve} for the answer. Plan remaining work accordingly. Cover the requested items before optional depth; track what is done and what remains. Reuse collected evidence and avoid repeating unavailable tool requests. Finish with a concise, evidence-grounded answer within the remaining budget; identify unavailable data rather than inventing it. Per-call context: ${provider.contextWindow ?? 128000}, compact independently.`,
+          content: `Job budget (all agents): ${tokensUsed}/${unlimited(agent.tokenBudget) ? 'unlimited' : agent.tokenBudget} tokens used; reserve ${finalReserve} for the answer. Plan remaining work accordingly. Cover the requested items before optional depth; track what is done and what remains. Reuse collected evidence and avoid repeating unavailable tool requests. Finish with a concise, evidence-grounded answer within the remaining budget; identify unavailable data rather than inventing it. Per-call context: ${provider.contextWindow ?? 128000}, compact independently.`,
         };
         if (!finalAnswer) retryMessages.splice(retryMessages[0]?.role === 'system' ? 1 : 0, 0, budgetMessage);
         if (responseRetries || nudges) {
@@ -1140,6 +1141,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
         if (!response) {
           signal.throwIfAborted();
           const timeToFinish =
+            !unlimited(agent.timeoutSeconds) &&
             elapsedMs() >= agent.timeoutSeconds * 1000 - Math.min(30000, agent.timeoutSeconds * 200);
           if (timeToFinish) {
             finalizing = true;
@@ -2111,7 +2113,7 @@ async function runAgentUnchecked(stored: Agent, input: string, history: Run['his
             .sort((a, b) => a.order - b.order)
             .map((t) => t.output ?? 'Completed before resume') ?? []),
         );
-        for (let index = finishedTasks; index < 12; index++) {
+        for (let index = finishedTasks; index < options.maxPlanSteps; index++) {
           const task = await nextPlanTask(ctx.ownerId, planId);
           if (!task) break;
           const step = task.content;
@@ -2367,8 +2369,11 @@ export async function executeRun(run: Run, signal: AbortSignal, onDelta?: DeltaW
   let current: string | undefined = resuming ? checkpoint.cursor : workflow.startAt;
   while (current) {
     signal.throwIfAborted();
-    if (!continuingStep && ++checkpoint.steps > (workflow.maxSteps ?? 100))
-      throw new Error('Workflow step budget exceeded');
+    if (!continuingStep) {
+      // A step budget of 0 means no budget: cycles run until the harness reaches Finish.
+      const stepBudget = workflow.maxSteps ?? 100;
+      if (++checkpoint.steps > stepBudget && stepBudget > 0) throw new Error('Workflow step budget exceeded');
+    }
     const node = workflow.nodes.find((n) => n.id === current);
     if (!node) throw new Error(`Workflow node ${current} is missing`);
     const attempt = (checkpoint.nodeAttempts[node.id] =
