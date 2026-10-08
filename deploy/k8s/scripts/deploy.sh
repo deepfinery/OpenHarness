@@ -10,7 +10,7 @@ kube apply --dry-run=server -k deploy/k8s/.local >/dev/null
 kube apply -k deploy/k8s/.local
 # Environment variables and mounted TLS/config files need a process restart.
 kube rollout restart deployment/app deployment/gateway deployment/proxy
-for workload in statefulset/mongo statefulset/rabbitmq statefulset/weaviate deployment/app deployment/gateway deployment/guardrails deployment/guardrail-evaluation deployment/proxy; do
+for workload in statefulset/mongo statefulset/rabbitmq statefulset/weaviate deployment/app deployment/gateway deployment/mongodb-mcp deployment/guardrails deployment/guardrail-evaluation deployment/proxy; do
   kube rollout status "$workload" --timeout=900s
 done
 kube get pods,pvc,service

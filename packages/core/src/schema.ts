@@ -31,13 +31,22 @@ export const providerSchema = z.object({
 });
 export const devicePlatforms = ['linux', 'windows', 'chrome', 'openshell'] as const;
 export const deviceIdPattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** A MongoDB database name: letters, digits, `_` and `-`, at most 63 bytes. */
+export const mongoDatabaseName = z.string().regex(/^[A-Za-z0-9_-]{1,63}$/, 'Use letters, digits, _ or - in the database name');
 export const connectionSchema = z.object({
   name,
   url,
   transport: z.enum(['http', 'sse']).default('http'),
   authType: z.enum(['none', 'token', 'oauth']).default('none'),
-  /** `device` connections are managed by the Machines page through the gateway; `mcp` are ordinary servers. */
-  kind: z.enum(['mcp', 'device']).default('mcp'),
+  /**
+   * `device` connections are managed by the Machines page through the gateway; `mongodb` connections are MongoDB MCP
+   * servers whose tools OpenHarness pins to one database; `mcp` are ordinary servers.
+   */
+  kind: z.enum(['mcp', 'device', 'mongodb']).default('mcp'),
+  /** MongoDB connections: the database every tool call uses. The built-in server uses the workspace database. */
+  database: mongoDatabaseName.optional(),
+  /** MongoDB connections: use this installation's MongoDB MCP server instead of `url` and its credentials. */
+  builtIn: z.boolean().optional(),
   deviceId: z.string().regex(deviceIdPattern).optional(),
   platform: z.enum(devicePlatforms).optional(),
   token: z.string().max(8192).optional(),

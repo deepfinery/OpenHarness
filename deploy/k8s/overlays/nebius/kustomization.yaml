@@ -32,6 +32,9 @@ images:
   - name: openharness-guardrails
     newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/guardrails
     digest: sha256:c5dd36ac1d3ca11a21102f3f431c787ab62e4ddf07c4732be17dc678aa4e93e7
+  - name: openharness-mongodb-mcp
+    newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/mongodb-mcp
+    newTag: replace-me
   - name: openharness-garak-probes
     newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/garak-probes
     digest: sha256:c678e58e392ccd3b9feda964300d527c93eb188d02aac1b7543eb12503e4d2f4

@@ -57,6 +57,7 @@ import { embedApi, integrations, publicRun, type Embed } from './integrations.js
 import { conversationApi, webhookApi, webhookSettings } from './triggers.js';
 import { clusters } from './clusters.js';
 import { devices } from './devices.js';
+import { mongodb } from './mongodb.js';
 import { openshell } from './openshell.js';
 import { tenantView, type Tenant } from './tenant.js';
 import { openHarnessApi, openHarnessErrors } from './openharness/index.js';
@@ -93,6 +94,8 @@ app.use(
   ],
   express.json({ limit: '4mb' }),
 );
+// JSON documents inserted into MongoDB collections; the API splits them into MCP calls.
+app.use('/api/mongodb', express.json({ limit: '16mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -165,6 +168,7 @@ app.get('/api/config', requireSession, (_req, res) =>
     maxUploadMB: config.MAX_UPLOAD_MB,
     openHarness: { basePath: config.OPENHARNESS_BASE_PATH, harnessId: config.OPENHARNESS_HARNESS_ID },
     vectorStores: { available: configuredVectorStores(), default: config.VECTOR_STORE },
+    mongodbMcp: { builtIn: Boolean(config.MONGODB_MCP_URL && config.MONGODB_MCP_TOKEN) },
   }),
 );
 app.get('/api/tenant', requireSession, async (req, res) =>
@@ -662,6 +666,7 @@ app.use('/api/integrations', requireSession, integrations);
 app.use('/api/integrations/webhooks', requireSession, webhookSettings);
 app.use('/api/clusters', requireSession, clusters);
 app.use('/api/devices', requireSession, devices);
+app.use('/api/mongodb', requireSession, mongodb);
 app.use('/api/openshell', requireSession, openshell);
 app.use('/api', requireSession, guardrailApi);
 app.use('/api', requireSession, resources);

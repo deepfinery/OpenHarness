@@ -20,5 +20,6 @@ data:
   ALLOWED_PRIVATE_HOSTS: gateway
   TRUST_PROXY: '1'
   GATEWAY_URL: http://gateway:8090
+  MONGODB_MCP_URL: http://mongodb-mcp:3000/mcp
   GARAK_PROBES_URL: http://guardrail-evaluation:8001
   NEMO_GUARDRAILS_URL: http://guardrails:8000

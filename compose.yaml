@@ -44,6 +44,10 @@ x-app-environment: &app-environment
   GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-ws://localhost:8090}
   GATEWAY_API_TOKEN: ${GATEWAY_API_TOKEN:?Run ./start.sh --configure-only to add gateway credentials to .env}
   GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:?Run ./start.sh --configure-only to add gateway credentials to .env}
+  # MongoDB collections: the internal MongoDB MCP server. The API provisions its least-privilege database user.
+  MONGODB_MCP_URL: http://mongodb-mcp:3000/mcp
+  MONGODB_MCP_TOKEN: ${MONGODB_MCP_TOKEN:?Run ./start.sh --configure-only to add MongoDB MCP credentials to .env}
+  MONGODB_MCP_PASSWORD: ${MONGODB_MCP_PASSWORD:?Run ./start.sh --configure-only to add MongoDB MCP credentials to .env}
 
 services:
   storage-init:
@@ -236,6 +240,23 @@ services:
       timeout: 10s
       retries: 12
       start_period: 30s
+
+  # The official MongoDB MCP server over the stack MongoDB. Internal only: no published port, bearer token required,
+  # and its user can only reach workspace databases that OpenHarness grants.
+  mongodb-mcp:
+    build: { context: ., dockerfile: mongodb-mcp/Dockerfile }
+    image: openharness-mongodb-mcp:local
+    init: true
+    environment:
+      MDB_MCP_CONNECTION_STRING: mongodb://openharness_mcp:${MONGODB_MCP_PASSWORD:?Run ./start.sh --configure-only to add MongoDB MCP credentials to .env}@mongo:27017/?authSource=admin
+      MDB_MCP_HTTP_HEADERS: '{"authorization":"Bearer ${MONGODB_MCP_TOKEN:?Run ./start.sh --configure-only to add MongoDB MCP credentials to .env}"}'
+    depends_on:
+      mongo: { condition: service_healthy }
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ['/tmp']
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
 
   rabbitmq:
     image: rabbitmq:4.1-management-alpine

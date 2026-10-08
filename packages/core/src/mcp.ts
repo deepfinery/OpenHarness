@@ -8,6 +8,7 @@ import { collection } from './db.js';
 import { config } from './config.js';
 import { decrypt, encrypt, hash, HttpError, randomToken, safeFetch, validateRemoteUrl } from './security.js';
 import type { McpConnection, Stored } from './schema.js';
+import { mongoPins, pinArguments, pinTools } from './mongoMcp.js';
 
 export type ConnectionRecord = Stored<McpConnection> & {
   tokenEncrypted?: string;
@@ -158,15 +159,23 @@ export async function ownedConnection(ownerId: string, id: string) {
   return connection;
 }
 export async function connectMcp(connection: ConnectionRecord, signal?: AbortSignal) {
-  await validateRemoteUrl(connection.url);
+  const pins = mongoPins(connection);
+  // The built-in MongoDB server's address and token come from the installation, never from the stored record.
+  const builtIn = pins?.builtIn;
+  if (builtIn && (!config.MONGODB_MCP_URL || !config.MONGODB_MCP_TOKEN))
+    throw new HttpError(503, 'This installation has no MongoDB MCP server');
+  const url = builtIn ? config.MONGODB_MCP_URL : connection.url;
+  await validateRemoteUrl(url);
   const headers: Record<string, string> = {};
-  if (connection.authType === 'token') {
+  if (builtIn) headers.Authorization = `Bearer ${config.MONGODB_MCP_TOKEN}`;
+  else if (connection.authType === 'token') {
     const token = decrypt(connection.tokenEncrypted);
     if (!token) throw new HttpError(400, 'An MCP access token is required');
     headers[connection.tokenHeader] =
       connection.tokenHeader.toLowerCase() === 'authorization' ? `Bearer ${token}` : token;
   }
-  const authProvider = connection.authType === 'oauth' ? new StoredOAuthProvider(connection) : undefined;
+  const authProvider =
+    !builtIn && connection.authType === 'oauth' ? new StoredOAuthProvider(connection) : undefined;
   const guardedFetch: typeof fetch = (input, init) =>
     safeFetch(input, {
       ...init,
@@ -175,8 +184,8 @@ export async function connectMcp(connection: ConnectionRecord, signal?: AbortSig
   const options = { authProvider, requestInit: { headers }, fetch: guardedFetch };
   const transport =
     connection.transport === 'sse'
-      ? new SSEClientTransport(new URL(connection.url), options)
-      : new StreamableHTTPClientTransport(new URL(connection.url), options);
+      ? new SSEClientTransport(new URL(url), options)
+      : new StreamableHTTPClientTransport(new URL(url), options);
   const client = new Client({ name: 'openharness', version: '0.1.0' }, { capabilities: {} });
   try {
     await client.connect(transport, { timeout: 30000, signal });
@@ -184,13 +193,9 @@ export async function connectMcp(connection: ConnectionRecord, signal?: AbortSig
     await client.close().catch(() => {});
     throw error;
   }
-  return {
-    client,
-    async close() {
-      // Closing is bounded by the fetch deadline; tool calls are never replayed here.
-      await client.close().catch(() => {});
-    },
-    async tools(): Promise<Tool[]> {
+  let listed: Promise<Tool[]> | undefined;
+  const listTools = () =>
+    (listed ??= (async () => {
       const tools: Tool[] = [];
       let cursor: string | undefined;
       for (let page = 0; page < 20; page++) {
@@ -200,6 +205,35 @@ export async function connectMcp(connection: ConnectionRecord, signal?: AbortSig
         if (!cursor) return tools;
       }
       throw new Error('MCP tool listing exceeded 20 pages');
+    })().catch((error) => {
+      listed = undefined;
+      throw error;
+    }));
+  if (pins) {
+    // MongoDB tools always run against the connection's database: every caller (agents, workflow tool nodes, the
+    // studio) goes through this client, so the pinned arguments cannot be overridden or omitted.
+    const call = client.callTool.bind(client);
+    client.callTool = async (params, resultSchema, options) => {
+      const tool = (await listTools()).find((t) => t.name === params.name);
+      if (!tool || !pinTools([tool], pins).length)
+        throw new HttpError(400, `${params.name} is not available on this MongoDB connection`);
+      const properties = (tool.inputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+      return call(
+        { ...params, arguments: pinArguments(params.arguments, pins, 'connectionId' in properties) },
+        resultSchema,
+        options,
+      );
+    };
+  }
+  return {
+    client,
+    async close() {
+      // Closing is bounded by the fetch deadline; tool calls are never replayed here.
+      await client.close().catch(() => {});
+    },
+    async tools(): Promise<Tool[]> {
+      const tools = await listTools();
+      return pins ? pinTools(tools, pins) : tools;
     },
   };
 }

@@ -1,0 +1,12 @@
+{
+  "name": "openharness-mongodb-mcp",
+  "private": true,
+  "description": "The MongoDB MCP server OpenHarness runs on top of the stack MongoDB.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "dependencies": {
+    "mongodb-mcp-server": "3.0.5"
+  }
+}

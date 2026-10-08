@@ -20,6 +20,12 @@ const s = z.object({
   // Any OpenAI-compatible Vector Stores API: OpenAI, Llama Stack, or a managed service. It embeds text itself.
   OPENAI_VECTOR_STORES_URL: z.string().default(''),
   OPENAI_VECTOR_STORES_API_KEY: z.string().default(''),
+  // The MongoDB MCP server of this installation (mongodb-mcp service). Workspaces reach their own database in the
+  // stack MongoDB through it; OpenHarness holds the bearer token and provisions the server's least-privilege user.
+  MONGODB_MCP_URL: z.string().default(''),
+  MONGODB_MCP_TOKEN: z.string().default(''),
+  MONGODB_MCP_USER: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).default('openharness_mcp'),
+  MONGODB_MCP_PASSWORD: z.string().default(''),
   DATA_DIR: z.string().default('./data'),
   ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/, 'ENCRYPTION_KEY must be 32 random bytes in hex'),
   SETUP_TOKEN: z.string().min(32),
