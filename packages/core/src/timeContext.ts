@@ -10,7 +10,8 @@ export function validTimeZone(timezone: string): boolean {
 
 /** One server-owned reference instant per execution, shared by workflow steps and delegated tasks. */
 export function timeContext(referenceTime: string, requestedTimezone?: string) {
-  const timezone = requestedTimezone && validTimeZone(requestedTimezone) ? requestedTimezone : 'UTC';
+  const configured = Boolean(requestedTimezone && validTimeZone(requestedTimezone));
+  const timezone = configured ? requestedTimezone! : 'UTC';
   const instant = new Date(referenceTime);
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-CA', {
@@ -42,11 +43,17 @@ export function timeContext(referenceTime: string, requestedTimezone?: string) {
     timezone,
     localTime: `${date} ${parts.hour}:${parts.minute}:${parts.second} ${offset}`,
     lastWeek: { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) },
+    /** No valid timezone was configured or sent with the request, so UTC stands in for the user's local time. */
+    fallback: !configured,
   };
 }
 
 export function timeContextPrompt(clock: ReturnType<typeof timeContext>): string {
   return `\n\n[Runtime clock]\nUTC at execution start: ${clock.referenceTime}. Local: ${clock.localTime} (${clock.timezone}). Last completed calendar week (Mon–Sun, inclusive): ${clock.lastWeek.start} to ${clock.lastWeek.end}.
 Resolve relative dates from this clock, never training data or old messages/notes. Respect explicit dates/timezones; state the range used. Distinguish rolling seven days; for markets use the latest completed trading week, checking exchange holidays.
-For current/latest news, retrieve fresh sources with available search tools. Include concrete dates in queries and use date filters only as defined by the tool schema. Verify publication AND event dates; old notes are not current evidence. Cite dated sources. If current evidence is unavailable, say so; do not present older reporting as latest.`;
+For current/latest news, retrieve fresh sources with available search tools. Include concrete dates in queries and use date filters only as defined by the tool schema. Verify publication AND event dates; old notes are not current evidence. Cite dated sources. If current evidence is unavailable, say so; do not present older reporting as latest.${
+    clock.fallback
+      ? '\nNo timezone was configured or sent with this request, so the local date above is the UTC date and may differ from the user\'s calendar date by one day around midnight UTC. State the calendar date you resolve "today" to; for markets, report the latest completed session instead of assuming the UTC date had one.'
+      : ''
+  }`;
 }

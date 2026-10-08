@@ -6,7 +6,12 @@ import { z } from 'zod';
 import { config } from '../../../../packages/core/src/config.js';
 import { collection } from '../../../../packages/core/src/db.js';
 import { createRun, requestCancel } from '../../../../packages/core/src/runs.js';
-import { agentSchema, deviceIdPattern, type Run } from '../../../../packages/core/src/schema.js';
+import {
+  agentSchema,
+  deviceIdPattern,
+  timezoneSchema,
+  type Run,
+} from '../../../../packages/core/src/schema.js';
 import { hash } from '../../../../packages/core/src/security.js';
 import { rateLimit } from '../auth.js';
 import { defaultProviderId } from '../tenant.js';
@@ -38,6 +43,8 @@ const executeSchema = z.object({
     .object({
       machine_id: z.string().regex(deviceIdPattern).optional(),
       payload: z.record(z.unknown()).optional(),
+      /** The caller's IANA timezone for the runtime clock; an agent's explicit timezone still wins. */
+      timezone: timezoneSchema.optional(),
     })
     .optional(),
 });
@@ -127,11 +134,17 @@ export async function execute(req: Request) {
       );
     const providerId = await resolveModel(principal.tenantId, body.model),
       skillIds = await resolveSkills(principal.tenantId, body.skills);
-    return sessionMessage(req, body.message, body.session_id, {
-      ...(body.system_prompt ? { systemPrompt: body.system_prompt } : {}),
-      ...(providerId ? { providerId } : {}),
-      ...(skillIds ? { skillIds } : {}),
-    });
+    return sessionMessage(
+      req,
+      body.message,
+      body.session_id,
+      {
+        ...(body.system_prompt ? { systemPrompt: body.system_prompt } : {}),
+        ...(providerId ? { providerId } : {}),
+        ...(skillIds ? { skillIds } : {}),
+      },
+      body['x-openharness']?.timezone,
+    );
   }
   const tenantId = principal.tenantId;
   const target = req.harness ? { workflowId: req.harness._id } : await resolveTarget(tenantId, body.agent_id);
@@ -161,6 +174,7 @@ export async function execute(req: Request) {
       history: [],
       ...(extension?.machine_id ? { deviceId: extension.machine_id } : {}),
       ...(extension?.payload ? { payload: extension.payload } : {}),
+      ...(extension?.timezone ? { timezone: extension.timezone } : {}),
     },
     {
       ...(idempotencyKey ? { idempotencyKey } : {}),

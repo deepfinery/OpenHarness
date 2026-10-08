@@ -70,6 +70,8 @@ export async function sessionMessage(
   content: string,
   id = String(req.params.sessionId),
   overrides: RunOverrides = {},
+  /** The caller's timezone for this turn's runtime clock. */
+  timezone?: string,
 ) {
   const p = requireAccess(req, 'execute');
   let s = await sessionFor(req, 'execute', id);
@@ -123,6 +125,7 @@ export async function sessionMessage(
         input: z.string().min(1).max(32000).parse(content),
         history: reserved.messages.slice(-20).map(({ role, content }) => ({ role, content })),
         ...(s.deviceId ? { deviceId: s.deviceId } : {}),
+        ...(timezone ? { timezone } : {}),
       },
       {
         runId,

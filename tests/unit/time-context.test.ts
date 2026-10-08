@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { timeContext, timeContextPrompt } from '../../packages/core/src/timeContext.js';
-import { agentSchema } from '../../packages/core/src/schema.js';
+import { agentSchema, runSchema } from '../../packages/core/src/schema.js';
 import { compactDialog } from '../../packages/core/src/context.js';
 
 test('last week uses the local calendar across UTC and year boundaries', () => {
@@ -50,4 +50,32 @@ test('the clock and source freshness instructions survive context compaction int
   assert.equal(result.fits, true);
   assert.equal(result.messages[0].content, prompt);
   assert.match(prompt, /2026-09-14 to 2026-09-20/);
+});
+
+test("a late-evening request keeps the requester's calendar day instead of the UTC date", () => {
+  // 22:38 on Tuesday September 30 in New York is already October 1 in UTC.
+  const instant = '2026-10-01T02:38:12Z';
+  const local = timeContext(instant, 'America/New_York');
+  assert.equal(local.localTime, '2026-09-30 22:38:12 GMT-04:00');
+  assert.equal(local.fallback, false);
+  assert.ok(!timeContextPrompt(local).includes('No timezone was configured'));
+  const utc = timeContext(instant);
+  assert.equal(utc.localTime, '2026-10-01 02:38:12 GMT+00:00');
+  assert.equal(utc.fallback, true);
+  const prompt = timeContextPrompt(utc);
+  assert.match(prompt, /No timezone was configured or sent with this request/);
+  assert.match(prompt, /latest completed session/);
+  // Legacy invalid data behaves like the default and says so.
+  assert.equal(timeContext(instant, 'Mars/Olympus').fallback, true);
+});
+
+test('run requests carry an optional validated timezone', () => {
+  const agentId = '11111111-1111-4111-8111-111111111111';
+  assert.equal(runSchema.parse({ agentId, input: 'x' }).timezone, undefined);
+  assert.equal(
+    runSchema.parse({ agentId, input: 'x', timezone: ' Europe/Berlin ' }).timezone,
+    'Europe/Berlin',
+  );
+  assert.equal(runSchema.safeParse({ agentId, input: 'x', timezone: 'Mars/Olympus' }).success, false);
+  assert.equal(runSchema.safeParse({ agentId, input: 'x', timezone: '' }).success, false);
 });

@@ -181,7 +181,7 @@ export function AgentFields({
         </Field>
         <Field
           label="Timezone"
-          hint="Used for the runtime clock and relative dates. Defaults to the harness schedule timezone, then UTC."
+          hint="Used for the runtime clock and relative dates. Leave empty to follow the requester's browser or API timezone, then the harness schedule timezone, then UTC."
         >
           <input
             aria-label="Agent timezone"

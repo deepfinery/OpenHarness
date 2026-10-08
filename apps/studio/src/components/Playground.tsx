@@ -25,7 +25,7 @@ import {
 import { Markdown } from './Markdown';
 export { Markdown } from './Markdown';
 import { ConversationExport, CopyableMessage, type ChatMessage } from './ConversationExport';
-import { api, errorMessage, send, timestamp, type Data, type Entity } from '../api';
+import { api, errorMessage, send, timestamp, type Data, type Entity, browserTimezone } from '../api';
 import { Button, Empty, ErrorNotice, IconButton, Modal, Status } from './ui';
 import { TaskMemory } from './TaskMemory';
 
@@ -416,6 +416,7 @@ export function Playground({
         conversationId,
         // Machines come from the workflow's own cards; this also clears one an older conversation remembered.
         deviceId: null,
+        timezone: browserTimezone(),
       });
       // A late response can recover a page reopened before the server accepted the job.
       if (!mounted.current) {
@@ -1011,7 +1012,7 @@ export function EmbedChat({ id }: { id: string }) {
     try {
       const run = await embedFetch('/runs', {
         method: 'POST',
-        body: JSON.stringify({ input: text, history }),
+        body: JSON.stringify({ input: text, history, timezone: browserTimezone() }),
         signal: c.signal,
       });
       while (!c.signal.aborted) {

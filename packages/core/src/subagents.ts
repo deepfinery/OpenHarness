@@ -219,6 +219,8 @@ export async function runSubagents(options: SpawnOptions, requests: SpawnRequest
           initiatedBy: parentRun?.initiatedBy,
           approvalOwnerId: parentRun?.approvalOwnerId,
           tokenId: parentRun?.tokenId,
+          // A resumed child keeps the parent's request timezone, so both clocks name the same calendar day.
+          ...(parentRun?.timezone ? { timezone: parentRun.timezone } : {}),
           agentId: id,
           taskId: options.taskId ?? options.runId,
           ...(options.nodeId ? { parentNodeId: options.nodeId } : {}),
