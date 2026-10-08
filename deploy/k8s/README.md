@@ -32,10 +32,13 @@ and the default Nebius StorageClass deletes their disks. Never delete PVCs to re
 StatefulSet claim templates cannot change in place, so raise the size in an overlay (as
 `overlays/nebius/` does for MongoDB) and run `scripts/deploy.sh`. Before applying, it runs
 `scripts/expand-volumes.sh`, which expands each existing claim to the new size, then deletes only the
-StatefulSet object (`--cascade=orphan`) so the apply recreates it with the larger template. Pods keep
-running and no data moves. The StorageClass must allow volume expansion (`kubectl get storageclass`
-shows `ALLOWVOLUMEEXPANSION`; the Nebius default does). Volumes never shrink: a smaller size stops the
-deployment. If a claim reports `FileSystemResizePending`, restart its pod once.
+StatefulSet object (`--cascade=orphan`) so the apply recreates it with the larger template; no data
+moves. After applying, `expand-volumes.sh --finish` waits for the disks to grow. Drivers that expand
+online keep the pods running. Drivers that only expand detached volumes (the Nebius
+`compute.csi.nebius.com` driver is one) get the StatefulSet scaled to zero until the disk has grown,
+then back up: that store is unavailable for a few minutes and the apps reconnect on their own. The
+StorageClass must allow volume expansion (`kubectl get storageclass` shows `ALLOWVOLUMEEXPANSION`;
+the Nebius default does). Volumes never shrink: a smaller size stops the deployment.
 
 NetworkPolicy allows inbound traffic within this namespace and public traffic to the TLS proxy.
 Use a network plugin that enforces NetworkPolicy (Nebius uses Cilium). Outbound model/MCP
