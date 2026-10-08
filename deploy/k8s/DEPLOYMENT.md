@@ -1,4 +1,34 @@
-# Nebius deployment record — 2026-09-30
+# Nebius deployment record
+
+## 2026-10-08 — timezone fix, 1 TiB MongoDB volume, MongoDB collections
+
+- `main` d1ce361 built from a clean worktree and pushed with tag `main-d1ce361`; digests pinned in
+  [PR #142](https://github.com/deepfinery/OpenHarness/pull/142):
+  `openharness@sha256:1d52cd26…`, new `mongodb-mcp@sha256:467e71fd…`. Gateway, guardrails and
+  garak-probes were unchanged since the previous pin and kept their digests.
+- `prepare.sh` added the MongoDB MCP token, password and server settings to the existing
+  `openharness-secrets` without rotating other keys; the rendered local overlay was unchanged.
+- `deploy.sh` expanded `data-mongo-0` from 20 GiB to 1 TiB. The Nebius CSI driver only expands
+  detached volumes, so the first attempt stalled while `mongo-0` ran; scaling the StatefulSet to
+  zero let the disk grow (`FileSystemResizePending`), and the filesystem grew on the next mount
+  (`df` shows 1008G on `/data/db`). `expand-volumes.sh --finish` now does this itself (#143).
+  MongoDB was unavailable for roughly six minutes; every pod was ready with zero restarts afterwards.
+- All nine pods rolled out; `/api/health` reported ready.
+
+### Live verification
+
+- The admin workspace connected to the installation MongoDB through the internal MCP server
+  (17 single-database tools discovered, none exposing `database` or `connectionId`); its database is
+  `oh_ws_…`, never `agentic`.
+- The Collections API created `test_tickers`, inserted three seed documents and an index on `ticker`.
+- A test harness, **MongoDB collection test (e2e)**, with the workspace's default model
+  (DeepSeek-V4-Pro) and the connection's tools, inserted a TSLA document through `insert-many`,
+  read the collection back through `find` and reported all four tickers correctly.
+- The record the agent wrote was then edited (sector changed, field added) and deleted through
+  the Collections API, with each step read back. The harness and the `test_tickers` collection were
+  left in place for further testing.
+
+## 2026-09-30 — initial deployment
 
 - Cluster: `inference-cluster` (`mk8scluster-u02j8dcmk1117dtatb`), `us-north1`, Linux AMD64.
 - Namespace: `openharness`.
