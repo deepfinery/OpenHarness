@@ -1,5 +1,33 @@
 # Nebius deployment record
 
+## 2026-10-08 (later) — unlimited budgets and the Python executor
+
+- `main` 6180fc5 (#148 unlimited budgets, #149 Python executor) built from a clean worktree and pushed
+  with tag `main-6180fc5`; pinned in [PR #151](https://github.com/deepfinery/OpenHarness/pull/151):
+  `openharness@sha256:2abaf9b3…`, new `python-executor@sha256:284a391f…`. Other images unchanged.
+- `deploy.sh` created ServiceAccount `openharness-app`, Role/RoleBinding `openharness-python-jobs` and
+  NetworkPolicy `python-jobs`, and restarted RabbitMQ with `consumer_timeout` 2592000000 ms (30 days;
+  checked with `rabbitmqctl eval`). The app pod runs as `openharness-app` (may create Jobs, may not read
+  Secrets) and carries the pinned executor image as its `executor-image` init container. No active runs
+  were in flight; all pods ready with zero restarts.
+
+### Live verification
+
+- **Scheduled Python without an agent.** The FMP key was copied server-side from the FMP MCP connection
+  into the Python secret `FMP_API_KEY`. Harness **FMP quote sync (every minute)**: Start (schedule every
+  minute) → Python step (secrets `FMP_API_KEY`) → Finish. Each run started a Kubernetes Job that fetched
+  AAPL, MSFT and NVDA quotes and wrote them to `fmp_quotes`. The first three runs succeeded but stored
+  nothing: this FMP plan answers a comma-separated `symbol` list with an empty array (`batch-quote` is
+  restricted), so the code now requests one symbol per call and fails on an empty answer. Then three
+  pulls at 03:32:22, 03:33:22 and 03:34:25 UTC wrote 3 quotes each (9 documents). The schedule was
+  disabled at 03:34:40; no run fired afterwards. The harness is kept, disabled.
+- **Agent-written Python.** Harness **Python analyst (e2e)** with the workspace default model
+  (DeepSeek-V4-Pro) and `run_python` enabled. The agent wrote a pandas/numpy script that read
+  `test_tickers`, summarised it per sector, wrote the summary to `python_e2e_summary` and returned it with
+  `oh.result`; Kubernetes Job `oh-py-2bb40906…` ran it in 1.3 s, the agent waited for and reported the
+  result (one sector, 3 tickers, mean name length 16.33). Its prose added per-name lengths that were not
+  in the job's output; the computed values were correct.
+
 ## 2026-10-08 — timezone fix, 1 TiB MongoDB volume, MongoDB collections
 
 - `main` d1ce361 built from a clean worktree and pushed with tag `main-d1ce361`; digests pinned in
