@@ -41,7 +41,7 @@ public origin. An Ingress controller is not required for the documented configur
 | --------------------------------- | -------------------------------------------------------- | --------------------------------- |
 | `app` Deployment, two containers  | Studio/API and runner                                    | Shared `files` PVC, 20 GiB        |
 | `gateway` Deployment              | Outbound device connections and their MCP tools          | Registry/audit records in MongoDB |
-| `mongo` StatefulSet               | Users, workspace configuration, runs and execution state | 20 GiB                            |
+| `mongo` StatefulSet               | Users, workspace configuration, runs and execution state | 20 GiB (Nebius overlay: 1 TiB)    |
 | `rabbitmq` StatefulSet            | Durable run queue                                        | 10 GiB                            |
 | `weaviate` StatefulSet            | Default vector store                                     | 20 GiB                            |
 | `guardrails` Deployment           | NeMo policy service                                      | Configuration in its image        |
