@@ -21,10 +21,21 @@ The API and runner are two containers in **one pod** and share a 20 GiB ReadWrit
 This avoids cross-node disk attachment conflicts. Keep this Deployment at **one replica**;
 scaling it requires an RWX filesystem and a separate API/runner topology. Its Recreate update
 strategy deliberately trades brief deployment downtime for safe single-disk ownership.
-MongoDB (20 GiB), RabbitMQ (10 GiB) and Weaviate (20 GiB) have their own StatefulSet PVCs.
+MongoDB (20 GiB in `base/`, 1 TiB in the Nebius overlay), RabbitMQ (10 GiB) and Weaviate (20 GiB) have
+their own StatefulSet PVCs.
 This is a persistent, single-replica installation, not an HA database deployment. Back up
 all four volumes and the encryption key before upgrades; deleting the namespace deletes PVCs
 and the default Nebius StorageClass deletes their disks. Never delete PVCs to resolve a rollout.
+
+### Growing a volume
+
+StatefulSet claim templates cannot change in place, so raise the size in an overlay (as
+`overlays/nebius/` does for MongoDB) and run `scripts/deploy.sh`. Before applying, it runs
+`scripts/expand-volumes.sh`, which expands each existing claim to the new size, then deletes only the
+StatefulSet object (`--cascade=orphan`) so the apply recreates it with the larger template. Pods keep
+running and no data moves. The StorageClass must allow volume expansion (`kubectl get storageclass`
+shows `ALLOWVOLUMEEXPANSION`; the Nebius default does). Volumes never shrink: a smaller size stops the
+deployment. If a claim reports `FileSystemResizePending`, restart its pod once.
 
 NetworkPolicy allows inbound traffic within this namespace and public traffic to the TLS proxy.
 Use a network plugin that enforces NetworkPolicy (Nebius uses Cilium). Outbound model/MCP

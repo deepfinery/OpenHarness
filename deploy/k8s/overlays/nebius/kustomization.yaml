@@ -14,6 +14,14 @@ patches:
       - op: replace
         path: /spec/ports/0/port
         value: 443
+  # Room for large MongoDB collections. scripts/deploy.sh expands the existing claim in place.
+  - target:
+      kind: StatefulSet
+      name: mongo
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 1Ti
 images:
   - name: openharness
     newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/openharness
