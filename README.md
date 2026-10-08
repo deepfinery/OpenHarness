@@ -259,6 +259,8 @@ flowchart LR
 
 On the canvas, drag the knowledge base from the toolbox onto an agent to give it access.
 
+**Knowledge → Collections** holds MongoDB collections reached through the MongoDB MCP server: create collections, insert any JSON, filter, edit, delete and index fields, and give agents the same collections through the connection's tools. Each workspace gets its own database. See [MongoDB collections](docs/mongodb-collections.md).
+
 ### 6. Outgoing email
 
 **Settings → Email (SMTP)** configures one outgoing mail server per workspace, with presets for Amazon SES, Google Workspace, SendGrid, Mailgun and Postmark, a **Send test** action, and the same private-network rules as other endpoints. Operators can preconfigure every workspace through `.env` (see [Configuration](#configuration)); settings saved in the studio take precedence.

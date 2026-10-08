@@ -440,6 +440,38 @@ function answer(messages, tools) {
       name: tools?.find((t) => t.function.name === 'load_skill')?.function.parameters.properties.name.enum[0],
     });
   }
+  if (String(input).includes('mongo harness lifecycle')) {
+    // A whole collection lifecycle, one MongoDB MCP tool per turn: create, insert, read, edit, read, delete, verify, drop.
+    const mongoTool = (name) =>
+      tools?.find((t) => t.function.description.includes(`/ ${name}:`))?.function.name;
+    const collection = 'harness_lifecycle';
+    const record = { sku: 'A-1' };
+    const steps = [
+      ['create-collection', { collection }],
+      ['insert-many', { collection, documents: [{ ...record, status: 'new', qty: 1 }] }],
+      ['find', { collection, filter: record }],
+      ['update-many', { collection, filter: record, update: { $set: { status: 'shipped', qty: 3 } } }],
+      ['find', { collection, filter: record }],
+      ['delete-many', { collection, filter: record }],
+      ['count', { collection }],
+      ['drop-collection', { collection }],
+    ];
+    const done = messages.filter((m) => m.role === 'tool').length;
+    if (done < steps.length) return memoryCall(mongoTool(steps[done][0]), steps[done][1]);
+    return { content: `Lifecycle complete after ${done} MongoDB calls.` };
+  }
+  if (String(input).includes('mongo collection roundtrip')) {
+    // The agent writes a document with the MongoDB MCP tools, then reads it back; it never names a database.
+    const mongoTool = (name) =>
+      tools?.find((t) => t.function.description.includes(`/ ${name}:`))?.function.name;
+    if (lastToolName === mongoTool('find')) return { content: `Collection verified: ${last.content}` };
+    if (lastToolName === mongoTool('insert-many'))
+      return memoryCall(mongoTool('find'), { collection: 'agent_notes', filter: { source: 'agent' } });
+    return memoryCall(mongoTool('insert-many'), {
+      collection: 'agent_notes',
+      documents: [{ source: 'agent', note: 'written by the agent' }],
+    });
+  }
   if (String(input).includes('notebook environment roundtrip')) {
     if (lastToolName === 'kb_write')
       return memoryCall('kb_read', { note_id: JSON.parse(last.content).note_id });

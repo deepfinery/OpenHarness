@@ -40,6 +40,15 @@ GATEWAY_ADMIN_TOKEN=$(openssl rand -hex 32)
 EOF
   echo 'Added device gateway credentials to .env.'
 fi
+# Credentials for the internal MongoDB MCP server (MongoDB collections), appended once.
+if ! grep -q '^MONGODB_MCP_TOKEN=' .env; then
+  command -v openssl >/dev/null 2>&1 || { echo 'OpenSSL is required to generate MongoDB MCP credentials.' >&2; exit 1; }
+  umask 077
+  cat >> .env <<EOF
+MONGODB_MCP_TOKEN=$(openssl rand -hex 32)
+MONGODB_MCP_PASSWORD=$(openssl rand -hex 24)
+EOF
+fi
 # Credentials for the optional Qdrant vector store, appended once.
 if ! grep -q '^QDRANT_API_KEY=' .env; then
   command -v openssl >/dev/null 2>&1 || { echo 'OpenSSL is required to generate the Qdrant key.' >&2; exit 1; }

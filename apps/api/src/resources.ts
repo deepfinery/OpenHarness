@@ -25,6 +25,7 @@ import {
 } from '../../../packages/core/src/schema.js';
 import { encrypt, HttpError, safeError, validateRemoteUrl } from '../../../packages/core/src/security.js';
 import { discoverTools, startOAuth } from '../../../packages/core/src/mcp.js';
+import { grantWorkspaceDatabase, workspaceDatabase } from '../../../packages/core/src/mongoMcp.js';
 import { chat, embed, ownedProvider, type ProviderRecord } from '../../../packages/core/src/llm.js';
 import { dropKnowledgeIndex, searchKnowledge } from '../../../packages/core/src/knowledge.js';
 import { configuredVectorStores, storeEmbeds } from '../../../packages/core/src/vectorstores/index.js';
@@ -61,6 +62,21 @@ export function publicResource(record: Resource) {
     hasClientSecret: Boolean(clientSecretEncrypted),
     authorized: Boolean(oauthTokensEncrypted),
   };
+}
+/**
+ * A connection to this installation's MongoDB MCP server: its address is the installation's, and OpenHarness supplies
+ * the credentials and the workspace database. `builtIn` only applies to MongoDB connections.
+ */
+function builtInMongoConnection(input: unknown) {
+  if (!input || typeof input !== 'object') return input;
+  const body = input as Record<string, unknown>;
+  if (body.kind === 'mongodb' && !body.builtIn && !body.database)
+    throw new HttpError(400, 'Choose the database this MongoDB connection uses');
+  // Explicitly false, so turning it off on an update replaces the stored flag.
+  if (body.kind !== 'mongodb' || !body.builtIn) return { ...body, builtIn: false };
+  if (!config.MONGODB_MCP_URL) throw new HttpError(400, 'This installation has no MongoDB MCP server');
+  const { token: _token, oauthClientId: _id, oauthClientSecret: _secret, database: _database, ...rest } = body;
+  return { ...rest, url: config.MONGODB_MCP_URL, transport: 'http', authType: 'none', builtIn: true };
 }
 async function assertOwned(name: string, ownerId: string, id: string) {
   if (!(await collection<Resource>(name).findOne({ _id: id, ownerId })))
@@ -180,7 +196,9 @@ for (const [kind, schema] of Object.entries(definitions)) {
       const ownerId = req.principal!.tenantId;
       if (kind === 'guardrails' && req.principal!.user.role !== 'admin')
         throw new HttpError(403, 'Only administrators can change safety policies');
-      const body: any = schema.parse(req.body);
+      const body: any = schema.parse(
+        kind === 'connections' ? builtInMongoConnection(req.body) : req.body,
+      );
       const id = method === 'put' ? String((req.params as Record<string, string>).id) : randomUUID();
       const previous = method === 'put' ? await records().findOne({ _id: id, ownerId }) : null;
       if (kind === 'providers' && previous?.modelType && !body.modelType) body.modelType = previous.modelType;
@@ -321,6 +339,8 @@ for (const [kind, schema] of Object.entries(definitions)) {
           createdAt: now,
           updatedAt: now,
         });
+      if (kind === 'connections' && body.kind === 'mongodb' && body.builtIn)
+        await grantWorkspaceDatabase(workspaceDatabase(ownerId));
       if (kind === 'skills')
         await snapshotSkill((await records().findOne({ _id: id, ownerId })) as VersionedSkill);
       if (kind === 'skills' && method === 'post')

@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, Check, Cpu, KeyRound, LoaderCircle, Plug, Plus, Sparkles, X } from 'lucide-react';
+import {
+  BookOpen,
+  Check,
+  Cpu,
+  Database,
+  KeyRound,
+  LoaderCircle,
+  Plug,
+  Plus,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import { api, errorMessage, send, type Data, type Entity } from '../api';
 import { Button, CopyButton, ErrorNotice, Field, Modal, SaveForm } from './ui';
 import { patternDescriptions } from '../../../../packages/core/src/patterns.js';
@@ -423,9 +434,11 @@ export function ProviderEditor({ value, onClose, onSaved }: Props) {
 }
 
 export function ConnectionEditor({ value, onClose, onSaved }: Props) {
+  // A value without an id is a preset for a new connection (for example MongoDB from the Knowledge page).
+  const existing = value?.id ? value : undefined;
   const [form, set] = useState<any>(
-    value
-      ? { ...value, token: undefined, oauthClientSecret: undefined }
+    existing
+      ? { ...existing, token: undefined, oauthClientSecret: undefined }
       : {
           name: '',
           url: '',
@@ -434,176 +447,238 @@ export function ConnectionEditor({ value, onClose, onSaved }: Props) {
           tokenHeader: 'Authorization',
           oauthScope: '',
           enabled: true,
+          ...value,
         },
   );
   const [publicUrl, setPublicUrl] = useState(location.origin);
+  const [builtInMongo, setBuiltInMongo] = useState(false);
   useEffect(() => {
     void api('/config')
-      .then((c) => setPublicUrl(c.publicUrl))
+      .then((c) => {
+        setPublicUrl(c.publicUrl);
+        const available = Boolean(c.mongodbMcp?.builtIn);
+        setBuiltInMongo(available);
+        // New MongoDB connections default to this installation's MongoDB when it has one.
+        if (available && !existing) set((f: any) => (f.builtIn === undefined ? { ...f, builtIn: true } : f));
+      })
       .catch(() => {});
   }, []);
   const update = (key: string, v: unknown) => set((f: any) => ({ ...f, [key]: v }));
   const callback = `${publicUrl.replace(/\/$/, '')}/api/mcp/oauth/callback`;
+  const mongo = form.kind === 'mongodb';
+  const builtIn = mongo && Boolean(form.builtIn);
   return (
-    <Modal title={value ? 'Edit MCP connection' : 'Connect an MCP server'} onClose={onClose} wide>
+    <Modal title={existing ? 'Edit MCP connection' : 'Connect an MCP server'} onClose={onClose} wide>
       <SaveForm
         onCancel={onClose}
         label={
-          value
+          existing
             ? 'Save connection'
-            : form.authType === 'oauth'
+            : form.authType === 'oauth' && !builtIn
               ? 'Save, then authorize'
               : 'Save and discover tools'
         }
         onSave={async () => {
           const created = await send(
-            `/connections${value ? `/${value.id}` : ''}`,
-            form,
-            value ? 'PUT' : 'POST',
+            `/connections${existing ? `/${existing.id}` : ''}`,
+            builtIn ? { ...form, url: '' } : form,
+            existing ? 'PUT' : 'POST',
           );
+          // Agents choose from discovered tools; OAuth servers discover once authorized.
+          if (!existing && (builtIn || form.authType !== 'oauth'))
+            await send(`/connections/${created.id}/discover`).catch(() => {});
           await onSaved(created);
           onClose();
         }}
       >
         <div className="notice">
-          <Plug size={18} />
+          {mongo ? <Database size={18} /> : <Plug size={18} />}
           <span>
-            Any remote MCP server: no auth, an API key, or OAuth. Tools are discovered after saving.
+            {mongo
+              ? 'A MongoDB MCP server. Its collections appear under Knowledge → Collections, and agents read and write them with its tools. Every call is pinned to one database.'
+              : 'Any remote MCP server: no auth, an API key, or OAuth. Tools are discovered after saving.'}
           </span>
         </div>
+        {form.kind !== 'device' && (
+          <Field label="Server type">
+            <select
+              aria-label="MCP server type"
+              value={mongo ? 'mongodb' : 'mcp'}
+              onChange={(e) => update('kind', e.target.value)}
+            >
+              <option value="mcp">MCP server</option>
+              <option value="mongodb">MongoDB (MongoDB MCP server)</option>
+            </select>
+          </Field>
+        )}
         <Field label="Connection name">
           <input
             aria-label="Connection name"
-            placeholder="Finnhub, GitHub, internal tools…"
+            placeholder={mongo ? 'MongoDB' : 'Finnhub, GitHub, internal tools…'}
             required
             value={form.name}
             onChange={(e) => update('name', e.target.value)}
           />
         </Field>
-        <Field label="Server URL" hint="For example https://mcp.example.com/mcp.">
-          <input
-            aria-label="MCP server URL"
-            placeholder="https://your-server.example/mcp"
-            type="url"
-            required
-            value={form.url}
-            onChange={(e) => update('url', e.target.value)}
-          />
-        </Field>
-        <div className="two-columns">
-          <Field label="Transport">
+        {mongo && (
+          <Field
+            label="MongoDB"
+            hint={
+              builtIn
+                ? 'This installation’s MongoDB, through its internal MongoDB MCP server. Your workspace gets its own database; the application database is never reachable.'
+                : 'Any MongoDB MCP server you run, for example mongodb-mcp-server with --transport http.'
+            }
+          >
             <select
-              aria-label="MCP transport"
-              value={form.transport}
-              onChange={(e) => update('transport', e.target.value)}
+              aria-label="MongoDB server"
+              value={builtIn ? 'builtin' : 'external'}
+              onChange={(e) => update('builtIn', e.target.value === 'builtin')}
             >
-              <option value="http">Streamable HTTP</option>
-              <option value="sse">Legacy SSE</option>
+              {(builtInMongo || builtIn) && <option value="builtin">This installation’s MongoDB</option>}
+              <option value="external">Another MongoDB MCP server</option>
             </select>
           </Field>
-          <Field label="Authentication">
-            <select
-              aria-label="MCP authentication"
-              value={form.authType}
-              onChange={(e) => update('authType', e.target.value)}
-            >
-              <option value="none">No authentication</option>
-              <option value="token">Access token / API key</option>
-              <option value="oauth">OAuth 2.0 (sign in with the provider)</option>
-            </select>
-          </Field>
-        </div>
-        {form.authType === 'token' && (
-          <>
-            <Field
-              label="Token header"
-              hint="Authorization sends “Bearer <token>”. Other headers send the raw value."
-            >
-              <input
-                aria-label="Token header"
-                list="token-headers"
-                value={form.tokenHeader}
-                onChange={(e) => update('tokenHeader', e.target.value)}
-              />
-              <datalist id="token-headers">
-                <option value="Authorization" />
-                <option value="X-API-Key" />
-                <option value="api-key" />
-              </datalist>
-            </Field>
-            <Field
-              label="Access token"
-              hint={
-                value?.hasToken
-                  ? 'Leave untouched to keep the saved token.'
-                  : 'Stored encrypted. It is never returned to the browser.'
-              }
-            >
-              <input
-                aria-label="MCP access token"
-                type="password"
-                autoComplete="new-password"
-                value={form.token ?? ''}
-                placeholder={value?.hasToken ? '•••••••• (saved)' : 'Access token'}
-                onChange={(e) => update('token', e.target.value)}
-              />
-            </Field>
-          </>
         )}
-        {form.authType === 'oauth' && (
-          <div className="oauth-guide">
-            <ol>
-              <li>
-                Save, then click <strong>Authorize</strong> and sign in with the provider.
-              </li>
-              <li>If the provider asks for a redirect URL, use the callback below.</li>
-              <li>
-                Providers with a fixed client ID (for example Finnhub): enter it, leave the secret empty.
-              </li>
-            </ol>
-            <div className="callback-row">
-              <span>
-                <small className="eyebrow">Callback URL</small>
-                <code>{callback}</code>
-              </span>
-              <CopyButton value={callback} />
-            </div>
-            <div className="two-columns">
-              <Field label="Client ID (optional)">
-                <input
-                  aria-label="OAuth client ID"
-                  placeholder="Provided by the MCP server, if any"
-                  value={form.oauthClientId ?? ''}
-                  onChange={(e) => update('oauthClientId', e.target.value || undefined)}
-                />
-              </Field>
-              <Field label="Client secret (optional)">
-                <input
-                  aria-label="OAuth client secret"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder={value?.hasClientSecret ? '•••••••• (saved)' : 'Usually empty'}
-                  value={form.oauthClientSecret ?? ''}
-                  onChange={(e) => update('oauthClientSecret', e.target.value)}
-                />
-              </Field>
-            </div>
-            <Field
-              label="Scopes (optional)"
-              hint="Space-separated. Leave empty to accept the server’s defaults."
-            >
+        {mongo && !builtIn && (
+          <Field label="Database" hint="Every tool call uses this database.">
+            <input
+              aria-label="MongoDB database"
+              placeholder="analytics"
+              required
+              pattern="[A-Za-z0-9_\-]{1,63}"
+              value={form.database ?? ''}
+              onChange={(e) => update('database', e.target.value)}
+            />
+          </Field>
+        )}
+        {!builtIn && (
+          <>
+            <Field label="Server URL" hint="For example https://mcp.example.com/mcp.">
               <input
-                aria-label="OAuth scopes"
-                placeholder="read write"
-                value={form.oauthScope}
-                onChange={(e) => update('oauthScope', e.target.value)}
+                aria-label="MCP server URL"
+                placeholder="https://your-server.example/mcp"
+                type="url"
+                required
+                value={form.url}
+                onChange={(e) => update('url', e.target.value)}
               />
             </Field>
-            <div className="notice">
-              <KeyRound size={16} />
-              <span>Tokens are stored encrypted and refreshed automatically.</span>
+            <div className="two-columns">
+              <Field label="Transport">
+                <select
+                  aria-label="MCP transport"
+                  value={form.transport}
+                  onChange={(e) => update('transport', e.target.value)}
+                >
+                  <option value="http">Streamable HTTP</option>
+                  <option value="sse">Legacy SSE</option>
+                </select>
+              </Field>
+              <Field label="Authentication">
+                <select
+                  aria-label="MCP authentication"
+                  value={form.authType}
+                  onChange={(e) => update('authType', e.target.value)}
+                >
+                  <option value="none">No authentication</option>
+                  <option value="token">Access token / API key</option>
+                  <option value="oauth">OAuth 2.0 (sign in with the provider)</option>
+                </select>
+              </Field>
             </div>
-          </div>
+            {form.authType === 'token' && (
+              <>
+                <Field
+                  label="Token header"
+                  hint="Authorization sends “Bearer <token>”. Other headers send the raw value."
+                >
+                  <input
+                    aria-label="Token header"
+                    list="token-headers"
+                    value={form.tokenHeader}
+                    onChange={(e) => update('tokenHeader', e.target.value)}
+                  />
+                  <datalist id="token-headers">
+                    <option value="Authorization" />
+                    <option value="X-API-Key" />
+                    <option value="api-key" />
+                  </datalist>
+                </Field>
+                <Field
+                  label="Access token"
+                  hint={
+                    existing?.hasToken
+                      ? 'Leave untouched to keep the saved token.'
+                      : 'Stored encrypted. It is never returned to the browser.'
+                  }
+                >
+                  <input
+                    aria-label="MCP access token"
+                    type="password"
+                    autoComplete="new-password"
+                    value={form.token ?? ''}
+                    placeholder={existing?.hasToken ? '•••••••• (saved)' : 'Access token'}
+                    onChange={(e) => update('token', e.target.value)}
+                  />
+                </Field>
+              </>
+            )}
+            {form.authType === 'oauth' && (
+              <div className="oauth-guide">
+                <ol>
+                  <li>
+                    Save, then click <strong>Authorize</strong> and sign in with the provider.
+                  </li>
+                  <li>If the provider asks for a redirect URL, use the callback below.</li>
+                  <li>
+                    Providers with a fixed client ID (for example Finnhub): enter it, leave the secret empty.
+                  </li>
+                </ol>
+                <div className="callback-row">
+                  <span>
+                    <small className="eyebrow">Callback URL</small>
+                    <code>{callback}</code>
+                  </span>
+                  <CopyButton value={callback} />
+                </div>
+                <div className="two-columns">
+                  <Field label="Client ID (optional)">
+                    <input
+                      aria-label="OAuth client ID"
+                      placeholder="Provided by the MCP server, if any"
+                      value={form.oauthClientId ?? ''}
+                      onChange={(e) => update('oauthClientId', e.target.value || undefined)}
+                    />
+                  </Field>
+                  <Field label="Client secret (optional)">
+                    <input
+                      aria-label="OAuth client secret"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder={existing?.hasClientSecret ? '•••••••• (saved)' : 'Usually empty'}
+                      value={form.oauthClientSecret ?? ''}
+                      onChange={(e) => update('oauthClientSecret', e.target.value)}
+                    />
+                  </Field>
+                </div>
+                <Field
+                  label="Scopes (optional)"
+                  hint="Space-separated. Leave empty to accept the server’s defaults."
+                >
+                  <input
+                    aria-label="OAuth scopes"
+                    placeholder="read write"
+                    value={form.oauthScope}
+                    onChange={(e) => update('oauthScope', e.target.value)}
+                  />
+                </Field>
+                <div className="notice">
+                  <KeyRound size={16} />
+                  <span>Tokens are stored encrypted and refreshed automatically.</span>
+                </div>
+              </div>
+            )}
+          </>
         )}
         <label className="check-row">
           <input

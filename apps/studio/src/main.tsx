@@ -8,6 +8,7 @@ import {
   Activity,
   ArrowRight,
   BookOpen,
+  Database,
   Bot,
   Boxes,
   ChevronRight,
@@ -46,6 +47,7 @@ import type { Workflow } from '../../../packages/core/src/schema.js';
 import { WorkflowEditor } from './components/WorkflowEditor';
 import { ConnectionsPage, RunsPage, WorkflowsPage } from './components/pages';
 import { KnowledgePage } from './components/KnowledgePage';
+import { MongoCollections } from './components/MongoCollections';
 import { SkillsPage } from './components/SkillsPage';
 import { EmbedChat, Playground, playgroundTargets } from './components/Playground';
 import { IntegrationsPage, SettingsPage } from './components/Settings';
@@ -214,11 +216,20 @@ const currentPage = () => {
   if (first === 'clusters' || first === 'machines') return 'inventory';
   return first === 'harnesses' ? 'workflows' : first || 'workflows';
 };
+/** The Knowledge page shows documents (vector-indexed knowledge bases) or MongoDB collections. */
+type KnowledgeView = 'documents' | 'collections';
+const currentKnowledgeView = (): KnowledgeView =>
+  location.pathname.split('/')[2] === 'collections' ? 'collections' : 'documents';
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [checking, setChecking] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [page, setPage] = useState(currentPage);
+  const [knowledgeView, setKnowledgeViewState] = useState(currentKnowledgeView);
+  function setKnowledgeView(view: KnowledgeView) {
+    setKnowledgeViewState(view);
+    history.pushState({}, '', view === 'collections' ? '/knowledge/collections' : '/knowledge');
+  }
   const [target, setTargetState] = useState('');
   function setTarget(value: string) {
     setTargetState(value);
@@ -325,7 +336,10 @@ function App() {
     return () => clearInterval(t);
   }, []);
   useEffect(() => {
-    const handler = () => setPage(currentPage());
+    const handler = () => {
+      setPage(currentPage());
+      setKnowledgeViewState(currentKnowledgeView());
+    };
     addEventListener('popstate', handler);
     return () => removeEventListener('popstate', handler);
   }, []);
@@ -336,6 +350,7 @@ function App() {
       return;
     }
     setPage(next);
+    if (next === 'knowledge') setKnowledgeViewState('documents');
     if (newTarget) setTarget(newTarget);
     setSidebar(false);
     history.pushState({}, '', `/${next === 'workflows' ? 'harnesses' : next}`);
@@ -469,10 +484,32 @@ function App() {
             ) : (
               <strong>{nav.find((n) => n.id === page)?.label ?? 'Harnesses'}</strong>
             )}
+            {page === 'knowledge' && (
+              <div className="tabs compact topbar-tabs" role="tablist" aria-label="Knowledge views">
+                <button
+                  role="tab"
+                  aria-selected={knowledgeView === 'documents'}
+                  className={knowledgeView === 'documents' ? 'active' : ''}
+                  onClick={() => setKnowledgeView('documents')}
+                >
+                  <BookOpen size={14} />
+                  Documents
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={knowledgeView === 'collections'}
+                  className={knowledgeView === 'collections' ? 'active' : ''}
+                  onClick={() => setKnowledgeView('collections')}
+                >
+                  <Database size={14} />
+                  Collections
+                </button>
+              </div>
+            )}
           </div>
           <div className="topbar-right">
             {page === 'playground' && <div ref={setPlaygroundActions} />}
-            {page === 'knowledge' && (
+            {page === 'knowledge' && knowledgeView === 'documents' && (
               <Button
                 className="topbar-action"
                 aria-label="New knowledge base"
@@ -506,7 +543,11 @@ function App() {
             actionsContainer={playgroundActions}
           />
         ) : page === 'knowledge' ? (
-          <KnowledgePage {...props} />
+          knowledgeView === 'collections' ? (
+            <MongoCollections data={data} edit={edit} />
+          ) : (
+            <KnowledgePage {...props} />
+          )
         ) : (
           <main className="page-content">
             {page === 'skills' ? (

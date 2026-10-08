@@ -4,7 +4,8 @@ import { dispatchGuardrailEvaluations } from './guardrails.js';
 import { dispatchHumanRequests, deliverHumanNotifications } from '../../../packages/core/src/human.js';
 import { app } from './app.js';
 import { config } from '../../../packages/core/src/config.js';
-import { connectDatabase, mongo } from '../../../packages/core/src/db.js';
+import { collection, connectDatabase, mongo } from '../../../packages/core/src/db.js';
+import { provisionMongoMcp } from '../../../packages/core/src/mongoMcp.js';
 import { closeQueue } from '../../../packages/core/src/queue.js';
 import { dispatchPending, dispatchSchedules, recoverStaleJobs } from '../../../packages/core/src/runs.js';
 import { deliverWebhooks } from '../../../packages/core/src/harnessEvents.js';
@@ -12,6 +13,10 @@ import { dispatchReflections } from '../../../packages/core/src/experience.js';
 import { safeError } from '../../../packages/core/src/security.js';
 
 await connectDatabase();
+await provisionMongoMcp(
+  async () =>
+    (await collection('connections').distinct('ownerId', { kind: 'mongodb', builtIn: true })) as string[],
+);
 const server = app.listen(config.PORT, '0.0.0.0', () =>
   console.log(`OpenHarness studio listening on port ${config.PORT}`),
 );

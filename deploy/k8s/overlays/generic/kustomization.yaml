@@ -28,3 +28,6 @@ images:
   - name: openharness-garak-probes
     newName: registry.example.com/openharness/garak-probes
     newTag: replace-me
+  - name: openharness-mongodb-mcp
+    newName: registry.example.com/openharness/mongodb-mcp
+    newTag: replace-me

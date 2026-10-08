@@ -20,9 +20,25 @@ v['MONGODB_URI']=f"mongodb://agentic:{v['MONGO_PASSWORD']}@mongo:27017/agentic?a
 v['RABBITMQ_URL']=f"amqp://agentic:{v['RABBITMQ_PASSWORD']}@rabbitmq:5672"
 v['GATEWAY_MONGODB_URI']=f"mongodb://agentic:{v['MONGO_PASSWORD']}@mongo:27017/?authSource=admin"
 v['GATEWAY_API_TOKENS']='orchestrator:'+v['GATEWAY_API_TOKEN']
+v['MONGODB_MCP_TOKEN']=secrets.token_hex(32)
+v['MONGODB_MCP_PASSWORD']=secrets.token_hex(24)
+v['MDB_MCP_CONNECTION_STRING']=f"mongodb://openharness_mcp:{v['MONGODB_MCP_PASSWORD']}@mongo:27017/?authSource=admin"
+v['MDB_MCP_HTTP_HEADERS']=json.dumps({'authorization':'Bearer '+v['MONGODB_MCP_TOKEN']})
 print(json.dumps({'apiVersion':'v1','kind':'Secret','metadata':{'name':'openharness-secrets','namespace':'openharness'},'type':'Opaque','stringData':v}))
 PY
   kube create -f deploy/k8s/.local/secrets.json
+elif [[ -z "$(kube get secret openharness-secrets -o jsonpath='{.data.MONGODB_MCP_TOKEN}')" ]]; then
+  # Installations from before MongoDB collections get the MCP server's credentials added, never rotated.
+  python3 - <<'PY' | kube patch secret openharness-secrets --type merge --patch-file /dev/stdin
+import json, secrets
+token, password = secrets.token_hex(32), secrets.token_hex(24)
+print(json.dumps({'stringData': {
+  'MONGODB_MCP_TOKEN': token,
+  'MONGODB_MCP_PASSWORD': password,
+  'MDB_MCP_CONNECTION_STRING': f'mongodb://openharness_mcp:{password}@mongo:27017/?authSource=admin',
+  'MDB_MCP_HTTP_HEADERS': json.dumps({'authorization': 'Bearer ' + token}),
+}}))
+PY
 fi
 if [[ -n "${TLS_CERT:-}" && -n "${TLS_KEY:-}" ]]; then
   kube create secret tls openharness-tls --cert="$TLS_CERT" --key="$TLS_KEY" --dry-run=client -o yaml | kube apply -f -

@@ -1442,3 +1442,121 @@ textarea::placeholder {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Knowledge: Documents / Collections tabs in the top bar, and the MongoDB collections view. */
+.topbar-tabs {
+  margin-left: 10px;
+  padding: 3px;
+}
+.topbar-tabs button {
+  min-height: 28px;
+  padding: 4px 10px;
+}
+.mongo-connection {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px 4px;
+}
+.mongo-connection select,
+.mongo-connection strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mongo-database {
+  display: block;
+  padding: 0 12px 8px;
+  font-size: 11px;
+  color: var(--faint);
+}
+.mongo-new {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+.mongo-new input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  padding: 7px 10px;
+}
+.mongo-query {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mongo-query input {
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.mongo-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--border-soft, var(--border));
+  font-size: 12px;
+  color: var(--muted);
+}
+.mongo-json {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+}
+.mongo-index-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mongo-index-form input {
+  flex: 1;
+  min-width: 180px;
+}
+.mongo-indexes {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mongo-indexes li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft, var(--border));
+  border-radius: 8px;
+}
+.mongo-indexes strong {
+  display: block;
+  font-size: 13px;
+}
+.mongo-indexes small {
+  display: block;
+  font-size: 12px;
+  color: var(--faint);
+}
+@media (max-width: 700px) {
+  .breadcrumbs:has(.topbar-tabs) {
+    min-width: 0;
+  }
+  .breadcrumbs:has(.topbar-tabs) > span,
+  .breadcrumbs:has(.topbar-tabs) > svg {
+    display: none;
+  }
+  .topbar-tabs {
+    margin-left: 6px;
+  }
+  .topbar-tabs button {
+    padding: 4px 7px;
+  }
+  .topbar-tabs button svg {
+    display: none;
+  }
+}
