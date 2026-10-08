@@ -60,7 +60,7 @@ export function PatternFields({
             aria-label="Maximum plan steps"
             type="number"
             min={1}
-            max={8}
+            max={100}
             value={merged.maxPlanSteps}
             onChange={(e) => onConfig({ ...merged, maxPlanSteps: Number(e.target.value) })}
           />
@@ -72,7 +72,7 @@ export function PatternFields({
             aria-label="Critique rounds"
             type="number"
             min={1}
-            max={3}
+            max={50}
             value={merged.reflections}
             onChange={(e) => onConfig({ ...merged, reflections: Number(e.target.value) })}
           />
@@ -80,12 +80,12 @@ export function PatternFields({
       )}
       {pattern === 'loop' && (
         <div className="two-columns">
-          <Field label="Maximum iterations">
+          <Field label="Maximum iterations" hint="0 = until the agent ends with the done marker.">
             <input
               aria-label="Maximum iterations"
               type="number"
-              min={1}
-              max={10}
+              min={0}
+              max={1_000_000}
               value={merged.iterations}
               onChange={(e) => onConfig({ ...merged, iterations: Number(e.target.value) })}
             />

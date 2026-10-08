@@ -1865,12 +1865,12 @@ export function WorkflowEditor({
               />
             </Field>
             <div className="two-columns">
-              <Field label="Step budget" hint="Loops stop at this limit.">
+              <Field label="Step budget" hint="Loops stop at this limit. 0 = unlimited.">
                 <input
                   aria-label="Harness step budget"
                   type="number"
-                  min={1}
-                  max={500}
+                  min={0}
+                  max={100_000_000}
                   value={form.maxSteps}
                   onChange={(e) => change({ ...form, maxSteps: Number(e.target.value) })}
                 />

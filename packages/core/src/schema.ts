@@ -32,7 +32,9 @@ export const providerSchema = z.object({
 export const devicePlatforms = ['linux', 'windows', 'chrome', 'openshell'] as const;
 export const deviceIdPattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 /** A MongoDB database name: letters, digits, `_` and `-`, at most 63 bytes. */
-export const mongoDatabaseName = z.string().regex(/^[A-Za-z0-9_-]{1,63}$/, 'Use letters, digits, _ or - in the database name');
+export const mongoDatabaseName = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{1,63}$/, 'Use letters, digits, _ or - in the database name');
 export const connectionSchema = z.object({
   name,
   url,
@@ -80,10 +82,11 @@ export type AgentPattern = (typeof agentPatterns)[number];
 export const patternConfigSchema = z.object({
   /** Omit to critique with the same provider/model used for the work. */
   judgeProviderId: id.optional(),
-  reflections: z.number().int().min(1).max(3).default(1),
-  iterations: z.number().int().min(1).max(10).default(3),
+  reflections: z.number().int().min(1).max(50).default(1),
+  /** Loop iterations before the final synthesis; 0 keeps iterating until the agent ends with the done marker. */
+  iterations: z.number().int().min(0).max(1_000_000).default(3),
   doneMarker: z.string().trim().min(1).max(50).default('DONE'),
-  maxPlanSteps: z.number().int().min(1).max(8).default(5),
+  maxPlanSteps: z.number().int().min(1).max(100).default(5),
 });
 /** A reusable skill: the agent sees name + description and loads the instructions when a request matches. */
 export const skillSchema = z.object({
@@ -143,8 +146,10 @@ export const agentSchema = z.object({
   skills: z.array(skillSchema.extend({ id })).max(20).optional(),
   /** Save displaced context in the task notebook and keep a compact evidence checkpoint. */
   contextCompaction: z.boolean().default(true),
-  maxTurns: z.number().int().min(1).max(200).default(12),
-  timeoutSeconds: z.number().int().min(10).max(7200).default(300),
+  /** Model turns per pass; 0 means no limit. */
+  maxTurns: z.number().int().min(0).max(10_000_000).default(12),
+  /** Wall-clock limit per run; 0 means no limit. */
+  timeoutSeconds: z.number().int().min(0).max(31_536_000).default(300),
   pattern: z.enum(agentPatterns).default('react'),
   patternConfig: patternConfigSchema.default({}),
   /** Loop and token budget preset; `auto` picks a level per request. `low` is the pre-release name of `light`. */
@@ -152,8 +157,8 @@ export const agentSchema = z.object({
     (v) => (v === 'low' ? 'light' : v),
     z.enum(['light', 'medium', 'high', 'extra-high', 'max', 'auto']).default('medium'),
   ),
-  /** Total tokens (prompt + completion) per run; defaults to the effort preset. */
-  tokenBudget: z.number().int().min(1000).max(50_000_000).optional(),
+  /** Total tokens (prompt + completion) per run; defaults to the effort preset. 0 means no limit. */
+  tokenBudget: z.number().int().min(0).max(1_000_000_000_000).optional(),
   /**
    * Lets the agent hand focused tasks to sub-agents it spins up itself (the spawn_agents tool). Each sub-agent
    * gets a fresh context, a share of this agent's remaining budget, and reports back a summary and note ids.
@@ -162,7 +167,7 @@ export const agentSchema = z.object({
     .object({
       enabled: z.boolean().default(false),
       /** Sub-agents this agent may start in one run. */
-      maxAgents: z.number().int().min(1).max(12).default(4),
+      maxAgents: z.number().int().min(1).max(10_000).default(4),
     })
     .optional(),
   enabled: z.boolean().default(true),
@@ -298,7 +303,8 @@ export const workflowSchema = z
       .array(z.object({ agentNodeId: z.string(), resourceId: z.string() }))
       .max(200)
       .default([]),
-    maxSteps: z.number().int().min(1).max(500).default(100),
+    /** Node visits per run, the bound on cycles; 0 means no limit. */
+    maxSteps: z.number().int().min(0).max(100_000_000).default(100),
     guardrailIds: z.array(id).max(20).optional(),
     resumePolicy: z.enum(resumePolicies).default('safe'),
     approvals: humanSettingsSchema.optional(),

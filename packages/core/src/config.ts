@@ -24,13 +24,21 @@ const s = z.object({
   // stack MongoDB through it; OpenHarness holds the bearer token and provisions the server's least-privilege user.
   MONGODB_MCP_URL: z.string().default(''),
   MONGODB_MCP_TOKEN: z.string().default(''),
-  MONGODB_MCP_USER: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).default('openharness_mcp'),
+  MONGODB_MCP_USER: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,64}$/)
+    .default('openharness_mcp'),
   MONGODB_MCP_PASSWORD: z.string().default(''),
   DATA_DIR: z.string().default('./data'),
   ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/, 'ENCRYPTION_KEY must be 32 random bytes in hex'),
   SETUP_TOKEN: z.string().min(32),
-  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
-  MAX_ACTIVE_RUNS: z.coerce.number().int().min(1).max(1000).default(20),
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(1024).default(2),
+  /** Queued + running runs a workspace may have; 0 means no limit. */
+  MAX_ACTIVE_RUNS: z.coerce.number().int().min(0).max(1_000_000_000).default(20),
+  /** Wall-clock cap on one run inside a runner; 0 means no cap (agents keep their own time limits). */
+  RUN_TIMEOUT_SECONDS: z.coerce.number().int().min(0).max(31_536_000).default(0),
+  /** How long one model request (including a streamed reply) may take before it is retried. */
+  MODEL_REQUEST_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(86_400).default(600),
   EMBED_ORIGINS: z.string().default(''),
   ALLOW_PRIVATE_URLS: z.string().default('false'),
   ALLOWED_PRIVATE_HOSTS: z.string().default('host.docker.internal,ollama'),
@@ -47,7 +55,7 @@ const s = z.object({
   SMTP_FROM: z.string().default(''),
   // 'json' swaps the network transport for nodemailer's JSON transport; only the test stack uses it.
   SMTP_TRANSPORT: z.enum(['smtp', 'json']).default('smtp'),
-  MAX_RESUMES: z.coerce.number().int().min(0).max(10).default(3),
+  MAX_RESUMES: z.coerce.number().int().min(0).max(1000).default(3),
   // Device gateway (optional). When set, the studio can enroll machines and agents can operate them.
   GARAK_PROBES_URL: z.string().url().default('http://guardrail-evaluation:8001'),
   NEMO_GUARDRAILS_URL: z.string().url().default('http://guardrails:8000'),

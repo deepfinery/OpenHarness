@@ -14,8 +14,9 @@ export const guardrailPolicyObjectSchema = z.object({
     .min(1)
     .default([...railStages]),
   failMode: z.enum(['closed', 'open']).default('closed'),
-  timeoutMs: z.number().int().min(100).max(30000).default(5000),
-  latencyBudgetMs: z.number().int().min(1000).max(600000).default(120000),
+  timeoutMs: z.number().int().min(100).max(300_000).default(5000),
+  /** Cumulative check time per run and policy; 0 means no budget. */
+  latencyBudgetMs: z.number().int().min(0).max(86_400_000).default(120000),
   pii: z.boolean().default(true),
   jailbreak: z.boolean().default(true),
   contentSafety: z.boolean().default(true),
@@ -47,8 +48,8 @@ export const guardrailPolicyObjectSchema = z.object({
   enabled: z.boolean().default(true),
 });
 export const guardrailPolicySchema = guardrailPolicyObjectSchema
-  .refine((p) => p.latencyBudgetMs >= p.timeoutMs, {
-    message: 'Latency budget must cover at least one check timeout',
+  .refine((p) => p.latencyBudgetMs === 0 || p.latencyBudgetMs >= p.timeoutMs, {
+    message: 'Latency budget must cover at least one check timeout (or be 0 for no budget)',
     path: ['latencyBudgetMs'],
   })
   .refine((p) => !p.semanticChecks || p.provider === 'nemo', {

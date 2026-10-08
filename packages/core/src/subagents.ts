@@ -16,7 +16,7 @@ import { HumanPause, stableId } from './human.js';
  * cannot spawn sub-agents of their own, and each one is recorded as a run linked to its parent.
  */
 export const SPAWN_TOOL = 'spawn_agents';
-export const MAX_PARALLEL = 4;
+export const MAX_PARALLEL = 12;
 /** Below this, a sub-agent could not do useful work, so the spawn is refused. */
 export const MIN_CHILD_TOKENS = 4000;
 /** Kept back from the parent's remaining budget so it can still write its own answer. */

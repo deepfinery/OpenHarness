@@ -3,6 +3,8 @@ import { imageData } from './images.js';
 import { randomUUID } from 'node:crypto';
 import { collection } from './db.js';
 import { decrypt, HttpError, safeFetch } from './security.js';
+import { config } from './config.js';
+import { deadlineSignal } from './limits.js';
 import type { Provider, Stored } from './schema.js';
 
 export type ProviderRecord = Stored<Provider> & {
@@ -150,7 +152,7 @@ async function post(url: string, payload: unknown, headers: Record<string, strin
     const last = attempt === MODEL_REQUEST_ATTEMPTS - 1;
     let response: Response;
     try {
-      const deadline = AbortSignal.timeout(180000);
+      const deadline = deadlineSignal(config.MODEL_REQUEST_TIMEOUT_SECONDS * 1000);
       response = await safeFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },

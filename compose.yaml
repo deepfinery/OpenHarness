@@ -263,6 +263,9 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: agentic
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Run ./start.sh first}
+      # A run is acknowledged when it ends. The broker's default 30-minute consumer timeout would close the
+      # channel under long runs; 30 days leaves that to the runners' own time limits.
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbit consumer_timeout 2592000000
     volumes: ['rabbitmq:/var/lib/rabbitmq']
     restart: unless-stopped
     healthcheck:

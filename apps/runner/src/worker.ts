@@ -8,6 +8,7 @@ import { closeQueue, JOB_QUEUE, queueChannel, type Job } from '../../../packages
 import { executeRun, type DeltaWriter } from '../../../packages/core/src/runtime.js';
 import { deleteDocument, indexDocument } from '../../../packages/core/src/knowledge.js';
 import { safeError } from '../../../packages/core/src/security.js';
+import { withDeadline } from '../../../packages/core/src/limits.js';
 import type { KnowledgeDocument, Run } from '../../../packages/core/src/schema.js';
 import { settleConversation } from '../../../packages/core/src/conversations.js';
 import { emitHarnessEvent } from '../../../packages/core/src/harnessEvents.js';
@@ -24,17 +25,9 @@ const executionStatusOf = (status: string) =>
   status === 'succeeded' ? 'completed' : status === 'interrupted' ? 'failed' : status;
 
 await connectDatabase();
-const channel = await queueChannel();
-await channel.prefetch(config.WORKER_CONCURRENCY);
 let stopping = false;
 const active = new Set<AbortController>();
 const tasks = new Set<Promise<void>>();
-channel.on('close', () => {
-  if (!stopping) {
-    active.forEach((c) => c.abort(new Error('Queue connection lost')));
-    setTimeout(() => process.exit(1), 2000).unref();
-  }
-});
 async function processJob(job: Job, controller: AbortController) {
   const leaseId = randomUUID();
   const now = new Date();
@@ -105,7 +98,8 @@ async function processJob(job: Job, controller: AbortController) {
       }
     }, 300);
     try {
-      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(86400000)]);
+      // Runs are bounded by their agents' own time limits; RUN_TIMEOUT_SECONDS adds an installation-wide cap.
+      const signal = withDeadline(controller.signal, config.RUN_TIMEOUT_SECONDS * 1000 || undefined);
       const output = await executeRun(run, signal, onDelta);
       signal.throwIfAborted();
       await recordArtifact(run.ownerId, run._id, 'answer.md', 'text/markdown', Buffer.from(output)).catch(
@@ -272,29 +266,66 @@ async function processJob(job: Job, controller: AbortController) {
     }
   }
 }
-const consumer = await channel.consume(JOB_QUEUE, (msg) => {
-  if (!msg) return;
-  const controller = new AbortController();
-  active.add(controller);
-  const task = (async () => {
-    try {
-      const job = JSON.parse(msg.content.toString()) as Job;
-      if (!['run', 'index', 'delete', 'reflect'].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id))
-        throw new Error('Malformed queue message');
-      await processJob(job, controller);
-      channel.ack(msg);
-    } catch (error) {
-      console.error('Job failed:', safeError(error));
+/**
+ * Consumes the job queue on a fresh channel. When the broker closes the channel (a connection drop, a broker
+ * restart), the runs in flight keep going on their database leases while the queue is reconnected: the broker
+ * redelivers their messages, and the lease check acknowledges those as already running. Only a runner with no
+ * active runs that cannot reach the broker for five minutes exits for a restart.
+ */
+let consuming: { channel: Awaited<ReturnType<typeof queueChannel>>; consumerTag: string } | undefined;
+async function consume() {
+  const channel = await queueChannel();
+  await channel.prefetch(config.WORKER_CONCURRENCY);
+  channel.once('close', () => {
+    if (stopping || consuming?.channel !== channel) return;
+    consuming = undefined;
+    console.warn(`Queue channel closed; reconnecting while ${active.size} run(s) continue`);
+    void reconnect();
+  });
+  const consumer = await channel.consume(JOB_QUEUE, (msg) => {
+    if (!msg) return;
+    const controller = new AbortController();
+    active.add(controller);
+    const task = (async () => {
       try {
-        channel.nack(msg, false, false);
-      } catch {}
-    } finally {
-      active.delete(controller);
+        const job = JSON.parse(msg.content.toString()) as Job;
+        if (!['run', 'index', 'delete', 'reflect'].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id))
+          throw new Error('Malformed queue message');
+        await processJob(job, controller);
+        channel.ack(msg);
+      } catch (error) {
+        if (!(error instanceof Error && /channel closed/i.test(error.message)))
+          console.error('Job failed:', safeError(error));
+        try {
+          channel.nack(msg, false, false);
+        } catch {}
+      } finally {
+        active.delete(controller);
+      }
+    })();
+    tasks.add(task);
+    void task.finally(() => tasks.delete(task));
+  });
+  consuming = { channel, consumerTag: consumer.consumerTag };
+}
+async function reconnect() {
+  const since = Date.now();
+  for (let attempt = 0; !stopping; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, Math.min(10000, 1000 * 2 ** attempt)));
+    try {
+      await consume();
+      console.log('Queue channel restored');
+      return;
+    } catch (error) {
+      console.warn('Queue reconnect failed:', safeError(error));
     }
-  })();
-  tasks.add(task);
-  void task.finally(() => tasks.delete(task));
-});
+    if (!active.size && Date.now() - since > 300000) {
+      console.error('Queue unreachable for five minutes with no active runs; exiting for a restart');
+      process.exit(1);
+    }
+  }
+}
+await consume();
 const health = setInterval(
   () => void writeFile('/tmp/openharness-worker-heartbeat', String(Date.now())).catch(() => {}),
   5000,
@@ -305,7 +336,7 @@ async function shutdown() {
   if (stopping) return;
   stopping = true;
   clearInterval(health);
-  await channel.cancel(consumer.consumerTag).catch(() => {});
+  if (consuming) await consuming.channel.cancel(consuming.consumerTag).catch(() => {});
   active.forEach((c) => c.abort(new Error('Runner is shutting down; review side effects before retrying')));
   await Promise.allSettled([...tasks]);
   await closeQueue();

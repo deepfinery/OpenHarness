@@ -48,8 +48,10 @@ spec:
               value: agentic
             - name: RABBITMQ_NODENAME
               value: rabbit@rabbitmq-0
+            # consumer_timeout: a run is acknowledged when it ends, so the default 30 minutes would close the
+            # channel under long runs; 30 days leaves that to the runners' own time limits.
             - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
-              value: +S 2:2
+              value: +S 2:2 -rabbit consumer_timeout 2592000000
             - name: RABBITMQ_DEFAULT_PASS
               valueFrom:
                 secretKeyRef:

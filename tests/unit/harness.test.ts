@@ -163,7 +163,10 @@ test('bounded harness cycles need a possible exit and may not return to Start', 
     onFalse: 'finish',
   });
   assert.equal(workflowSchema.safeParse(w).success, true);
-  assert.equal(workflowSchema.safeParse({ ...w, maxSteps: 501 }).success, false);
+  // Long jobs: the step budget can be large or switched off (0); it cannot be negative.
+  assert.equal(workflowSchema.safeParse({ ...w, maxSteps: 501 }).success, true);
+  assert.equal(workflowSchema.safeParse({ ...w, maxSteps: 0 }).success, true);
+  assert.equal(workflowSchema.safeParse({ ...w, maxSteps: -1 }).success, false);
   const check = w.nodes.find((n) => n.id === 'check') as any;
   check.onFalse = 'check';
   assert.equal(workflowSchema.safeParse(w).success, false);

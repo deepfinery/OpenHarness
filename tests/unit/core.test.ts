@@ -160,7 +160,14 @@ test('effort presets carry loop and token budgets, and auto resolves a level fro
   assert.ok(effortPresets['extra-high'].tokenBudget < effortPresets.max.tokenBudget);
   assert.equal(effortPresets.max.maxTurns, 120);
   assert.equal(agentSchema.safeParse({ ...base, maxTurns: 200, timeoutSeconds: 7200 }).success, true);
-  assert.equal(agentSchema.safeParse({ ...base, maxTurns: 201 }).success, false);
+  // Long jobs: large limits are accepted and 0 means no limit; negative values are not a limit.
+  assert.equal(agentSchema.safeParse({ ...base, maxTurns: 5000, timeoutSeconds: 86400 * 30 }).success, true);
+  assert.equal(
+    agentSchema.safeParse({ ...base, maxTurns: 0, timeoutSeconds: 0, tokenBudget: 0 }).success,
+    true,
+  );
+  assert.equal(agentSchema.safeParse({ ...base, maxTurns: -1 }).success, false);
+  assert.equal(agentSchema.safeParse({ ...base, maxTurns: 10_000_001 }).success, false);
   const tools = [{ connectionId: randomUUID(), tools: ['search'] }];
   assert.equal(resolveEffort({ effort: 'auto', pattern: 'react', connections: [] }, 'hi').level, 'light');
   assert.equal(resolveEffort({ effort: 'auto', pattern: 'react', connections: tools }, 'hi').level, 'medium');
