@@ -29,6 +29,25 @@ const s = z.object({
     .regex(/^[A-Za-z0-9_-]{1,64}$/)
     .default('openharness_mcp'),
   MONGODB_MCP_PASSWORD: z.string().default(''),
+  // Python executor: agent-written code runs in containers of the python-executor image. `kubernetes` creates a
+  // Job per run through the pod's service account; `service` posts to the python-executor HTTP service (Compose).
+  EXECUTOR_BACKEND: z.enum(['', 'kubernetes', 'service']).default(''),
+  EXECUTOR_URL: z.string().default(''),
+  EXECUTOR_TOKEN: z.string().default(''),
+  /** How a job container reaches this API to fetch its code and report back. */
+  EXECUTOR_CALLBACK_URL: z.string().default('http://api:8088'),
+  /** Kubernetes only. The image defaults to the app pod's digest-pinned `executor-image` init container. */
+  EXECUTOR_IMAGE: z.string().default(''),
+  EXECUTOR_NAMESPACE: z.string().default(''),
+  EXECUTOR_JOB_CPU: z.string().default('1'),
+  EXECUTOR_JOB_MEMORY: z.string().default('2Gi'),
+  EXECUTOR_JOB_DISK: z.string().default('10Gi'),
+  EXECUTOR_JOB_TTL_SECONDS: z.coerce.number().int().min(60).max(604800).default(3600),
+  /** Jobs a workspace may have in flight at once; 0 means no limit. */
+  EXECUTOR_MAX_PARALLEL: z.coerce.number().int().min(0).max(100000).default(16),
+  EXECUTOR_DEFAULT_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(2_592_000).default(600),
+  /** The longest a job may ask to run; 0 means no maximum. */
+  EXECUTOR_MAX_TIMEOUT_SECONDS: z.coerce.number().int().min(0).max(31_536_000).default(86_400),
   DATA_DIR: z.string().default('./data'),
   ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/, 'ENCRYPTION_KEY must be 32 random bytes in hex'),
   SETUP_TOKEN: z.string().min(32),

@@ -1,3 +1,4 @@
+import { secretList } from './PythonSecrets';
 import { GuardrailPicker } from './GuardrailsPage';
 import { humanSettingsSchema } from '../../../../packages/core/src/schema.js';
 import { useId, useState } from 'react';
@@ -408,6 +409,93 @@ export function AgentFields({
             />
             Allow questions
           </label>
+        </Field>
+        <Field
+          label="Python code"
+          hint="The agent writes Python and runs it in a fresh container (run_python): data processing over this workspace’s MongoDB collections, API syncs, backtests. Many jobs can run in parallel."
+        >
+          <label className="check-row">
+            <input
+              type="checkbox"
+              aria-label="Can run Python"
+              checked={Boolean(value.codeExecution?.enabled)}
+              onChange={(e) =>
+                onChange({
+                  codeExecution: {
+                    timeoutSeconds: value.codeExecution?.timeoutSeconds ?? 0,
+                    requireApproval: value.codeExecution?.requireApproval ?? false,
+                    secrets: value.codeExecution?.secrets ?? [],
+                    enabled: e.target.checked,
+                  },
+                })
+              }
+            />
+            Can run Python it writes
+          </label>
+          {value.codeExecution?.enabled && (
+            <>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  aria-label="Approve Python before it runs"
+                  checked={Boolean(value.codeExecution?.requireApproval)}
+                  onChange={(e) =>
+                    onChange({
+                      codeExecution: {
+                        timeoutSeconds: value.codeExecution?.timeoutSeconds ?? 0,
+                        secrets: value.codeExecution?.secrets ?? [],
+                        enabled: true,
+                        requireApproval: e.target.checked,
+                      },
+                    })
+                  }
+                />
+                Ask a human to approve the code before each run
+              </label>
+              <Field
+                label="Seconds per job"
+                hint="0 = the installation default. The agent may ask for more per call."
+              >
+                <input
+                  aria-label="Python seconds per job"
+                  type="number"
+                  min={0}
+                  max={2_592_000}
+                  value={value.codeExecution?.timeoutSeconds ?? 0}
+                  onChange={(e) =>
+                    onChange({
+                      codeExecution: {
+                        requireApproval: value.codeExecution?.requireApproval ?? false,
+                        secrets: value.codeExecution?.secrets ?? [],
+                        enabled: true,
+                        timeoutSeconds: Number(e.target.value),
+                      },
+                    })
+                  }
+                />
+              </Field>
+              <Field
+                label="Secrets for the code"
+                hint="Names from Settings → Python secrets, comma-separated."
+              >
+                <input
+                  aria-label="Python secrets"
+                  placeholder="FMP_API_KEY"
+                  defaultValue={(value.codeExecution?.secrets ?? []).join(', ')}
+                  onBlur={(e) =>
+                    onChange({
+                      codeExecution: {
+                        timeoutSeconds: value.codeExecution?.timeoutSeconds ?? 0,
+                        requireApproval: value.codeExecution?.requireApproval ?? false,
+                        enabled: true,
+                        secrets: secretList(e.target.value),
+                      },
+                    })
+                  }
+                />
+              </Field>
+            </>
+          )}
         </Field>
         <Field
           label="Tool approvals"

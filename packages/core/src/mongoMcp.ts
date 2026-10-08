@@ -1,7 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { config } from './config.js';
-import { mongo } from './db.js';
-import { hash, HttpError, safeError } from './security.js';
+import { collection, mongo } from './db.js';
+import { decrypt, encrypt, hash, HttpError, randomToken, safeError } from './security.js';
 import type { McpConnection } from './schema.js';
 
 /** The MongoDB MCP server's id for the connection string it was started with. */
@@ -123,4 +123,43 @@ export async function provisionMongoMcp(ownerIds: () => Promise<string[]>) {
   } catch (error) {
     console.warn('MongoDB MCP access is not provisioned:', safeError(error));
   }
+}
+
+/** A MongoDB user that can read and write one workspace database, for the Python jobs of that workspace. */
+type WorkspaceMongoUser = { _id: string; user: string; passwordEncrypted: string; createdAt: Date };
+const workspaceUsers = () => collection<WorkspaceMongoUser>('workspace_mongo_users');
+/**
+ * The connection string a workspace's Python jobs use: its own user with readWrite on its own database only, so
+ * code can reach that workspace's collections and nothing else. The user is created on first use with the
+ * application's administrator connection; the password is kept encrypted and reused.
+ */
+export async function workspaceJobMongoUri(ownerId: string) {
+  const database = workspaceDatabase(ownerId);
+  const user = `oh_job_${hash(`mongodb-jobs:${ownerId}`).slice(0, 24)}`;
+  const admin = mongo.db('admin');
+  let stored = await workspaceUsers().findOne({ _id: ownerId });
+  if (!stored) {
+    const password = randomToken();
+    stored = { _id: ownerId, user, passwordEncrypted: encrypt(password), createdAt: new Date() };
+    try {
+      await workspaceUsers().insertOne(stored);
+    } catch (error) {
+      // A concurrent job created it first; use that one.
+      if ((error as { code?: number }).code !== 11000) throw error;
+      stored = (await workspaceUsers().findOne({ _id: ownerId }))!;
+    }
+  }
+  const password = decrypt(stored.passwordEncrypted);
+  const existing = (await admin.command({ usersInfo: stored.user })) as { users: unknown[] };
+  const roles = [{ role: 'readWrite', db: database }];
+  if (existing.users.length) await admin.command({ updateUser: stored.user, pwd: password, roles });
+  else await admin.command({ createUser: stored.user, pwd: password, roles });
+  const source = new URL(config.MONGODB_URI);
+  const target = new URL(`mongodb://${source.host}/${database}`);
+  target.username = stored.user;
+  target.password = password;
+  target.searchParams.set('authSource', 'admin');
+  for (const key of ['replicaSet', 'tls', 'ssl', 'directConnection'])
+    if (source.searchParams.has(key)) target.searchParams.set(key, source.searchParams.get(key)!);
+  return target.toString();
 }

@@ -127,19 +127,20 @@ Nodes use stable local IDs (letters, numbers, `_` and `-`, beginning with a
 letter, maximum 64 characters). All nodes must be reachable from `startAt`.
 An explicit harness has exactly one Start at the entry and at least one Finish;
 every step needs a possible path to Finish. Cycles are permitted with a bounded
-`maxSteps` (default 100, maximum 500). Exhaustion fails the run. Execution cannot
+`maxSteps` (default 100; `0` means no limit). Exhaustion fails the run. Execution cannot
 return to Start. Legacy graphs without Start keep their acyclic validation.
 
-| Type        | Fields                                                                                                                                                                       |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `start`     | `next`                                                                                                                                                                       |
-| `agent`     | Exactly one of `agentId` or inline `config` (agent definition), `prompt`, `next`                                                                                             |
-| `tool`      | `connectionId`, `tool`, object `arguments`, `next`                                                                                                                           |
-| `parallel`  | `agentNodeIds` (agent cards in this workflow) and/or legacy `agentIds` (saved agents), up to 8 in total, `prompt`, `next`. Member cards need no place in the execution path. |
-| `email`     | `to` (comma-separated templates), `subject`, `body`, `next`; sent via SMTP settings                                                                                          |
-| `condition` | `value`, `operator`, `compare`, `onTrue`, `onFalse`                                                                                                                          |
-| `finish`    | `template`                                                                                                                                                                   |
-| `output`    | Legacy alias for Finish                                                                                                                                                      |
+| Type        | Fields                                                                                                                                                                                                          |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `start`     | `next`                                                                                                                                                                                                          |
+| `agent`     | Exactly one of `agentId` or inline `config` (agent definition), `prompt`, `next`                                                                                                                                |
+| `tool`      | `connectionId`, `tool`, object `arguments`, `next`                                                                                                                                                              |
+| `code`      | `code` (Python 3.12), object `params` (templates rendered; the code reads them as `oh.params`), `timeoutSeconds` (0 = installation default), optional `approvals`, `next`. Value: `oh.result(...)`, else stdout |
+| `parallel`  | `agentNodeIds` (agent cards in this workflow) and/or legacy `agentIds` (saved agents), up to 8 in total, `prompt`, `next`. Member cards need no place in the execution path.                                    |
+| `email`     | `to` (comma-separated templates), `subject`, `body`, `next`; sent via SMTP settings                                                                                                                             |
+| `condition` | `value`, `operator`, `compare`, `onTrue`, `onFalse`                                                                                                                                                             |
+| `finish`    | `template`                                                                                                                                                                                                      |
+| `output`    | Legacy alias for Finish                                                                                                                                                                                         |
 
 Every node has `id`, `name`, and optional `position: {x,y}`. Resources use
 `type: mcp`, `connectionId`, and a nonempty `tools` selection, or

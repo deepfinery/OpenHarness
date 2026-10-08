@@ -32,6 +32,9 @@ images:
   - name: openharness-guardrails
     newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/guardrails
     digest: sha256:c5dd36ac1d3ca11a21102f3f431c787ab62e4ddf07c4732be17dc678aa4e93e7
+  - name: openharness-python-executor
+    newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/python-executor
+    newTag: replace-me
   - name: openharness-mongodb-mcp
     newName: cr.us-north1.nebius.cloud/u02bc9s4ak0850vnha/mongodb-mcp
     digest: sha256:467e71fdcd5e025a260660b0834e039e0ba109e616ae58216cad331b30835c77

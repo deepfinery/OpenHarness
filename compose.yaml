@@ -48,6 +48,12 @@ x-app-environment: &app-environment
   MONGODB_MCP_URL: http://mongodb-mcp:3000/mcp
   MONGODB_MCP_TOKEN: ${MONGODB_MCP_TOKEN:?Run ./start.sh --configure-only to add MongoDB MCP credentials to .env}
   MONGODB_MCP_PASSWORD: ${MONGODB_MCP_PASSWORD:?Run ./start.sh --configure-only to add MongoDB MCP credentials to .env}
+  # Python executor: agent-written code runs in the python-executor service (one child process per job).
+  EXECUTOR_BACKEND: service
+  EXECUTOR_URL: http://python-executor:7000
+  EXECUTOR_TOKEN: ${EXECUTOR_TOKEN:?Run ./start.sh --configure-only to add the Python executor token to .env}
+  EXECUTOR_CALLBACK_URL: http://api:8088
+  EXECUTOR_MAX_PARALLEL: ${EXECUTOR_MAX_PARALLEL:-16}
 
 services:
   storage-init:
@@ -257,6 +263,35 @@ services:
     tmpfs: ['/tmp']
     security_opt: ['no-new-privileges:true']
     cap_drop: [ALL]
+
+  # Python 3.12 with the data and trading libraries agent code may use. Internal only: the API starts jobs with a
+  # bearer token; each job fetches its code from the API and reaches MongoDB with its workspace's own user.
+  python-executor:
+    build: { context: ., dockerfile: python-executor/Dockerfile }
+    image: openharness-python-executor:local
+    init: true
+    environment:
+      EXECUTOR_TOKEN: ${EXECUTOR_TOKEN:?Run ./start.sh --configure-only to add the Python executor token to .env}
+      EXECUTOR_MAX_JOBS: ${EXECUTOR_MAX_PARALLEL:-16}
+    depends_on:
+      mongo: { condition: service_healthy }
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ['/tmp', '/work:uid=1000,gid=1000,mode=0700']
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7000/health', timeout=5).status == 200 else 1)",
+        ]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
 
   rabbitmq:
     image: rabbitmq:4.1-management-alpine

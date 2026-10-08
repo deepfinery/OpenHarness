@@ -1,3 +1,4 @@
+import { secretList } from './PythonSecrets';
 import { GuardrailPicker } from './GuardrailsPage';
 import { agentWithResources } from '../../../../packages/core/src/workflow.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -71,7 +72,7 @@ import { ConnectionEditor, KnowledgeEditor } from './editors';
 import { AgentFields, ScheduleFields } from './agentFields';
 
 type GraphItem = WorkflowNode | WorkflowResource;
-type StepType = 'review' | 'agent' | 'tool' | 'parallel' | 'condition' | 'email' | 'finish';
+type StepType = 'review' | 'agent' | 'tool' | 'code' | 'parallel' | 'condition' | 'email' | 'finish';
 type Payload =
   | { type: StepType }
   | { type: 'mcp'; connectionId?: string }
@@ -92,6 +93,7 @@ const icons = {
   output: Flag,
   agent: Bot,
   tool: Plug,
+  code: Code2,
   condition: GitBranch,
   review: GitBranch,
   parallel: GitFork,
@@ -106,6 +108,7 @@ const labels = {
   output: 'Finish',
   agent: 'AI agent',
   tool: 'MCP action',
+  code: 'Python code',
   condition: 'Condition',
   review: 'Human review',
   parallel: 'Parallel agents',
@@ -114,13 +117,21 @@ const labels = {
   knowledge: 'Knowledge',
   guardrail: 'NeMo Guardrail',
 };
-const stepTypes: StepType[] = ['agent', 'review', 'condition', 'parallel', 'tool', 'email', 'finish'];
+const stepTypes: StepType[] = ['agent', 'review', 'condition', 'parallel', 'tool', 'code', 'email', 'finish'];
+/** What a new Python step starts with. */
+const DEFAULT_PYTHON = `import oh
+
+# oh.params holds this step's parameters; oh.read/oh.write reach this workspace's MongoDB collections.
+print("params:", oh.params)
+oh.result({"ok": True})
+`;
 const stepHints: Record<StepType, string> = {
   review: 'Pause for approval',
   agent: 'Reasons and acts',
   condition: 'Yes / no branch',
   parallel: 'Agents together',
   tool: 'One tool call',
+  code: 'Run Python in a container',
   email: 'Send the result',
   finish: 'Return a result',
 };
@@ -513,11 +524,13 @@ export function WorkflowEditor({
                         ? `${connection?.name ?? 'MCP server'} / ${n.tool || 'Choose an action'}`
                         : n.type === 'parallel'
                           ? `${count} agent${count === 1 ? '' : 's'} run together`
-                          : n.type === 'email'
-                            ? `To ${n.to || '…'}`
-                            : n.type === 'review'
-                              ? n.prompt
-                              : `${n.value} ${n.operator} ${n.compare}`;
+                          : n.type === 'code'
+                            ? `${n.code.split('\n').length} lines · ${n.timeoutSeconds ? `${n.timeoutSeconds} s` : 'default timeout'}`
+                            : n.type === 'email'
+                              ? `To ${n.to || '…'}`
+                              : n.type === 'review'
+                                ? n.prompt
+                                : `${n.value} ${n.operator} ${n.compare}`;
         const warning =
           n.type === 'agent' && !agent?.providerId
             ? 'Choose a model'
@@ -531,7 +544,9 @@ export function WorkflowEditor({
                     ? 'Choose agents'
                     : n.type === 'email' && /example\.com|^\s*$/.test(n.to)
                       ? 'Set the recipient'
-                      : undefined;
+                      : n.type === 'code' && !n.code.trim()
+                        ? 'Write the code'
+                        : undefined;
         return {
           id: n.id,
           type: 'studio',
@@ -778,7 +793,9 @@ export function WorkflowEditor({
                   }
                 : type === 'email'
                   ? { ...base, type, to: '', subject: 'Report: {{input}}', body: '{{last}}' }
-                  : { ...base, type: 'finish', template: '{{last}}' };
+                  : type === 'code'
+                    ? { ...base, type, code: DEFAULT_PYTHON, params: {}, timeoutSeconds: 0, secrets: [] }
+                    : { ...base, type: 'finish', template: '{{last}}' };
     const inserted = type === 'finish' ? { ...f, nodes: [...f.nodes, n] } : insertStep(f, n, selected);
     change(position ? inserted : autoPlace(inserted));
     select(id);
@@ -1682,6 +1699,56 @@ export function WorkflowEditor({
                 />
               </>
             )}
+            {openStep?.type === 'code' && (
+              <>
+                <Field
+                  label="Python 3.12"
+                  hint="Runs in a fresh container with numpy, pandas, polars, duckdb, scipy, scikit-learn, statsmodels, TA-Lib and more. `import oh` reads and writes this workspace’s MongoDB collections (oh.read, oh.write_df…); oh.result(...) becomes this step’s value for {{last}}."
+                >
+                  <textarea
+                    aria-label="Python code"
+                    className="code-editor"
+                    rows={14}
+                    spellCheck={false}
+                    value={openStep.code}
+                    onChange={(e) => patch(openStep.id, { code: e.target.value })}
+                  />
+                </Field>
+                <ArgumentEditor
+                  key={openStep.id}
+                  value={openStep.params}
+                  draft={argumentDrafts[openStep.id]}
+                  label="Parameters (JSON)"
+                  hint="Available to the code as oh.params. Templates like {{last}} or {{payload.ticker}} fill values."
+                  onChange={(v, invalid, text) => {
+                    setArgumentDrafts((d) => ({ ...d, [openStep.id]: text }));
+                    setInvalidArguments((d) => ({ ...d, [openStep.id]: invalid }));
+                    if (!invalid) patch(openStep.id, { params: v });
+                  }}
+                />
+                <Field
+                  label="Secrets"
+                  hint="Names from Settings → Python secrets, comma-separated; read with os.environ."
+                >
+                  <input
+                    aria-label="Python step secrets"
+                    placeholder="FMP_API_KEY"
+                    defaultValue={(openStep.secrets ?? []).join(', ')}
+                    onBlur={(e) => patch(openStep.id, { secrets: secretList(e.target.value) })}
+                  />
+                </Field>
+                <Field label="Time limit (seconds)" hint="0 = the installation default.">
+                  <input
+                    aria-label="Python time limit"
+                    type="number"
+                    min={0}
+                    max={2_592_000}
+                    value={openStep.timeoutSeconds ?? 0}
+                    onChange={(e) => patch(openStep.id, { timeoutSeconds: Number(e.target.value) })}
+                  />
+                </Field>
+              </>
+            )}
             {openStep?.type === 'email' && (
               <>
                 <Field label="To" hint="Comma-separated. Templates work: {{payload.email}}.">
@@ -1879,7 +1946,7 @@ export function WorkflowEditor({
                 label="If a runner crashes"
                 hint={
                   (form.resumePolicy ?? 'safe') === 'safe'
-                    ? 'Resume unless a tool or email step was in flight.'
+                    ? 'Resume unless a tool, Python or email step was in flight.'
                     : (form.resumePolicy ?? 'safe') === 'always'
                       ? 'Always resume, even if a tool may already have acted.'
                       : 'Mark the run interrupted for review.'
@@ -2071,11 +2138,15 @@ function ArgumentEditor({
   value,
   draft,
   schema,
+  label = 'Arguments (JSON)',
+  hint = 'Templates like {{input}} fill values.',
   onChange,
 }: {
   value: Record<string, unknown>;
   draft?: string;
   schema?: any;
+  label?: string;
+  hint?: string;
   onChange: (value: Record<string, unknown>, invalid: boolean, text: string) => void;
 }) {
   const text = draft ?? JSON.stringify(value, null, 2);
@@ -2088,7 +2159,7 @@ function ArgumentEditor({
   }
   return (
     <>
-      <Field label="Arguments (JSON)" hint="Templates like {{input}} fill values.">
+      <Field label={label} hint={hint}>
         <textarea
           aria-label="Tool arguments JSON"
           rows={6}

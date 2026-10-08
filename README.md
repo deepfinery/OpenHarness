@@ -142,15 +142,16 @@ Autonomous iterations distinguish `continue`, `done`, and `blocked` outcomes. A 
 
 A **harness** is a graph of steps executed in order from Start to Finish, plus resource cards (MCP tools, knowledge bases) attached to agents. Steps pass results through templates: `{{input}}` is the run input, `{{last}}` the previous step's result, `{{steps.<id>}}` any earlier step, and `{{payload.<field>}}` structured webhook or API data.
 
-| Step        | Behavior                                                                                 | Outgoing connections                                         |
-| ----------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `start`     | Entry point of the harness                                                               | one `next`                                                   |
-| `agent`     | Runs an agent's pattern; the model chooses when to call its bound MCP tools              | one `next`, plus bottom-port MCP tool / knowledge bindings   |
-| `tool`      | Makes one fixed MCP call with templated arguments, no model involved                     | one `next`                                                   |
-| `parallel`  | Runs up to 8 agent cards from the same harness concurrently on one prompt, waits for all | one `next`, plus a bottom **Runs** port to its member agents |
-| `email`     | Sends a templated email through the workspace SMTP settings                              | one `next`                                                   |
-| `condition` | Evaluates a templated comparison                                                         | `onTrue` and `onFalse`                                       |
-| `finish`    | Renders a template from accumulated state and ends the run (`output` is a legacy alias)  | none                                                         |
+| Step        | Behavior                                                                                                                                                       | Outgoing connections                                         |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `start`     | Entry point of the harness                                                                                                                                     | one `next`                                                   |
+| `agent`     | Runs an agent's pattern; the model chooses when to call its bound MCP tools                                                                                    | one `next`, plus bottom-port MCP tool / knowledge bindings   |
+| `tool`      | Makes one fixed MCP call with templated arguments, no model involved                                                                                           | one `next`                                                   |
+| `code`      | Runs Python in a fresh executor container with templated parameters; reads and writes the workspace's MongoDB collections ([details](docs/python-executor.md)) | one `next`                                                   |
+| `parallel`  | Runs up to 8 agent cards from the same harness concurrently on one prompt, waits for all                                                                       | one `next`, plus a bottom **Runs** port to its member agents |
+| `email`     | Sends a templated email through the workspace SMTP settings                                                                                                    | one `next`                                                   |
+| `condition` | Evaluates a templated comparison                                                                                                                               | `onTrue` and `onFalse`                                       |
+| `finish`    | Renders a template from accumulated state and ends the run (`output` is a legacy alias)                                                                        | none                                                         |
 
 Resource cards never advance execution: an agent's bound tools are available throughout its own turn budget, and the model decides when to call them. Use a `tool` step when a call must happen in a fixed order. One agent can attach several MCP servers and knowledge bases, and one card can serve several agents.
 
@@ -258,6 +259,8 @@ flowchart LR
 - **Ask** searches the knowledge base and returns the exact passages an agent would receive. Retrieved passages are placed in the agent's system prompt as reference data with source titles, never as instructions.
 
 On the canvas, drag the knowledge base from the toolbox onto an agent to give it access.
+
+Agents can also **run Python** they write themselves (the `run_python` tool, enabled per agent), and harnesses have a **Python code** step for ETL and preprocessing. Code runs in a fresh container with pandas, numpy, polars, duckdb, scikit-learn, TA-Lib and more, and reaches the workspace's MongoDB collections through `oh.read`/`oh.write`. See [Python executor](docs/python-executor.md).
 
 **Knowledge → Collections** holds MongoDB collections reached through the MongoDB MCP server: create collections, insert any JSON, filter, edit, delete and index fields, and give agents the same collections through the connection's tools. Each workspace gets its own database. See [MongoDB collections](docs/mongodb-collections.md).
 

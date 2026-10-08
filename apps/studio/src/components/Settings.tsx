@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { WebhooksPanel } from './WebhooksPanel';
+import { PythonSecretsPanel } from './PythonSecrets';
 import {
   api,
   defaultProviderId,
@@ -92,6 +93,10 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
         <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}>
           <UserRound size={16} />
           My profile
+        </button>
+        <button className={tab === 'secrets' ? 'active' : ''} onClick={() => setTab('secrets')}>
+          <Code2 size={16} />
+          Python secrets
         </button>
         {user.role === 'admin' && (
           <button className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}>
@@ -214,6 +219,7 @@ export function SettingsPage({ user, setUser, data, refresh, edit, act }: Settin
         </>
       )}
       {tab === 'email' && <EmailSettingsPanel isAdmin={user.role === 'admin'} />}
+      {tab === 'secrets' && <PythonSecretsPanel data={data} isAdmin={user.role === 'admin'} />}
       {tab === 'profile' && (
         <div className="settings-card">
           <div className="profile-heading">

@@ -49,7 +49,7 @@ for a potentially mutating call is **ambiguous**, even when an idempotency key w
 sent to the MCP server. After a crash, the system stops automatic recovery for the
 parent and its children until the outcome can be reviewed. It never assumes an
 arbitrary MCP server supports exactly-once execution or invents a compensating action.
-Read-only calls may be retried. Explicit workflow tool/email steps retain their
+Read-only calls may be retried. Explicit workflow tool/Python/email steps retain their
 conservative existing resume policy.
 
 While a run is live, a failed tool call is a result, not the end of the run. A tool

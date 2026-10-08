@@ -86,6 +86,14 @@ function gatewayHost() {
     return undefined;
   }
 }
+/** The installation's own Python executor service is trusted like the gateway. */
+function executorHost() {
+  try {
+    return config.EXECUTOR_URL ? new URL(config.EXECUTOR_URL).hostname.toLowerCase() : undefined;
+  } catch {
+    return undefined;
+  }
+}
 /** The installation's own MongoDB MCP server is trusted like the gateway. */
 function mongoMcpHost() {
   try {
@@ -108,7 +116,8 @@ export async function validateRemoteUrl(value: string) {
       .map((s) => s.trim().toLowerCase())
       .includes(host) ||
     gatewayHost() === host ||
-    mongoMcpHost() === host
+    mongoMcpHost() === host ||
+    executorHost() === host
   )
     return;
   const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
@@ -130,7 +139,8 @@ export function privateHostAllowed(host: string) {
       .map((s) => s.trim().toLowerCase())
       .includes(host.toLowerCase()) ||
     gatewayHost() === host.toLowerCase() ||
-    mongoMcpHost() === host.toLowerCase()
+    mongoMcpHost() === host.toLowerCase() ||
+    executorHost() === host.toLowerCase()
   );
 }
 // Validate the addresses used by the socket itself, closing the DNS-rebinding gap
