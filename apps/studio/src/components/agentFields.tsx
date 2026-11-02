@@ -1,5 +1,4 @@
 import { secretList } from './PythonSecrets';
-import { GuardrailPicker } from './GuardrailsPage';
 import { humanSettingsSchema } from '../../../../packages/core/src/schema.js';
 import { useId, useState } from 'react';
 import { Clock3 } from 'lucide-react';
@@ -392,11 +391,6 @@ export function AgentFields({
         aria-labelledby={`${tabsId}-tab-safety-human-input`}
         hidden={tab !== 'Safety & human input'}
       >
-        <GuardrailPicker
-          data={data}
-          value={value.guardrailIds}
-          onChange={(guardrailIds) => onChange({ guardrailIds })}
-        />
         <Field
           label="Human input"
           hint="The agent can pause to ask a question. Answer it in the Inbox or Playground."

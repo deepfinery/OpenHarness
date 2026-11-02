@@ -9,6 +9,11 @@ COPY python-executor/requirements.txt /opt/executor/requirements.txt
 RUN pip install --no-cache-dir --only-binary=:all: -r /opt/executor/requirements.txt \
   || pip install --no-cache-dir -r /opt/executor/requirements.txt
 COPY python-executor/runner.py python-executor/oh.py python-executor/service.py /opt/executor/
+# Bake the market-data pipeline into site-packages so harness code nodes can `import pipeline`
+# (the executor runs `python -E -s`, which drops user site + PYTHON* env, but keeps system site-packages).
+COPY pipeline /opt/pipeline-src
+RUN cp -r /opt/pipeline-src "$(python -c 'import site; print(site.getsitepackages()[0])')/pipeline" \
+  && rm -rf /opt/pipeline-src "$(python -c 'import site; print(site.getsitepackages()[0])')/pipeline/tests"
 RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin executor \
   && mkdir -p /work && chown executor:executor /work
 USER executor

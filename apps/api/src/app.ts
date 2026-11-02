@@ -59,6 +59,7 @@ import { clusters } from './clusters.js';
 import { devices } from './devices.js';
 import { mongodb } from './mongodb.js';
 import { codeJobsApi, executorJobs } from './executor.js';
+import { datasetSyncRouter } from './datasetSyncs.js';
 import { openshell } from './openshell.js';
 import { tenantView, type Tenant } from './tenant.js';
 import { openHarnessApi, openHarnessErrors } from './openharness/index.js';
@@ -673,6 +674,7 @@ app.use('/api/mongodb', requireSession, mongodb);
 app.use('/api', requireSession, codeJobsApi);
 app.use('/api/openshell', requireSession, openshell);
 app.use('/api', requireSession, guardrailApi);
+app.use('/api', requireSession, datasetSyncRouter);
 app.use('/api', requireSession, resources);
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'API endpoint not found')));
 

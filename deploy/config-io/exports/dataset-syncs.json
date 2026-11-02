@@ -1,0 +1,850 @@
+[
+  {
+    "name": "EOD AAPL/MSFT",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "eod_prices",
+    "symbolsMode": "list",
+    "symbols": [
+      "AAPL",
+      "MSFT"
+    ],
+    "from": "2026-10-01",
+    "schedule": {
+      "enabled": false,
+      "everyMinutes": 1440,
+      "input": "sync",
+      "at": "18:56"
+    }
+  },
+  {
+    "name": "EOD prices (5y, universe)",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "eod_prices",
+    "symbolsMode": "universe",
+    "from": "2021-10-24",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "daily eod",
+      "at": "18:49",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Analyst estimates (annual)",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "analyst_estimates",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync analyst_estimates",
+      "at": "02:00",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Analyst grade changes",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "analyst_grades",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync analyst_grades",
+      "at": "18:00",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Balance sheet (quarterly)",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "balance_sheet",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync balance_sheet",
+      "at": "02:07",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Biggest gainers",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "biggest_gainers",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync biggest_gainers",
+      "at": "18:07",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Cash flow (quarterly)",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "cash_flow",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync cash_flow",
+      "at": "02:14",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Company profiles",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "company_profiles",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync company_profiles",
+      "at": "02:21",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Congress trades \u2014 House",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "congress_house",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync congress_house",
+      "at": "18:14",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Congress trades \u2014 Senate",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "congress_senate",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync congress_senate",
+      "at": "18:21",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Dividends calendar",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "dividends_calendar",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync dividends_calendar",
+      "at": "18:28",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Dividends history",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "dividends_history",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync dividends_history",
+      "at": "02:28",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Earnings calendar",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "earnings_calendar",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync earnings_calendar",
+      "at": "18:35",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Economic \u2014 CPI",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "economic_cpi",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync economic_cpi",
+      "at": "02:35",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Economic \u2014 GDP",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "economic_gdp",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync economic_gdp",
+      "at": "02:42",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Employee count",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "employee_count",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync employee_count",
+      "at": "02:49",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Enterprise values",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "enterprise_values",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync enterprise_values",
+      "at": "02:56",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Financial growth (quarterly)",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "financial_growth",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync financial_growth",
+      "at": "03:03",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Financial ratios (annual)",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "ratios",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync ratios",
+      "at": "04:13",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Financial scores",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "financial_scores",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync financial_scores",
+      "at": "03:10",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Grades consensus",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "grades_consensus",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync grades_consensus",
+      "at": "03:17",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Historical market cap",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "historical_market_cap",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync historical_market_cap",
+      "at": "03:24",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Income statement (quarterly)",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "income_statement",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync income_statement",
+      "at": "03:31",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Index & VIX levels",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "eod_index",
+    "symbolsMode": "universe",
+    "from": "2021-10-24",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync eod_index",
+      "at": "18:42",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Insider trades",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "insider_trades",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync insider_trades",
+      "at": "19:03",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Key executives",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "key_executives",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync key_executives",
+      "at": "03:38",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Key metrics (annual)",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "key_metrics",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync key_metrics",
+      "at": "03:45",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Most active",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "most_actives",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync most_actives",
+      "at": "19:17",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Owner earnings",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "owner_earnings",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync owner_earnings",
+      "at": "03:52",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Price target changes",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "price_target_changes",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync price_target_changes",
+      "at": "19:31",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Price target consensus",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "price_target_consensus",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync price_target_consensus",
+      "at": "03:59",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Price target summary",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "price_target_summary",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync price_target_summary",
+      "at": "04:06",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Revenue by geography",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "revenue_geo_segmentation",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync revenue_geo_segmentation",
+      "at": "04:20",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Revenue by product",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "revenue_product_segmentation",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync revenue_product_segmentation",
+      "at": "04:27",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Sector performance",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "sector_performance",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync sector_performance",
+      "at": "19:38",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Shares float",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "shares_float",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync shares_float",
+      "at": "04:34",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Splits calendar",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "splits_calendar",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync splits_calendar",
+      "at": "19:45",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Splits history",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "splits_history",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync splits_history",
+      "at": "04:41",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Stock news",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "news_stocks",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 1440,
+      "input": "L1 sync news_stocks",
+      "at": "19:24",
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Stock peers",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "stock_peers",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync stock_peers",
+      "at": "04:48",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "L1 \u2014 Universe (screener)",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "universe",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": true,
+      "everyMinutes": 10080,
+      "input": "L1 sync universe",
+      "at": "04:55",
+      "weekday": 6,
+      "timezone": "America/New_York"
+    }
+  },
+  {
+    "name": "Market cap (mega-cap)",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "market_cap",
+    "symbolsMode": "preset",
+    "preset": "mega_cap",
+    "schedule": {
+      "enabled": false,
+      "everyMinutes": 1440,
+      "input": "sync",
+      "at": "19:10"
+    }
+  },
+  {
+    "name": "Treasury rates",
+    "enabled": true,
+    "connectionId": {
+      "$ref": {
+        "type": "connections",
+        "name": "FMP"
+      }
+    },
+    "dataset": "treasury_rates",
+    "symbolsMode": "universe",
+    "schedule": {
+      "enabled": false,
+      "everyMinutes": 1440,
+      "input": "sync",
+      "at": "19:52"
+    }
+  }
+]

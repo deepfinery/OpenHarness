@@ -1,0 +1,199 @@
+- name: MCP tool assistant
+  description: Give an agent the tools it needs to look up information or take action.
+  enabled: true
+  startAt: start
+  nodes:
+  - id: start
+    name: Start
+    position:
+      x: 50
+      y: 140
+    type: start
+    next: assistant
+  - id: assistant
+    name: Tool assistant
+    position:
+      x: 340
+      y: 110
+    type: agent
+    config:
+      name: Tool assistant
+      description: ''
+      systemPrompt: Use your attached MCP tools to handle the request. Inspect tool results before answering.
+        Never claim an action succeeded unless its tool result confirms it. Ask for missing information
+        when needed.
+      providerId:
+        $ref:
+          type: providers
+          name: Deepseek-v4
+      connections: []
+      knowledgeBaseIds: []
+      skillIds: []
+      contextCompaction: true
+      maxTurns: 24
+      timeoutSeconds: 600
+      pattern: react
+      patternConfig:
+        reflections: 2
+        iterations: 6
+        doneMarker: DONE
+        maxPlanSteps: 8
+      effort: high
+      tokenBudget: 400000
+      enabled: true
+    prompt: '{{input}}'
+    next: finish
+  - id: finish
+    name: Finish
+    position:
+      x: 770
+      y: 140
+    type: finish
+    template: '{{last}}'
+  resources:
+  - id: tools
+    name: MCP tools
+    position:
+      x: 43
+      y: 414
+    type: mcp
+    connectionId:
+      $ref:
+        type: connections
+        name: Tavily
+    tools:
+    - tavily_search
+    - tavily_extract
+    - tavily_crawl
+    - tavily_map
+    - tavily_research
+  - id: mcp_f6746fb3
+    name: FMP
+    position:
+      x: 445.83984375
+      y: 404.8828125
+    type: mcp
+    connectionId:
+      $ref:
+        type: connections
+        name: FMP
+    tools:
+    - ESG
+    - Fundraisers
+    - analyst
+    - calendar
+    - chart
+    - commitmentOfTraders
+    - commodity
+    - company
+    - crypto
+    - directory
+    - discountedCashFlow
+    - earningsTranscript
+    - economics
+    - etfAndMutualFunds
+    - forex
+    - form13F
+    - indexes
+    - insiderTrades
+    - marketHours
+    - marketPerformance
+    - news
+    - quote
+    - search
+    - secFilings
+    - senate
+    - statements
+    - technicalIndicators
+    - tipranks
+  bindings:
+  - agentNodeId: assistant
+    resourceId: tools
+  - agentNodeId: assistant
+    resourceId: mcp_f6746fb3
+  maxSteps: 100
+  resumePolicy: safe
+  hasApiKey: false
+  hasToken: false
+  hasClientSecret: false
+  authorized: false
+- name: "Pipeline \u2014 Layer 2 (daily)"
+  description: Builds the point-in-time Layer 2 collections from raw data. Runs after the daily dataset
+    sync; each node calls pipeline.run() in the executor.
+  enabled: true
+  startAt: start
+  nodes:
+  - id: start
+    name: Start
+    type: start
+    next: securities
+  - id: securities
+    name: Securities
+    type: code
+    code: "import oh\nimport pipeline\ntry:\n    result = pipeline.run('build_securities')\n    oh.result(result)\n\
+      \    oh.log('build_securities', result)\n    if result.get(\"status\") != \"succeeded\" or result.get(\"\
+      dq\", {}).get(\"error\"):\n        raise RuntimeError(f\"build_securities failed or had error-severity\
+      \ DQ: {result}\")\nexcept Exception as e:\n    import traceback\n    oh.log(traceback.format_exc())\n\
+      \    oh.result({\"transform\": 'build_securities', \"status\": \"failed\", \"error\": str(e)})\n\
+      \    raise\n"
+    params: {}
+    timeoutSeconds: 3600
+    secrets: []
+    next: corporate_actions
+  - id: corporate_actions
+    name: Corporate actions
+    type: code
+    code: "import oh\nimport pipeline\ntry:\n    result = pipeline.run('build_corporate_actions')\n  \
+      \  oh.result(result)\n    oh.log('build_corporate_actions', result)\n    if result.get(\"status\"\
+      ) != \"succeeded\" or result.get(\"dq\", {}).get(\"error\"):\n        raise RuntimeError(f\"build_corporate_actions\
+      \ failed or had error-severity DQ: {result}\")\nexcept Exception as e:\n    import traceback\n \
+      \   oh.log(traceback.format_exc())\n    oh.result({\"transform\": 'build_corporate_actions', \"\
+      status\": \"failed\", \"error\": str(e)})\n    raise\n"
+    params: {}
+    timeoutSeconds: 3600
+    secrets: []
+    next: prices_daily
+  - id: prices_daily
+    name: Prices daily
+    type: code
+    code: "import oh\nimport pipeline\ntry:\n    result = pipeline.run('build_prices_daily')\n    oh.result(result)\n\
+      \    oh.log('build_prices_daily', result)\n    if result.get(\"status\") != \"succeeded\" or result.get(\"\
+      dq\", {}).get(\"error\"):\n        raise RuntimeError(f\"build_prices_daily failed or had error-severity\
+      \ DQ: {result}\")\nexcept Exception as e:\n    import traceback\n    oh.log(traceback.format_exc())\n\
+      \    oh.result({\"transform\": 'build_prices_daily', \"status\": \"failed\", \"error\": str(e)})\n\
+      \    raise\n"
+    params: {}
+    timeoutSeconds: 3600
+    secrets: []
+    next: macro_daily
+  - id: macro_daily
+    name: Macro daily
+    type: code
+    code: "import oh\nimport pipeline\ntry:\n    result = pipeline.run('build_macro_daily')\n    oh.result(result)\n\
+      \    oh.log('build_macro_daily', result)\n    if result.get(\"status\") != \"succeeded\" or result.get(\"\
+      dq\", {}).get(\"error\"):\n        raise RuntimeError(f\"build_macro_daily failed or had error-severity\
+      \ DQ: {result}\")\nexcept Exception as e:\n    import traceback\n    oh.log(traceback.format_exc())\n\
+      \    oh.result({\"transform\": 'build_macro_daily', \"status\": \"failed\", \"error\": str(e)})\n\
+      \    raise\n"
+    params: {}
+    timeoutSeconds: 3600
+    secrets: []
+    next: finish
+  - id: finish
+    name: Finish
+    type: finish
+    template: Layer 2 pipeline complete.
+  resources: []
+  bindings: []
+  maxSteps: 100
+  resumePolicy: safe
+  schedule:
+    enabled: true
+    everyMinutes: 1440
+    input: scheduled layer 2 build
+    at: '19:00'
+    timezone: America/New_York
+  hasApiKey: false
+  hasToken: false
+  hasClientSecret: false
+  authorized: false

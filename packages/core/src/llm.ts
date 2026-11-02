@@ -402,22 +402,28 @@ export async function chat(
     return anthropicResult(await jsonRequest(url, payload, headers, signal));
   }
   if (p.kind === 'gemini') {
-    const contents = messages
-      .filter((m) => m.role !== 'system')
-      .map((m) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts:
-          m.role === 'tool'
-            ? [{ functionResponse: { name: m.name, response: { result: m.content } } }]
-            : [
-                ...(m.content ? [{ text: m.content }] : []),
-                ...imageParts(m).map((i) => ({ inlineData: { mimeType: i.mimeType, data: i.data } })),
-                ...(m.toolCalls ?? []).map((t) => ({
-                  functionCall: { name: t.name, args: t.arguments },
-                  ...(t.signature ? { thoughtSignature: t.signature } : {}),
-                })),
-              ],
-      }));
+    const contents: { role: string; parts: object[] }[] = [];
+    let previous: ChatMessage | undefined;
+    for (const m of messages.filter((m) => m.role !== 'system')) {
+      if (m.role === 'tool') {
+        const part = { functionResponse: { name: m.name, response: { result: m.content } } };
+        // Gemini wants every response to a parallel function-call turn in one content.
+        if (previous?.role === 'tool') contents.at(-1)!.parts.push(part);
+        else contents.push({ role: 'user', parts: [part] });
+      } else
+        contents.push({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [
+            ...(m.content ? [{ text: m.content }] : []),
+            ...imageParts(m).map((i) => ({ inlineData: { mimeType: i.mimeType, data: i.data } })),
+            ...(m.toolCalls ?? []).map((t) => ({
+              functionCall: { name: t.name, args: t.arguments },
+              ...(t.signature ? { thoughtSignature: t.signature } : {}),
+            })),
+          ],
+        });
+      previous = m;
+    }
     const payload = {
       systemInstruction: { parts: [{ text: system }] },
       contents,

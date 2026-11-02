@@ -1,0 +1,6 @@
+# Extra deps for the pipeline package (pandas/numpy/pymongo already in the python-executor image).
+pymongo>=4.6
+pandas>=2.0
+numpy>=1.26
+pyyaml>=6.0
+pandas-market-calendars>=4.4

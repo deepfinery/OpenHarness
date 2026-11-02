@@ -1,0 +1,30 @@
+# Backtest, paper broker, and replay configuration (spec §7, docs/replay.md).
+# Planning stub: values are defaults to implement against, not yet wired to code.
+
+# Execution and costs (shared by run_backtest, the paper broker, and replay).
+execution_lag_days: 1
+commission_bps: 1
+slippage_bps: 5
+borrow_cost_bps_default: 50 # annualized; used for shorts until real borrow data exists
+delisting_return: -0.30 # applied when a position delists for bankruptcy
+capacity_aum: 100000000 # assumed AUM for capacity estimates
+
+# Holdout lock (spec §5.3). Rules-mode backtests may not touch it.
+holdout_months: 24
+
+# Position sizing and portfolio limits (paper broker, docs/replay.md §4b).
+sizing:
+  kelly_fraction: 0.25 # quarter-Kelly on shrunk edge
+  max_weight: 0.05
+  sector_cap: 0.30
+  gross_limit: 1.00
+  net_limit: 1.00
+
+# Historical simulation and agent replay (docs/replay.md).
+replay:
+  anonymize: true # default true for agent mode; ignored in rules mode
+  default_cadence: weekly # weekly first; daily optional
+  allow_daily: false
+  min_evidence_years: 5 # reports warn when the evidence window is shorter
+  evidence_window_floor: '2006-01-01' # minimum backtest start (minus holdout)
+  seed: 42 # deterministic replays: same config + seed => identical ledgers

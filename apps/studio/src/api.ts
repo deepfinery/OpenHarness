@@ -39,6 +39,7 @@ export const collections = [
   'connections',
   'knowledge',
   'skills',
+  'datasetSyncs',
 ] as const;
 export type Platform = 'linux' | 'windows' | 'chrome' | 'openshell';
 /** Resource types in the inventory, in the order the studio offers them. */
@@ -96,6 +97,7 @@ export const emptyData: Data = {
   connections: [],
   knowledge: [],
   skills: [],
+  datasetSyncs: [],
   defaults: { providerId: '' },
   machines: [],
   gateway: { configured: false, publicUrl: '', catalog: {} },
@@ -111,3 +113,33 @@ export const timestamp = (date?: string) =>
   date ? new Date(date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 export const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Something went wrong';
+
+// --- Dataset sync (FMP -> MongoDB) -------------------------------------------
+export type DatasetCatalogItem = {
+  id: string;
+  label: string;
+  category: string;
+  description: string;
+  scope: 'market' | 'feed' | 'per-symbol';
+  perSymbol: boolean;
+  supportsDateRange: boolean;
+  recommendedEveryMinutes: number;
+  defaultCollection: string;
+};
+export type DatasetSyncRun = {
+  id: string;
+  status: 'running' | 'succeeded' | 'failed';
+  trigger: 'schedule' | 'manual';
+  rows?: number;
+  error?: string;
+  startedAt: string;
+  finishedAt?: string;
+};
+export type TickerPreset = { id: string; label: string; description: string };
+export const fetchDatasetCatalog = () =>
+  api<{ datasets: DatasetCatalogItem[]; presets: TickerPreset[] }>('/datasets/catalog');
+export const saveDatasetSync = (body: Record<string, unknown>, id?: string) =>
+  send<Entity>(`/dataset-syncs${id ? `/${id}` : ''}`, body, id ? 'PUT' : 'POST');
+export const deleteDatasetSync = (id: string) => api(`/dataset-syncs/${id}`, { method: 'DELETE' });
+export const runDatasetSyncNow = (id: string) => send(`/dataset-syncs/${id}/run`);
+export const fetchDatasetRuns = (id: string) => api<DatasetSyncRun[]>(`/dataset-syncs/${id}/runs`);

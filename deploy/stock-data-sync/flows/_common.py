@@ -79,9 +79,11 @@ def fmp_get(path, **params):
             with urllib.request.urlopen(req, timeout=120) as r:
                 return json.loads(r.read().decode())
         except urllib.error.HTTPError as e:
-            if e.code == 402:
-                raise RuntimeError(f"FMP restricted (402) for {path}: not in current plan")
-            if e.code in (429, 500, 502, 503, 504):
+            # 402 on the "latest" feeds is a transient per-endpoint throttle that FMP
+            # mislabels "not in current plan"; retry a few times before giving up.
+            if e.code in (402, 429, 500, 502, 503, 504):
+                if e.code == 402 and attempt >= 3:
+                    raise RuntimeError(f"FMP restricted (402) for {path}: not in current plan (after retries)")
                 back = min(60.0, 2 ** attempt) + random.random()
                 log(f"  FMP {e.code} on {path} -> backoff {back:.1f}s")
                 time.sleep(back)

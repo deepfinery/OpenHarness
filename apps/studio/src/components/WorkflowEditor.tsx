@@ -1,5 +1,4 @@
 import { secretList } from './PythonSecrets';
-import { GuardrailPicker } from './GuardrailsPage';
 import { agentWithResources } from '../../../../packages/core/src/workflow.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -1248,26 +1247,6 @@ export function WorkflowEditor({
               <p className="toolbox-empty">No knowledge bases.</p>
             )}
           </div>
-          <div className="toolbox-group">
-            <h4>Guardrails</h4>
-            {data.guardrails
-              .filter((p) => matchesTool(p.name))
-              .map((p) => (
-                <ToolItem
-                  key={p.id}
-                  className="guardrail"
-                  payload={{ type: 'guardrail', policyId: p.id }}
-                  label={p.name}
-                  hint="Safety policy · top of agent"
-                  icon={ShieldCheck}
-                  onAdd={() => add({ type: 'guardrail', policyId: p.id })}
-                  onDragStart={beginDrag}
-                />
-              ))}
-            {!data.guardrails.length && (
-              <p className="toolbox-empty">Create a policy on the Guardrails page.</p>
-            )}
-          </div>
           <div className="toolbox-memory">
             <strong>Memory & learning</strong>
             <p>
@@ -1977,11 +1956,6 @@ export function WorkflowEditor({
               <h3>
                 <BookOpen size={16} /> Long-term memory
               </h3>
-              <GuardrailPicker
-                data={data}
-                value={form.guardrailIds}
-                onChange={(guardrailIds) => change((f) => ({ ...f, guardrailIds }))}
-              />
               <Field
                 label="Knowledge workspace"
                 hint="Automatically save each experiment’s task, result and outcome. Agents can also save reusable findings. Future runs recall the saved records, even before indexing finishes."

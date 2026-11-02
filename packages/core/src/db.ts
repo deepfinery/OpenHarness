@@ -77,5 +77,14 @@ export async function connectDatabase() {
     db.collection('harness_events').createIndex({ ownerId: 1, _id: 1 }),
     db.collection('webhook_deliveries').createIndex({ status: 1, nextAttemptAt: 1 }),
     db.collection('webhook_deliveries').createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 86400 }),
+    db.collection('dataset_syncs').createIndex({ ownerId: 1, createdAt: -1 }),
+    db.collection('dataset_syncs').createIndex({ enabled: 1, 'schedule.enabled': 1, nextRunAt: 1 }),
+    db
+      .collection('dataset_sync_runs')
+      .createIndex(
+        { scheduleKey: 1 },
+        { unique: true, partialFilterExpression: { scheduleKey: { $type: 'string' } } },
+      ),
+    db.collection('dataset_sync_runs').createIndex({ ownerId: 1, syncId: 1, startedAt: -1 }),
   ]);
 }

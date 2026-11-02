@@ -10,6 +10,7 @@ import { closeQueue } from '../../../packages/core/src/queue.js';
 import { dispatchPending, dispatchSchedules, recoverStaleJobs } from '../../../packages/core/src/runs.js';
 import { deliverWebhooks } from '../../../packages/core/src/harnessEvents.js';
 import { dispatchReflections } from '../../../packages/core/src/experience.js';
+import { dispatchDatasetSyncs } from '../../../packages/core/src/datasetSync.js';
 import { safeError } from '../../../packages/core/src/security.js';
 
 await connectDatabase();
@@ -30,6 +31,7 @@ async function tick() {
     await dispatchHumanRequests();
     await dispatchPending();
     await dispatchSchedules();
+    await dispatchDatasetSyncs();
     await deliverWebhooks();
     await dispatchReflections();
     await dispatchGuardrailEvaluations();

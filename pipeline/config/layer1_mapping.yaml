@@ -1,0 +1,143 @@
+# Layer 1 input contract -> actual dataset-feature collections.
+# Generated from live inspection of the workspace DB on 2026-10-23.
+# Layer 2 readers resolve inputs through this file (spec §2).
+meta:
+  # Synced data lands in the per-workspace Mongo DB workspaceDatabase(ownerId) = oh_ws_<hash>.
+  workspace_db_pattern: 'oh_ws_*'
+  # The dataset feature stamps each row with _syncedAt (ISO8601 UTC). Spec calls this `pulled_at`.
+  pulled_at_field: _syncedAt
+  # FMP responses are stored flattened at the top level (no `payload` wrapper).
+  payload_style: flattened
+  # payload_hash is NOT stored yet (see GAPS.md item G2).
+  payload_hash_field: null
+
+# status: ok = present & usable | partial = present but limited coverage | missing = not synced yet
+collections:
+  eod_prices:
+    status: partial # only a recent window is synced; 5y backfill required (GAPS G4)
+    collection: eod_prices
+    symbol_field: symbol
+    date_field: date
+    value_fields: [open, high, low, close, volume, vwap, change, changePercent]
+    notes: >
+      No adjusted close or dividend column. prices_daily must compute split/div adjustment
+      from corporate_actions (dividends_calendar + splits_calendar).
+  eod_index:
+    status: ok
+    collection: eod_index
+    symbol_field: symbol # ^GSPC ^VIX ^DJI ^IXIC
+    date_field: date
+    value_fields: [open, high, low, close, volume, vwap]
+  securities_seed:
+    status: ok
+    stock_list: { collection: stock_list, fields: [symbol, companyName] }
+    profiles:
+      collection: company_profiles
+      fields: [symbol, cik, cusip, isin, companyName, exchange, exchangeFullName, sector,
+        industry, country, currency, ipoDate, isActivelyTrading, isEtf, isFund, isAdr, marketCap, fullTimeEmployees]
+    delisted: { collection: delisted_companies, fields: [symbol, companyName, exchange, ipoDate, delistedDate] }
+    notes: 'CIK + CUSIP present in profiles -> identity matching by CIK then CUSIP then ticker+name works.'
+  shares_float:
+    status: ok
+    collection: shares_float
+    symbol_field: symbol
+    fields: [floatShares, freeFloat, outstandingShares, date]
+  fundamentals:
+    status: partial # ~3.2k rows (recent reporters only); universe+history sweep required (GAPS G5)
+    income: { collection: fin_income }
+    balance: { collection: fin_balance }
+    cashflow: { collection: fin_cashflow }
+    key_fields:
+      symbol: symbol
+      period_end: date
+      fiscal_year: fiscalYear
+      fiscal_period: period # Q1..Q4 / FY
+      currency: reportedCurrency
+      filing_date: filingDate
+      accepted_date: acceptedDate # -> known_at
+    notes: 'acceptedDate present -> correct PIT known_at. Join the three on symbol+date+period.'
+  key_metrics: { status: partial, collection: fin_key_metrics, key: [symbol, date, period] }
+  ratios: { status: partial, collection: fin_ratios, key: [symbol, date, period] }
+  financial_growth: { status: ok, collection: financial_growth, key: [symbol, date, period] }
+  earnings_calendar:
+    status: ok
+    collection: earnings_calendar
+    key: [symbol, date]
+    fields: [epsActual, epsEstimated, revenueActual, revenueEstimated, lastUpdated]
+    notes: 'No BMO/AMC timing field from FMP -> announce_timing=unknown; reaction_date = next trading day (GAPS G6).'
+  earnings_surprises: { status: ok, collection: earnings_surprises, key: [symbol, date] }
+  analyst_estimates:
+    status: ok
+    collection: analyst_estimates
+    key: [symbol, date, period]
+    fields: [epsAvg, epsLow, epsHigh, revenueAvg, revenueLow, revenueHigh, ebitdaAvg,
+      netIncomeAvg, numAnalystsEps, numAnalystsRevenue]
+    notes: 'snapshot (no FMP historical revisions) -> _syncedAt IS the snapshot_date. Never skip weekly sync.'
+  price_target_consensus:
+    status: ok
+    collection: price_target_consensus
+    key: [symbol]
+    fields: [targetConsensus, targetMedian, targetHigh, targetLow]
+  grades_consensus:
+    status: ok
+    collection: grades_consensus
+    key: [symbol]
+    fields: [strongBuy, buy, hold, sell, strongSell, consensus]
+  analyst_grades:
+    status: ok
+    collection: analyst_grades
+    key: [symbol, publishedDate, newsURL]
+    fields: [gradingCompany, action, newGrade, previousGrade, priceWhenPosted]
+    known_at_field: publishedDate
+  price_target_changes:
+    status: ok
+    collection: price_target_changes
+    key: [symbol, publishedDate, newsURL]
+    fields: [analystCompany, analystName, priceTarget, adjPriceTarget, priceWhenPosted]
+    known_at_field: publishedDate
+  insider_trades:
+    status: ok
+    collection: insider_trades
+    key: [symbol, filingDate, transactionDate, reportingCik, transactionType, price]
+    fields: [reportingName, typeOfOwner, acquisitionOrDisposition, securitiesTransacted,
+      securitiesOwned, directOrIndirect, formType, securityName, companyCik, url]
+    known_at_field: filingDate
+    notes: 'Map FMP transactionType/code -> buy(P)/sell(S)/other. acquisitionOrDisposition = A/D.'
+  congress_trades:
+    status: ok
+    senate: { collection: congress_senate }
+    house: { collection: congress_house }
+    fields: [symbol, firstName, lastName, office, district, owner, type, amount,
+      transactionDate, disclosureDate, assetType, link]
+    known_at_field: disclosureDate
+    notes: 'amount is a range string "$1,001 - $15,000" -> parse to low/high/mid.'
+  dividends:
+    status: ok
+    collection: dividends_calendar
+    key: [symbol, date]
+    fields: [dividend, adjDividend, recordDate, paymentDate, declarationDate, frequency, yield]
+  splits:
+    status: ok
+    collection: splits_calendar
+    key: [symbol, date]
+    fields: [numerator, denominator, splitType]
+  treasury_rates:
+    status: ok
+    collection: treasury_rates
+    key: [date]
+    fields: [month1, month2, month3, month6, year1, year2, year3, year5, year7, year10, year20, year30]
+  sector_performance:
+    status: ok
+    collection: sector_performance
+    key: [date, sector, exchange]
+    fields: [averageChange]
+
+# Inputs the pipeline needs that are NOT present yet (see GAPS.md for the plan):
+missing:
+  index_constituents: { status: blocked, reason: 'FMP sp500/nasdaq/dowjones-constituent return 402 on current plan' }
+  historical_constituents: { status: blocked, reason: 'same 402 as above' }
+  raw_13f_filings_index: { status: missing, source: 'SEC EDGAR daily index (13F-HR, 13F-HR/A)' }
+  raw_13f_info_table: { status: missing, source: 'SEC informationTable.xml per filing' }
+  raw_13f_datasets: { status: missing, source: 'SEC Form 13F quarterly data sets (TSV zip)' }
+  raw_cusip_map: { status: missing, source: 'OpenFIGI API' }
+  raw_trading_calendar: { status: generated, source: 'pandas_market_calendars NYSE (not from the dataset feature)' }
