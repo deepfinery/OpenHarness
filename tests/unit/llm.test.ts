@@ -350,3 +350,42 @@ for (const kind of ['anthropic', 'gemini', 'ollama'] as const) {
     });
   }
 }
+
+test('gemini answers parallel function calls in one content', async (t) => {
+  let body: any;
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    body = JSON.parse(String(init?.body));
+    return Response.json({ candidates: [{ content: { parts: [{ text: 'done' }] }, finishReason: 'STOP' }] });
+  });
+  await chat(
+    { ...provider, kind: 'gemini', streaming: false },
+    [
+      { role: 'user', content: 'Check both' },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          { id: 'a', name: 'quote', arguments: { symbol: 'AAPL' } },
+          { id: 'b', name: 'news', arguments: {} },
+        ],
+      },
+      { role: 'tool', toolCallId: 'a', name: 'quote', content: '190' },
+      { role: 'tool', toolCallId: 'b', name: 'news', content: 'none' },
+      { role: 'user', content: 'Thanks' },
+    ],
+    [],
+  );
+  assert.deepEqual(
+    body.contents.map((c: any) => [c.role, c.parts.length]),
+    [
+      ['user', 1],
+      ['model', 2],
+      ['user', 2],
+      ['user', 1],
+    ],
+  );
+  assert.deepEqual(
+    body.contents[2].parts.map((p: any) => p.functionResponse.name),
+    ['quote', 'news'],
+  );
+});
